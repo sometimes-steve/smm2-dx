@@ -1,0 +1,27 @@
+// A small blocking HTTP/1.1 client for the host's own requests (https://, TLS 1.2 with the certificate verified: see
+// http.c). Portable: BSD sockets on macOS / Linux / iOS, Winsock on Windows. Each request opens its own connection
+// ("Connection: close"), so it is safe from any thread; calls block for at most the timeout given.
+#pragma once
+#include <stddef.h>
+
+typedef struct {
+    int status;   // HTTP status (200, 404, ...); 0 when no answer came (connect / send / read failed or timed out)
+    char *body;   // the response body, NUL-terminated (malloc'd; NULL when empty or on failure)
+    size_t len;   // body length in bytes (without the terminator)
+    char error[96];  // why status is 0
+} HttpResponse;
+
+// method "GET" / "POST" / ...; url "http[s]://host[:port]/path?query"; headers: extra header lines, each ending in
+// "\r\n" (or NULL); body / body_len: the request body (NULL / 0 for none); timeout_ms bounds connect, each send and
+// each read (and the TLS handshake). On a TLS failure `error` is "TLS: certificate not trusted" or "TLS: handshake
+// failed". Returns the status (0 on failure). Free the response with http_free.
+int http_request(const char *method, const char *url, const char *headers, const void *body, size_t body_len,
+                 int timeout_ms, HttpResponse *out);
+void http_free(HttpResponse *r);
+
+// GET url into the file path (written as it arrives: large downloads), following redirects (up to 6). progress (may be
+// NULL) gets the bytes so far and the total (0: not known); *cancel (may be NULL) set non-zero stops it. Returns the
+// final status (200 on success; 0 with out->error on failure); the file is removed unless it succeeded. out has no body.
+int http_download(const char *url, const char *path, const char *headers, int timeout_ms,
+                  void (*progress)(unsigned long long done, unsigned long long total, void *user), void *user,
+                  volatile int *cancel, HttpResponse *out);

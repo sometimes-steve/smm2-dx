@@ -1,0 +1,25 @@
+# Normalize line endings
+* text=auto
+
+# Scripts and makefiles must stay LF even on Windows (bash and make choke on CRLF)
+*.sh  text eol=lf
+*.py  text eol=lf
+*.mk  text eol=lf
+Makefile text eol=lf
+*.def text eol=lf
+*.exports text eol=lf
+
+# Exclude vendored third-party code from GitHub language stats
+recomp/third_party/** linguist-vendored
+
+# Treat tooling scripts as documentation so they don't count toward stats
+recomp/tools/**   linguist-documentation
+recomp/scripts/** linguist-documentation
+
+# Hide scripting/build languages from the language bar
+*.sh     linguist-detectable=false
+*.py     linguist-detectable=false
+Makefile linguist-detectable=false
+
+# Headers are C, not Objective-C
+*.h linguist-language=C
