@@ -1091,12 +1091,12 @@ THIRD_PARTY = """Third-party components in this package and their licenses (the 
 - libiconv (libiconv-2.dll, used by SDL3): LGPL-2.1, an unmodified MSYS2 build (source: https://www.gnu.org/software/libiconv/)
 """
 
-PLAYER_README = """Super Mario Maker 2 (recompiled) {version} (windows-x86_64)
+PLAYER_README = """Super Mario Maker 2 (recompiled) {version} (windows-x64)
 
 Super Mario Maker 2 v3.0.3, recompiled for your computer from YOUR OWN game. Nothing of the game is in this
 download: you bring your dump, and the setup screen prepares everything from it, on your machine.
 
-1. Start smm2-dx-windows-x86_64.exe (keep it together with its smm2-dx_data folder).
+1. Start smm2-dx-windows-x64.exe (keep it together with its smm2-dx_data folder).
 2. The setup screen asks for:
    - your Super Mario Maker 2 with the 3.0.3 update: either the decrypted game (the folders with its extracted
      ExeFS and RomFS, e.g. an emulator's "Extract RomFS / ExeFS" of the updated game), or the game's NSP / XCI
@@ -1222,7 +1222,7 @@ def main(argv):
     jobs = a.jobs if a.jobs >= 1 else (os.cpu_count() or 1)
     version = a.version or get_version()
     banner(version, jobs, a.no_banner)
-    stub_exe = OUT / f'{cfg["GameId"]}-dx-windows-x86_64.exe'      # the exe players start
+    stub_exe = OUT / f'{cfg["GameId"]}-dx-windows-x64.exe'      # the exe players start
     runtime_exe = DX / f'{cfg["GameId"]}-dx-runtime.exe'           # the runtime, beside its DLLs
     imp_lib = DX / f'{cfg["GameId"]}-dx.dll.a'                     # what the game code library links against
     game_lib = DX / f'{cfg["GameId"]}game.dll'

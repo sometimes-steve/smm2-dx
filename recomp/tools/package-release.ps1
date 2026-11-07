@@ -1,18 +1,18 @@
 # Packages dist\ into a release zip that contains none of the player's own data.
 # Usage: powershell -ExecutionPolicy Bypass -File recomp\tools\package-release.ps1 -Version v0.1.0
-# Output: dist\release\smm2-dx-<Version>-windows-x86_64.zip
+# Output: dist\release\smm2-dx-windows-x64.zip
 param([Parameter(Mandatory)][string]$Version)
 $ErrorActionPreference = 'Stop'
 
 $root  = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $dist  = Join-Path $root 'dist'
-$exe   = Join-Path $dist 'smm2-dx-windows-x86_64.exe'
+$exe   = Join-Path $dist 'smm2-dx-windows-x64.exe'
 $data  = Join-Path $dist 'smm2-dx_data'
 if (-not (Test-Path $exe) -or -not (Test-Path $data)) { throw "Build first: $exe or $data is missing." }
 
 $stage = Join-Path ([IO.Path]::GetTempPath()) "smm2-dx-release-$([guid]::NewGuid().ToString('N'))"
 $out   = Join-Path $dist 'release'
-$zip   = Join-Path $out "smm2-dx-$Version-windows-x86_64.zip"
+$zip   = Join-Path $out "smm2-dx-windows-x64.zip"
 try {
     New-Item -ItemType Directory -Force "$stage\smm2-dx_data", $out | Out-Null
     Copy-Item $exe $stage

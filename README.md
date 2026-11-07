@@ -10,7 +10,7 @@
 </table>
 
 <p align="center">
-  <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD%20FOR%20WINDOWS-2ea44f?style=for-the-badge" alt="Download for Windows" height="56"></a>
+  <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest/download/smm2-dx-windows-x64.zip"><img src="https://img.shields.io/badge/DOWNLOAD%20FOR%20WINDOWS-2ea44f?style=for-the-badge" alt="Download for Windows" height="56"></a>
   <br>
   <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest"><img src="https://img.shields.io/github/v/release/sometimes-steve/smm2-dx?style=for-the-badge&label=latest%20version&color=blue" alt="Latest version"></a>
   <br>
@@ -56,7 +56,7 @@ This project does **not** include the game, and never will. You bring your own c
 
 1. Download the latest zip from the [Releases](../../releases) page.
 2. Unzip it and keep the `.exe` and the `smm2-dx_data` folder together.
-3. Run `smm2-dx-windows-x86_64.exe` and follow the setup screen. It only asks for the five things above.
+3. Run `smm2-dx-windows-x64.exe` and follow the setup screen. It only asks for the five things above.
 
 That's it. If something goes wrong, the log is in the `smm2-dx_log` folder next to the exe.
 
@@ -111,7 +111,7 @@ compiled into a native Windows program on your machine, from your own dump. The 
 stands in for the console's operating system, services and GPU (NVN on top of Vulkan). `recomp/games/smm2/` holds
 the game-specific glue, patches and mods. Nothing of the game is stored in this repo.
 
-- `recomp/`: the player app (runtime, setup screen, recompiler). This is what produces `smm2-dx-windows-x86_64.exe`.
+- `recomp/`: the player app (runtime, setup screen, recompiler). This is what produces `smm2-dx-windows-x64.exe`.
 - More detail: [recomp/docs/](recomp/docs), [recomp/docs/mods.md](recomp/docs/mods.md).
 
 ## Building on Windows
@@ -124,7 +124,7 @@ cmd /c "git clone https://github.com/sometimes-steve/smm2-dx smm2-dx && cd smm2-
 ```
 
 That one line works from cmd or PowerShell and clones into `smm2-dx\` in the current folder. To rebuild later, run `build-helper.cmd` inside it, with options such as `--clean` after it. It fetches what it needs, builds, and
-leaves the finished app in `dist\`: `smm2-dx-windows-x86_64.exe` and one folder, `smm2-dx_data\`, which holds the runtime, its
+leaves the finished app in `dist\`: `smm2-dx-windows-x64.exe` and one folder, `smm2-dx_data\`, which holds the runtime, its
 DLLs, Python, zig, hactool, your saves and settings, and `work\` (the build's intermediates and fetched tools). Keep the
 exe and its folder together. No game dump is needed to build.
 
