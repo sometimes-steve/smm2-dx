@@ -4,6 +4,12 @@
 
 <p align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/settings-menu.png?raw=true" alt="The in-game settings menu" width="560"><br><sub>The in-game settings menu</sub></p>
 
+<p align="center">
+  <img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/startup-screen.png?raw=true" alt="The startup screen" width="380">
+  <img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/course-world.png?raw=true" alt="Course World, online through OpenCourse World" width="380">
+  <br><sub>The startup screen, and Course World running through OpenCourse World</sub>
+</p>
+
 ## Why this exists
 
 Most projects like this try to do everything: every game, every platform, every online service. That makes them big,
