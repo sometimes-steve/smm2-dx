@@ -1,19 +1,79 @@
 # smm2-dx
 
-Super Mario Maker 2 recompiled for Windows, built from your own dump. Nothing from the game is in this repo.
+**Super Mario Maker 2, running as a normal Windows program.** No emulator, no console. Just double-click and play.
+
+## Why this exists
+
+Most projects like this try to do everything: every game, every platform, every online service. That makes them big,
+hard to follow and hard to fix. This one goes the other way. It is a single-purpose project that does one thing:
+
+- **One game:** Super Mario Maker 2, version 3.0.3.
+- **One platform:** Windows.
+- **One online service:** [OpenCourse World](https://opencourse.world).
+
+Doing less means less code, and code that does what it says and is easier to keep working. Anything that doesn't serve
+those three things stays out.
+
+This project is built for fans and for preservation. It is not a way to get the game for free (see "What you need").
+
+## What you get
+
+- The game as a native Windows app, run through your graphics card (Vulkan).
+- Mouse and keyboard in the Course Maker: right click to erase, middle click to drag the course, number keys for the
+  palette, Ctrl+Z to undo.
+- Sharper graphics and smoother scaling than the console.
+- Online play, Course World and uploads through your own OpenCourse World account.
+- Mods: drop-in changes made by the community.
+- A setup screen that does the awkward parts (unpacking your game and keys) for you.
+
+## What you need
+
+This project does **not** include the game, and never will. You bring your own copy, dumped from a console you own:
+
+1. **Super Mario Maker 2, version 3.0.3** (as folders, or as an NSP / XCI file).
+2. **Your `prod.keys`** file, from your console.
+3. **The console firmware.** The game needs one font from it (the button icons) or it crashes.
+4. **An [OpenCourse World](https://opencourse.world) account**, for everything online. Export your `ocw-config.json`
+   and pick it on the setup screen. It stays where it is, and your token is never shown or written to a log.
+5. **A PC with Windows 10 or 11 and a Vulkan-capable graphics driver** (anything from the last several years).
+
+## How to get started
+
+1. Download the latest zip from the [Releases](../../releases) page.
+2. Unzip it and keep the `.exe` and the `smm2-dx_data` folder together.
+3. Run `smm2-dx-windows-x86_64.exe` and follow the setup screen. It only asks for the five things above.
+
+That's it. If something goes wrong, the log is in the `smm2-dx_log` folder next to the exe.
+
+## Support the project
+
+I make this in my spare time and give it away for free. If it brought a smile to your face, or you just want to see
+more of it, you can buy me a coffee:
+
+**[buymeacoffee.com/sometimes_steve](https://buymeacoffee.com/sometimes_steve)**
+
+Thank you, it really does keep this going.
+
+## Credits
+
+Built on top of [LAS Recomp](https://github.com/peiikai/LASRecomp), with ideas from
+[SuperMarioWonderRecomp](https://github.com/BelmanteGu/SuperMarioWonderRecomp). See
+[recomp/UPSTREAM.md](recomp/UPSTREAM.md) for the details and licenses. Super Mario Maker 2 belongs to Nintendo; this
+project is not affiliated with or endorsed by them.
+
+---
+
+# For developers
+
+## How it works
+
+The game's machine code is translated ahead of time into C (the *recompiler*, in `recomp/tools/`), and that C is
+compiled into a native Windows program on your machine, from your own dump. The *runtime* (`recomp/runtime/`)
+stands in for the console's operating system, services and GPU (NVN on top of Vulkan). `recomp/games/smm2/` holds
+the game-specific glue, patches and mods. Nothing of the game is stored in this repo.
 
 - `recomp/`: the player app (runtime, setup screen, recompiler). This is what produces `smm2-dx-windows-x86_64.exe`.
-
-## Download
-
-Prebuilt zips (the exe plus its `smm2-dx_data` folder) are on the [Releases](../../releases) page. Unzip, run `smm2-dx-windows-x86_64.exe`, and follow the setup screen.
-You need all of these, from your own console:
-
-- Super Mario Maker 2 with the v3.0.3 update (the decrypted, extracted ExeFS and RomFS folders)
-- `prod.keys`
-- The console firmware (the system NCAs). The setup screen copies the console's button-glyph font from it, and the game crashes without that one font. (The text font is [BIZ UDPGothic](https://github.com/googlefonts/morisawa-biz-ud-gothic), SIL Open Font License 1.1, which comes with the program.)
-- An [OpenCourse World](https://opencourse.world) account. Export your `ocw-config.json` (your server domain and personal token) and choose it on the setup screen. It is read where it is and never copied, and the token is never shown or written to a log. Course World and every other online feature of the game go through OpenCourse World, and it is the only online service this app talks to.
-- A Vulkan-capable graphics driver
+- More detail: [recomp/docs/](recomp/docs), [recomp/docs/mods.md](recomp/docs/mods.md).
 
 ## Building on Windows
 
