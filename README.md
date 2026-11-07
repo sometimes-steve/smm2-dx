@@ -26,6 +26,8 @@ This project is built for fans and for preservation. It is not a way to get the 
 - Mods: drop-in changes made by the community.
 - A setup screen that does the awkward parts (unpacking your game and keys) for you.
 
+![The settings menu](https://raw.githubusercontent.com/sometimes-steve/smm2-dx/screenshots/settings-menu.png)
+
 ## What you need
 
 This project does **not** include the game, and never will. You bring your own copy, dumped from a console you own:
