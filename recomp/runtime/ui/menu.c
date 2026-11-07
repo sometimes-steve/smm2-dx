@@ -344,16 +344,17 @@ typedef struct {
 } ThemePalette;
 
 static const ThemePalette kThemes[N_THEMES] = {
-    {   // Default: forest green with gold (the original look)
-        /*window*/ {0.06f, 0.09f, 0.08f, 0.94f}, /*child*/ {0.09f, 0.13f, 0.11f, 0.85f}, /*popup*/ {0.07f, 0.10f, 0.09f, 0.98f},
-        /*text*/ {0.96f, 0.94f, 0.88f, 1}, /*text_dim*/ {0.62f, 0.64f, 0.58f, 1},
-        /*frame*/ {0.13f, 0.19f, 0.16f, 1}, /*button*/ {0.14f, 0.22f, 0.18f, 1}, /*tab*/ {0.12f, 0.18f, 0.15f, 1},
-        /*hover*/ {0.15f, 0.36f, 0.25f, 1}, /*active*/ {0.19f, 0.45f, 0.31f, 1}, /*pressed*/ {0.21f, 0.50f, 0.34f, 1},
-        /*tab_selected*/ {0.21f, 0.44f, 0.31f, 1}, /*tab_alt*/ {0.19f, 0.27f, 0.22f, 1},
-        /*line*/ {0.30f, 0.36f, 0.30f, 1}, /*muted*/ {0.55f, 0.58f, 0.52f, 1},
-        /*accent*/ {0.93f, 0.76f, 0.33f, 1}, /*accent_dim*/ {0.62f, 0.49f, 0.20f, 1},
-        /*window_round*/ 14, /*child_round*/ 10, /*frame_round*/ 8, /*tab_round*/ 8,
-        /*window_border*/ 0, /*frame_border*/ 0, /*row_round*/ 9, /*row_border*/ 1, /*row_notch*/ 0, /*border_text*/ false,
+    {   // Default: the start screen's look (launcher.c style_init) - the Build Helper console's black, blue (58,150,221)
+        // buttons and borders, magenta rules, grey text, square and flat
+        /*window*/ {0.047f, 0.047f, 0.047f, 1}, /*child*/ {0.047f, 0.047f, 0.047f, 1}, /*popup*/ {0.047f, 0.047f, 0.047f, 1},
+        /*text*/ {0.800f, 0.800f, 0.800f, 1}, /*text_dim*/ {0.463f, 0.463f, 0.463f, 1},
+        /*frame*/ {0.125f, 0.125f, 0.125f, 1}, /*button*/ {0.227f, 0.588f, 0.867f, 1}, /*tab*/ {0.125f, 0.125f, 0.125f, 1},
+        /*hover*/ {0.420f, 0.691f, 0.900f, 1}, /*active*/ {0.340f, 0.640f, 0.885f, 1}, /*pressed*/ {0.170f, 0.441f, 0.650f, 1},
+        /*tab_selected*/ {0.227f, 0.588f, 0.867f, 1}, /*tab_alt*/ {0.200f, 0.200f, 0.200f, 1},
+        /*line*/ {0.533f, 0.090f, 0.596f, 1}, /*muted*/ {0.463f, 0.463f, 0.463f, 1},
+        /*accent*/ {0.227f, 0.588f, 0.867f, 1}, /*accent_dim*/ {0.170f, 0.441f, 0.650f, 1},
+        /*window_round*/ 0, /*child_round*/ 0, /*frame_round*/ 0, /*tab_round*/ 0,
+        /*window_border*/ 2, /*frame_border*/ 0, /*row_round*/ 0, /*row_border*/ 1, /*row_notch*/ 0, /*border_text*/ false,
     },
     {   // NES: NES.css's dark container - #212529 panels with thick white 4 px borders, square edges, stepped corners on
         // the rows, and its palette: primary #209cee, success #4aa52e, warning #f7d51d / #e59400, disabled #adafbc
