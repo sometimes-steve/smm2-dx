@@ -18,8 +18,10 @@ try {
     Copy-Item $exe $stage
 
     # Left out: the player's extracted game, firmware-derived data, Nintendo fonts, saves, logs, caches, their paths.
+    # /XD takes full paths: bare names would also drop every nested folder of that name (zig\lib\std\Build\Cache!).
+    $skip = 'extracted', 'cache', 'work', 'logs', 'sysdata', 'save' | ForEach-Object { Join-Path $data $_ }
     robocopy $data "$stage\smm2-dx_data" /E /NFL /NDL /NJH /NJS /NP `
-        /XD extracted cache work logs sysdata save `
+        /XD $skip `
         /XF launcher.ini *.bfttf *.log | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
 
