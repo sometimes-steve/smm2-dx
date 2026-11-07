@@ -2,6 +2,8 @@
 
 **Super Mario Maker 2, running as a normal Windows program.** No emulator, no console. Just double-click and play.
 
+<p align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/settings-menu.png?raw=true" alt="The in-game settings menu" width="560"><br><sub>The in-game settings menu</sub></p>
+
 ## Why this exists
 
 Most projects like this try to do everything: every game, every platform, every online service. That makes them big,
@@ -25,8 +27,6 @@ This project is built for fans and for preservation. It is not a way to get the 
 - Online play, Course World and uploads through your own OpenCourse World account.
 - Mods: drop-in changes made by the community.
 - A setup screen that does the awkward parts (unpacking your game and keys) for you.
-
-![The settings menu](https://github.com/sometimes-steve/smm2-dx/blob/screenshots/settings-menu.png?raw=true)
 
 ## What you need
 
