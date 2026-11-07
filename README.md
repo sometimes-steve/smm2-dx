@@ -9,6 +9,14 @@
   </tr>
 </table>
 
+<p align="center">
+  <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87%20DOWNLOAD%20FOR%20WINDOWS-2ea44f?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="56"></a>
+  <br>
+  <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest"><img src="https://img.shields.io/github/v/release/sometimes-steve/smm2-dx?style=for-the-badge&label=latest%20version&color=blue" alt="Latest version"></a>
+  <br>
+  <sub>Windows 10/11 &middot; you bring your own game (see "What you need")</sub>
+</p>
+
 ## Why this exists
 
 Most projects like this try to do everything: every game, every platform, every online service. That makes them big,
