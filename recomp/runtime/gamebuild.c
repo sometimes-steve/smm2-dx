@@ -13,23 +13,9 @@
 #include "paths.h"
 #include "platform.h"
 #include "rt.h"
-#if defined(__x86_64__) || defined(__i386__)
 #include "platform/x86_cpu.h"
-#endif
 
-// The flags the game code is compiled and linked with
-#ifndef GAMELIB_CFLAGS
-#define GAMELIB_CFLAGS "-O1 -fno-strict-aliasing -fvisibility=hidden"
-#endif
-#ifndef GAMELIB_SHARED
-#define GAMELIB_SHARED "-shared"
-#endif
-#ifndef GAMEBUILD_HLE
-#define GAMEBUILD_HLE "runtime/hle/hle_symbols.txt"  // (the game's HLE list in a source checkout)
-#endif
-#ifndef GAMEBUILD_PATCHES
-#define GAMEBUILD_PATCHES "games/patches.py"  // (the game's generator patches in a source checkout)
-#endif
+// (GAMELIB_CFLAGS, GAMEBUILD_HLE and GAMEBUILD_PATCHES come from tools/build.py)
 
 #define SEP "\\"
 
@@ -95,11 +81,6 @@ static void add(Args *a, const char *s) {
     a->v[a->n++] = strdup(s);
     a->v[a->n] = NULL;
 }
-static void add_split(Args *a, const char *flags) {  // (space-separated, no quoting)
-    char buf[1024];
-    snprintf(buf, sizeof buf, "%s", flags);
-    for (char *t = strtok(buf, " "); t; t = strtok(NULL, " ")) add(a, t);
-}
 static void args_free(Args *a) {
     for (int i = 0; i < a->n; i++) free(a->v[i]);
     free(a->v);
@@ -108,29 +89,19 @@ static void args_free(Args *a) {
 
 // ------------------------------------------------------------------ the tools
 typedef struct {
-    char gen[1100], gen_script[1100];  // generator: the package's python + tools/gen.py (or LARECOMP_GEN)
-    char cc[1100];                     // compiler: zig (as `zig cc`), or LARECOMP_CC / clang
-    bool zig;
+    char gen[1100], gen_script[1100];  // generator: the package's python + tools/gen.py
+    char cc[1100];                     // compiler: zig (as `zig cc`)
     char inc[1100], entry[1100], hle[1100];  // headers the game code includes, tools/gamelib_entry.c, HLE names
     char patches[1100];                       // the game's per-instruction patches for main ("" = none)
     char implib[1100];  // the .exe's import library (the runtime functions the game code calls)
-    char zig_rt[1100];  // the release's zig: its runtime built ahead of time (zig/rt), "" = none
 } Tools;
-
-static bool file_exists(const char *p) {
-    struct stat st;
-    return stat(p, &st) == 0;
-}
 
 static void env_put(const char *k, const char *v) {
     _putenv_s(k, v ? v : "");
 }
 
 bool gamebuild_python(char *out, size_t n) {
-    const char *bundled = "python" SEP "python.exe";
-    // the package's own Python, else a venv: tools/venv next to the program or in the source
-    if (!rt_resource(bundled, NULL, out, n) && !rt_resource("tools" SEP PLAT_VENV_PYTHON, "tools/" PLAT_VENV_PYTHON, out, n))
-        return false;
+    if (!rt_resource("python" SEP "python.exe", NULL, out, n)) return false;  // (the package's own Python)
     env_put("PYTHONHOME", NULL);  // (the player's own Python settings don't apply to ours)
     env_put("PYTHONPATH", NULL);
     env_put("PYTHONNOUSERSITE", "1");
@@ -142,15 +113,10 @@ bool gamebuild_python(char *out, size_t n) {
 
 static bool find_tools(Tools *t) {
     memset(t, 0, sizeof *t);
-    const char *e = getenv("LARECOMP_GEN");
-    if (e && *e) snprintf(t->gen, sizeof t->gen, "%s", e);
-    else if (!(gamebuild_python(t->gen, sizeof t->gen) &&
-               rt_resource("tools" SEP "gen.py", "tools/gen.py", t->gen_script, sizeof t->gen_script)))
+    if (!(gamebuild_python(t->gen, sizeof t->gen) &&
+          rt_resource("tools" SEP "gen.py", "tools/gen.py", t->gen_script, sizeof t->gen_script)))
         return false;
-    e = getenv("LARECOMP_CC");
-    if (e && *e) snprintf(t->cc, sizeof t->cc, "%s", e);
-    else if (rt_resource("zig" SEP "zig" PLAT_EXE_SUFFIX, NULL, t->cc, sizeof t->cc)) t->zig = true;
-    else return false;
+    if (!rt_resource("zig" SEP "zig" PLAT_EXE_SUFFIX, NULL, t->cc, sizeof t->cc)) return false;
     if (!rt_resource("gamelib-src" SEP "cpu.h", "runtime/cpu.h", t->inc, sizeof t->inc) ||
         !rt_resource("gamelib-src" SEP "gamelib_entry.c", "tools/gamelib_entry.c", t->entry, sizeof t->entry) ||
         !rt_resource("gamelib-src" SEP "hle_symbols.txt", GAMEBUILD_HLE, t->hle, sizeof t->hle))
@@ -159,15 +125,7 @@ static bool find_tools(Tools *t) {
     char *s = strrchr(t->inc, '/'), *b = strrchr(t->inc, '\\');
     if (b > s) s = b;
     if (s) *s = 0;
-    if (!rt_resource(GAME_ID "-dx.dll.a", "build/" GAME_ID "-dx.dll.a", t->implib, sizeof t->implib)) return false;
-    t->zig_rt[0] = 0;
-    if (t->zig && rt_resource("zig" SEP "rt" SEP "link.rsp", NULL, t->zig_rt, sizeof t->zig_rt)) {
-        char *s = strrchr(t->zig_rt, '/'), *b = strrchr(t->zig_rt, '\\');
-        if (b > s) s = b;
-        if (s) *s = 0;
-        else t->zig_rt[0] = 0;
-    }
-    return true;
+    return rt_resource(GAME_ID "-dx.dll.a", "build/" GAME_ID "-dx.dll.a", t->implib, sizeof t->implib);
 }
 
 bool gamebuild_available(void) {
@@ -177,7 +135,7 @@ bool gamebuild_available(void) {
 
 static void compiler(Args *a, const Tools *t) {
     add(a, t->cc);
-    if (t->zig) add(a, "cc");
+    add(a, "cc");
 }
 
 // ------------------------------------------------------------------ generator progress (its log)
@@ -259,20 +217,11 @@ static void add_unit(Units *us, const char *src, const char *work, const char *s
 // nothing; pre-Haswell machines (back to Nehalem, x86-64-v2) still run: without hardware FMA the lifted code's
 // __builtin_elementwise_fma lowers to correctly-rounded fmaf/fma libcalls (slower), with it to vfmadd.
 // LARECOMP_GENARCH=<flag> forces an arch flag verbatim (e.g. -march=x86-64-v2), for testing.
-static bool gamebuild_cpu_has_v3(void) {
-#if defined(__x86_64__)
-    return x86_cpu_has_v3();
-#else
-    return false;
-#endif
-}
+static bool gamebuild_cpu_has_v3(void) { return x86_cpu_has_v3(); }
 
-static void add_arch(Args *a, const Tools *t, bool want_v3) {
-    if (t->zig) add(a, want_v3 ? "-mcpu=x86_64_v3" : "-mcpu=x86_64_v2");
-    else add(a, want_v3 ? "-march=x86-64-v3" : "-march=x86-64-v2");
-}
+static void add_arch(Args *a, bool want_v3) { add(a, want_v3 ? "-mcpu=x86_64_v3" : "-mcpu=x86_64_v2"); }
 
-static void add_cflags(Args *a, const Tools *t) {
+static void add_cflags(Args *a) {
     bool has_v3 = gamebuild_cpu_has_v3();
     const char *forced = getenv("LARECOMP_GENARCH");
     char buf[1024];
@@ -282,7 +231,7 @@ static void add_cflags(Args *a, const Tools *t) {
                        (strstr(f, "x86-64-v") || strstr(f, "x86_64_v"));
         if (is_arch) {
             if (forced && *forced) {
-                if (t->zig && !strncmp(forced, "-march=", 7)) {
+                if (!strncmp(forced, "-march=", 7)) {
                     char cpu[128];
                     snprintf(cpu, sizeof cpu, "-mcpu=%s", forced + 7);
                     for (char *c = cpu + 6; *c; c++) if (*c == '-') *c = '_';
@@ -291,11 +240,11 @@ static void add_cflags(Args *a, const Tools *t) {
                     add(a, forced);
                 }
             } else {
-                add_arch(a, t, has_v3);
+                add_arch(a, has_v3);
             }
             continue;
         }
-        if (t->zig && !strncmp(f, "-march=", 7)) {
+        if (!strncmp(f, "-march=", 7)) {
             char cpu[128];
             snprintf(cpu, sizeof cpu, "-mcpu=%s", f + 7);
             for (char *c = cpu + 6; *c; c++) if (*c == '-') *c = '_';
@@ -309,7 +258,7 @@ static void add_cflags(Args *a, const Tools *t) {
 static PlatProc start_compile(const Tools *t, const Unit *u) {
     Args a = {0};
     compiler(&a, t);
-    add_cflags(&a, t);
+    add_cflags(&a);
     char inc[1200];
     snprintf(inc, sizeof inc, "-I%s", t->inc);
     add(&a, inc);
@@ -373,19 +322,18 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
     rt_remove_game_file(game_dir, GAMELIB_NAME);
     rt_remove_game_file(game_dir, GAMELIB_NAME ".id");
     mkdir(work, 0755);
-    if (t.zig) {  // its caches in the work folder too (deleted below), not ~/.cache: hundreds of MB, used once
+    {  // zig's caches in the work folder too (deleted below), not the user's profile: hundreds of MB, used once
         char zc[1200];
         snprintf(zc, sizeof zc, "%s" SEP "zig-cache", work);
         _putenv_s("ZIG_GLOBAL_CACHE_DIR", zc);
         _putenv_s("ZIG_LOCAL_CACHE_DIR", zc);
     }
-    LOG("[gamebuild] generator %s%s%s, compiler %s%s, %d jobs\n", t.gen, t.gen_script[0] ? " " : "", t.gen_script,
-        t.cc, t.zig ? " cc" : "", o->jobs);
-#if defined(__x86_64__)
-    { const char *forced_arch = getenv("LARECOMP_GENARCH");
-      LOG("[gamebuild] x86-64 game code: %s (%s)\n", gamebuild_cpu_has_v3() ? "x86-64-v3 (AVX2/FMA/BMI2)" : "x86-64-v2 baseline",
-          forced_arch && *forced_arch ? "LARECOMP_GENARCH override" : "detected"); }
-#endif
+    LOG("[gamebuild] generator %s %s, compiler %s cc, %d jobs\n", t.gen, t.gen_script, t.cc, o->jobs);
+    {
+        const char *forced_arch = getenv("LARECOMP_GENARCH");
+        LOG("[gamebuild] x86-64 game code: %s (%s)\n", gamebuild_cpu_has_v3() ? "x86-64-v3 (AVX2/FMA/BMI2)" : "x86-64-v2 baseline",
+            forced_arch && *forced_arch ? "LARECOMP_GENARCH override" : "detected");
+    }
 
     // 1. the generator, both modules at once; their finished files are compiled while it goes on
     Gen gens[2] = {{.name = "main"}, {.name = "sdk"}};
@@ -400,7 +348,7 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         snprintf(nso, sizeof nso, "%s" SEP "exefs" SEP "%s", game_dir, g->name);
         Args a = {0};
         add(&a, t.gen);
-        if (t.gen_script[0]) add(&a, t.gen_script);
+        add(&a, t.gen_script);
         add(&a, g->name);
         add(&a, nso);
         add(&a, base[i]);
@@ -528,27 +476,12 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         Args a = {0};
         char at[1200];
         snprintf(at, sizeof at, "@%s", rsp);
-        if (t.zig_rt[0]) {  // the linker itself, with the runtime built ahead of time (its flags and libraries: link.rsp)
-            char opt[1200];
-            add(&a, t.cc);
-            add(&a, "lld-link");
-            snprintf(opt, sizeof opt, "@%s" SEP "link.rsp", t.zig_rt);
-            add(&a, opt);
-            snprintf(opt, sizeof opt, "-LIBPATH:%s", t.zig_rt);
-            add(&a, opt);
-            snprintf(opt, sizeof opt, "-OUT:%s", tmp);
-            add(&a, opt);
-            add(&a, at);
-            add(&a, t.implib);
-        } else
-        {
-            compiler(&a, &t);
-            add_split(&a, GAMELIB_SHARED);
-            add(&a, "-o");
-            add(&a, tmp);
-            add(&a, at);
-            add(&a, t.implib);
-        }
+        compiler(&a, &t);
+        add(&a, "-shared");
+        add(&a, "-o");
+        add(&a, tmp);
+        add(&a, at);
+        add(&a, t.implib);
         PlatProc p = f ? spawn(a.v, log) : 0;
         args_free(&a);
         int r = p ? wait_for(p) : 255;
@@ -567,11 +500,8 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         FILE *f = NULL;
         // (x86-64: the level it was built for follows the id, gamelib.c id_matches: a v3 build moved to a CPU without
         // AVX2 is built again instead of failing on its first AVX2 instruction)
-        const char *level = "";
-#if defined(__x86_64__)
         const char *forced = getenv("LARECOMP_GENARCH");
-        level = forced && *forced ? " forced" : gamebuild_cpu_has_v3() ? " x86-64-v3" : " x86-64-v2";
-#endif
+        const char *level = forced && *forced ? " forced" : gamebuild_cpu_has_v3() ? " x86-64-v3" : " x86-64-v2";
         if (rename(tmp, lib) != 0 || !(f = fopen(idp, "wb")) || fprintf(f, "%s%s\n", GAMELIB_ID, level) < 0) {
             snprintf(why, why_size, "the game code couldn't be saved");
             ok = false;

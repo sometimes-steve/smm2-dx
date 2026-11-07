@@ -795,7 +795,7 @@ def get_units(cfg, version, lib_id, lib_srcs):
     lib_flags = [f'-DGAMELIB_ID="{lib_id}"']
     build_flags = lib_flags + [
         '-DGAMELIB_CFLAGS="' + ' '.join(f for f in GEN_FLAGS.split(' ') if f != '-Iruntime') + '"',
-        '-DGAMELIB_SHARED="-shared"', f'-DGAMEBUILD_HLE="{cfg["Hle"]}"', f'-DGAMEBUILD_PATCHES="{cfg["Patches"]}"']
+        f'-DGAMEBUILD_HLE="{cfg["Hle"]}"', f'-DGAMEBUILD_PATCHES="{cfg["Patches"]}"']
 
     # headers every runtime object depends on (and the game's own, for its glue)
     hdrs = []

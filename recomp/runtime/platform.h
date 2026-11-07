@@ -51,7 +51,6 @@ int plat_proc_wait(PlatProc p, bool block);  // exit code, or -1 while still run
 void plat_proc_kill(PlatProc p);             // end it and what it started (then it's gone: no wait)
 bool plat_remove_tree(const char *dir);      // rm -rf
 #define PLAT_EXE_SUFFIX ".exe"
-#define PLAT_VENV_PYTHON "venv/Scripts/python.exe"  // relative to the venv's parent
 
 // ---- diagnostics
 // Name of the host function containing pc (guest functions are f_<addr>), NULL if unknown.
