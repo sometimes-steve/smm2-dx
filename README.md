@@ -47,12 +47,7 @@ That's it. If something goes wrong, the log is in the `smm2-dx_log` folder next 
 
 ## Support the project
 
-I make this in my spare time and give it away for free. If it brought a smile to your face, or you just want to see
-more of it, you can buy me a coffee:
-
-**[buymeacoffee.com/sometimes_steve](https://buymeacoffee.com/sometimes_steve)**
-
-Thank you, it really does keep this going.
+If you enjoy my work, consider buying me a coffee! https://buymeacoffee.com/sometimes_steve
 
 ## Credits
 
