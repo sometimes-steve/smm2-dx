@@ -24,6 +24,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -898,10 +899,14 @@ def build_smaa_include():
 def build_vk_shim():
     """Windows: the Vulkan loader's entry points, forwarded to vulkan-1.dll loaded at run time."""
     dst = WORK / 'vk_shim.c'
-    srcs = [RECOMP / 'tools' / 'gen_vk_shim.py', RECOMP / 'runtime' / 'platform' / 'vulkan-1.exports']
+    # a forwarder for every Vulkan function the runtime's sources and the ImGui Vulkan backend mention
+    scan = [RECOMP / 'runtime', RECOMP / 'third_party' / 'imgui' / 'backends' / 'imgui_impl_vulkan.cpp']
+    srcs = [RECOMP / 'tools' / 'gen_vk_shim.py']
+    for s in scan:
+        srcs += [x for x in s.rglob('*') if x.suffix in ('.c', '.cpp', '.h')] if s.is_dir() else [s]
     if dst.exists() and mtime(dst) > newest(srcs):
         return
-    run(py(), [srcs[0], DEPS_DIR / 'include', srcs[1], dst], quiet=True)
+    run(py(), [srcs[0], DEPS_DIR / 'include', dst] + scan, quiet=True)
 
 
 def build_resource():
@@ -970,8 +975,10 @@ def link_runtime(units, runtime_exe, imp_lib):
     run(zig(), ['c++', f'@{fwd(rsp)}'], RECOMP, quiet=True)
     move_retry(tmp, runtime_exe)
     # the import library the game code DLL links against: the exe's name and what it exports
-    exports = (RECOMP / 'runtime' / 'platform' / 'windows_exports.def').read_text(encoding='utf-8')
-    write_text(WORK / 'exports.def', f'LIBRARY {runtime_exe.name}\n' + exports)
+    # (the names the exe exports are the -export: directives of runtime/platform/windows_exports.c)
+    exports = (RECOMP / 'runtime' / 'platform' / 'windows_exports.c').read_text(encoding='utf-8')
+    names = [f'{n} DATA' if kind else n for n, kind in re.findall(r'-export:(\w+)(,data)?', exports)]
+    write_text(WORK / 'exports.def', f'LIBRARY {runtime_exe.name}\nEXPORTS\n' + '\n'.join(names) + '\n')
     run(zig(), ['dlltool', '-m', 'i386:x86-64', '-d', WORK / 'exports.def', '-l', imp_lib], quiet=True)
 
 

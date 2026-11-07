@@ -5,7 +5,10 @@ driver, a basic display driver, some VMs and Remote Desktop): Windows stops it b
 found". With these forwarders in its place the exe starts, finds the loader missing (runtime/platform/windows.c) and
 says what to install. Each forwarder looks its function up in vulkan-1.dll on its first call.
 
-    python3 tools/gen_vk_shim.py <vulkan include dir> <the loader's export list, one name per line> <out.c>
+    python tools/gen_vk_shim.py <vulkan include dir> <out.c> <source file or folder>...
+
+A forwarder is made for every Vulkan function (vkXxx) the given sources mention, if the Vulkan headers declare it: the
+build passes the runtime's own sources and the ImGui Vulkan backend, so nothing is listed by hand.
 """
 
 from __future__ import annotations
@@ -23,8 +26,14 @@ def arg_name(arg: str) -> str:
 
 
 def main() -> int:
-    inc, exports, out = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
-    want = {l.strip() for l in exports.read_text().splitlines() if l.strip()}
+    inc, out = Path(sys.argv[1]), Path(sys.argv[2])
+    files = []
+    for arg in sys.argv[3:]:
+        p = Path(arg)
+        files += [f for ext in ("*.c", "*.cpp", "*.h") for f in p.rglob(ext)] if p.is_dir() else [p]
+    want = set()
+    for f in files:
+        want |= set(re.findall(r"(?<![A-Za-z0-9_])vk[A-Z]\w*", f.read_text(encoding="utf-8", errors="replace")))
     protos = {}
     for h in ("vulkan_core.h", "vulkan_win32.h"):
         for ret, name, args in PROTO.findall((inc / "vulkan" / h).read_text()):
