@@ -7,25 +7,26 @@
 //   if (opt_toggle("One-hit KO", &g_settings.diff_ohko, false, "Any hit defeats Link.")) settings_save();
 //   opt_end();
 #pragma once
+#include <stdbool.h>
 
 void opt_begin(const char *id, float scale);
 void opt_section(const char *title);
 bool opt_toggle(const char *label, bool *v, bool def, const char *desc);
 // wrap: past the last value back to the first (and the other way); false: stops at the ends
-bool opt_choice(const char *label, int *v, const char *const *names, int n, int def, const char *desc, bool wrap = true);
+bool opt_choice(const char *label, int *v, const char *const *names, int n, int def, const char *desc, bool wrap);
 // steps of `step` between lo and hi; fmt formats the value (e.g. "%gx")
 bool opt_slider(const char *label, float *v, float lo, float hi, float step, float def, const char *fmt, const char *desc);
 // whole numbers lo..hi in steps of `step` (holding left / right speeds up); fmt formats it (e.g. "%d rupees"), lo_name
 // (if given) is shown for lo instead (e.g. "Any")
 bool opt_int(const char *label, int *v, int lo, int hi, int step, int def, const char *fmt, const char *desc,
-             const char *lo_name = NULL);
+             const char *lo_name);
 // an action: true when activated
 bool opt_button(const char *label, const char *desc);
 // one of a set of choices (a ring on the right, filled when selected); true when chosen
 bool opt_radio(const char *label, bool selected, const char *desc);
 // an action / item row with a value on the right (upper: the label in capitals, as option rows; false: as written,
 // e.g. a seed name); true when activated
-bool opt_action(const char *label, const char *value, const char *desc, bool upper = true);
+bool opt_action(const char *label, const char *value, const char *desc, bool upper);
 // text: the value shown on the right (hint when empty); A / click turns the row into a text field (the on-screen
 // keyboard with a controller). True when Enter / the keyboard confirmed a change.
 #include <stddef.h>

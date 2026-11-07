@@ -5,6 +5,8 @@
 //               (details, which file, install);
 //   Online      the online backend, the game's own settings for it (game_rows) and the app's own rows.
 // Rows are the menu's option rows, so a controller, touch and the mouse all work it; B (Esc) leaves a mod's page.
+#include "ui/ig.h"
+
 #include <SDL3/SDL.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -14,18 +16,15 @@
 
 #include "../game.h"  // GAME_TITLE
 #include "../game_rows.h"
-#include "imgui.h"
 #include "option_rows.h"
 
-extern "C" {
 #include "../gamebanana.h"
 #include "../usermods.h"
-}
 
-extern "C" bool launcher_settings_rows(void);
-extern "C" bool online_rows_available(void);
-extern "C" void online_rows(void);
-extern "C" void rt_request_reboot(int kind);
+bool launcher_settings_rows(void);
+bool online_rows_available(void);
+void online_rows(void);
+void rt_request_reboot(int kind);
 void menu_close(void);  // (menu.mm)
 
 // A game's settings that are not switches (runtime/game_rows.h): the Online page draws them under the backend
@@ -41,7 +40,7 @@ static bool g_row_shown[MAX_SHOWN_ROWS];  // a secret row was activated: its fie
 // comparison below notices that the moment the row stops being edited, whichever way it was left.
 static char g_row_was[MAX_SHOWN_ROWS][256];
 static bool g_row_known[MAX_SHOWN_ROWS];
-extern "C" void game_mod_rows_hide(void) {  // (menu.mm, when the menu closes)
+void game_mod_rows_hide(void) {  // (menu.mm, when the menu closes)
     for (int i = 0; i < MAX_SHOWN_ROWS; i++) g_row_shown[i] = false;
 }
 
@@ -55,7 +54,7 @@ static void game_rows(void) {
         // a secret: "set" / "not set" until the row is activated, then the field itself (never masked in place -
         // that would mean swapping the buffer under a live ImGui field)
         if (r[i].secret && i < MAX_SHOWN_ROWS && !g_row_shown[i]) {
-            if (opt_action(r[i].label, r[i].text[0] ? "set" : "not set", r[i].desc)) g_row_shown[i] = true;
+            if (opt_action(r[i].label, r[i].text[0] ? "set" : "not set", r[i].desc, true)) g_row_shown[i] = true;
             continue;
         }
         // max_len is in characters, as the game's own keyboard limit is: cut at the boundary after the last one,
@@ -87,7 +86,7 @@ static void game_rows(void) {
 static bool g_back_used;  // B / Esc went to a page here this frame (the menu doesn't close on it)
 bool mods_page_used_back(void) { bool u = g_back_used; g_back_used = false; return u; }
 static bool back_pressed(void) {
-    return ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+    return igIsKeyPressed_Bool(ImGuiKey_GamepadFaceRight, false) || igIsKeyPressed_Bool(ImGuiKey_Escape, false);
 }
 
 static int g_page;             // 0 installed, 1 GameBanana
@@ -112,10 +111,10 @@ static bool contains(const char *hay, const char *needle) {
 }
 
 // ---------------------------------------------------------------- installed
-static void credit(const UserMod &m, char *out, size_t cap) {
-    snprintf(out, cap, "%s%s%s%s%s%s%s%s%s", m.author[0] ? "By " : "", m.author, m.author[0] ? ". " : "",
-             m.category[0] ? m.category : "", m.category[0] ? ". " : "", m.license[0] ? "Licence: " : "", m.license,
-             m.license[0] ? ". " : "", m.url);
+static void credit(const UserMod *m, char *out, size_t cap) {
+    snprintf(out, cap, "%s%s%s%s%s%s%s%s%s", m->author[0] ? "By " : "", m->author, m->author[0] ? ". " : "",
+             m->category[0] ? m->category : "", m->category[0] ? ". " : "", m->license[0] ? "Licence: " : "", m->license,
+             m->license[0] ? ". " : "", m->url);
 }
 static void apply_row(void) {
     if (!usermods_changed_since_start()) return;
@@ -130,7 +129,7 @@ static void page_mod(int i) {
     if (!usermods_get(i, &m)) { g_mod = -1; return; }
     if (back_pressed()) { g_mod = -1, g_ask_remove = false, g_back_used = true; return; }
     char cred[700], desc[1800], conf[400], sz[32];
-    credit(m, cred, sizeof cred);
+    credit(&m, cred, sizeof cred);
     snprintf(desc, sizeof desc, "%s%s%s", m.description, m.description[0] ? "\n\n" : "", cred);
     opt_section(m.name);
     if (opt_action("< Back to installed mods", "", "Back to the list (B).", false)) { g_mod = -1, g_ask_remove = false; return; }
@@ -207,13 +206,13 @@ static void page_installed(void) {
             if (!header) opt_section(cats[k]), header = true;
             char label[260], cred[700], desc[2000], conf[300];
             snprintf(label, sizeof label, "%s%s%s", m.name, m.author[0] ? "  -  " : "", m.author);
-            credit(m, cred, sizeof cred);
+            credit(&m, cred, sizeof cred);
             int nconf = m.enabled ? 0 : usermods_conflicts(i, conf, sizeof conf);
             snprintf(desc, sizeof desc, "%s%s%s%s%s%s", m.description, m.description[0] ? "\n\n" : "", cred,
                      nconf ? "\n\nShares files with: " : "", nconf ? conf : "", m.has_exefs ? "\n\nIts code patches aren't loaded." : "");
-            ImGui::PushID(i);
+            igPushID_Int(i);
             if (opt_action(label, m.enabled ? "On" : nconf ? "Off (conflict)" : "Off", desc, false)) g_mod = i, g_note[0] = 0;
-            ImGui::PopID();
+            igPopID();
         }
     }
 }
@@ -236,7 +235,7 @@ static void install_status_row(void) {
     char val[32] = "";
     if (st == GB_BUSY && p >= 0) snprintf(val, sizeof val, "%.0f%%", p * 100);
     opt_action(msg, val, st == GB_BUSY ? "Downloading and unpacking happen on this device. Select to cancel." : "", false);
-    if (st == GB_BUSY && ImGui::IsItemClicked()) gb_install_cancel();
+    if (st == GB_BUSY && igIsItemClicked(0)) gb_install_cancel();
 }
 static void page_gb_mod(int id) {
     if (back_pressed()) { g_gb = 0, g_back_used = true; return; }
@@ -266,8 +265,8 @@ static void page_gb_mod(int id) {
             names[i] = labels[i];
         }
         if (g_gb_file >= m.nfiles) g_gb_file = 0;
-        opt_choice("File", &g_gb_file, names, m.nfiles, 0, m.file_desc[g_gb_file][0] ? m.file_desc[g_gb_file] :
-                   "The mod has several downloads (versions or parts): which one to install.");
+        opt_choice("File", &g_gb_file, (const char *const *)names, m.nfiles, 0, m.file_desc[g_gb_file][0] ? m.file_desc[g_gb_file] :
+                   "The mod has several downloads (versions or parts): which one to install.", true);
     } else if (m.nfiles == 1) {
         char sz[32];
         fmt_size(m.file_size[0], sz, sizeof sz);
@@ -315,43 +314,49 @@ static void page_gb(void) {
             snprintf(desc, sizeof desc, "%s. %d downloads.%s%s\n\n%s", list[i].category, list[i].downloads,
                      list[i].license[0] ? " Licence: " : "", list[i].license, list[i].text);
         else snprintf(desc, sizeof desc, "%s. By %s.", list[i].category, list[i].author);
-        ImGui::PushID(list[i].id);
+        igPushID_Int(list[i].id);
         if (opt_action(label, inst ? (on ? "On" : "Installed") : "", desc, false)) g_gb = list[i].id, g_gb_file = 0;
-        if (ImGui::IsItemFocused() && !list[i].details) gb_details(list[i].id);  // (the pane fills in)
-        ImGui::PopID();
+        if (igIsItemFocused() && !list[i].details) gb_details(list[i].id);  // (the pane fills in)
+        igPopID();
     }
 }
 
 // ---------------------------------------------------------------- the tab
+// (the background installs of RECOMP_GB_INSTALL)
+static void *gb_test_installs(void *arg) {
+    (void)arg;
+    const char *g = getenv("RECOMP_GB_INSTALL");
+    bool on = !getenv("RECOMP_GB_INSTALL_OFF");
+    for (const char *p = g; p && *p;) {
+        int id = 0, fi = 0;
+        if (sscanf(p, "%d:%d", &id, &fi) >= 1 && id > 0) {
+            gb_install(id, fi, on);
+            SDL_Delay(200);
+            char msg[200];
+            while (gb_install_state(NULL, NULL, msg, sizeof msg) == GB_BUSY) SDL_Delay(200);
+            fprintf(stderr, "[gamebanana] test install %d:%d: %s\n", id, fi, msg);
+        }
+        p = strchr(p, ',');
+        if (p) p++;
+    }
+    fprintf(stderr, "[gamebanana] test installs done\n");
+    return NULL;
+}
 // (tests) LARECOMP_MODS_PAGE=<0..3>: the page shown first; RECOMP_GB_INSTALL=<mod id>[:<file>]: install that mod from
 // GameBanana in the background at the first look at the tab (game_boot also calls mods_page_test)
 void mods_page_test(void) {
     static bool done;
     if (done) return;
     done = true;
-    if (const char *p = getenv("LARECOMP_MODS_PAGE")) g_page = atoi(p);
-    if (const char *p = getenv("LARECOMP_MODS_MOD")) g_mod = atoi(p);   // (an installed mod's page open)
-    if (const char *p = getenv("LARECOMP_MODS_GB")) g_gb = atoi(p);     // (a GameBanana mod's page open)
+    const char *p = getenv("LARECOMP_MODS_PAGE");
+    if (p) g_page = atoi(p);
+    p = getenv("LARECOMP_MODS_MOD");
+    if (p) g_mod = atoi(p);   // (an installed mod's page open)
+    p = getenv("LARECOMP_MODS_GB");
+    if (p) g_gb = atoi(p);     // (a GameBanana mod's page open)
     if (getenv("RECOMP_GB_INSTALL")) {  // (a list: id[:file],...; one after another; RECOMP_GB_INSTALL_OFF=1: installed off)
         static pthread_t t;
-        pthread_create(&t, NULL, [](void *) -> void * {
-            const char *g = getenv("RECOMP_GB_INSTALL");
-            bool on = !getenv("RECOMP_GB_INSTALL_OFF");
-            for (const char *p = g; p && *p;) {
-                int id = 0, fi = 0;
-                if (sscanf(p, "%d:%d", &id, &fi) >= 1 && id > 0) {
-                    gb_install(id, fi, on);
-                    SDL_Delay(200);
-                    char msg[200];
-                    while (gb_install_state(NULL, NULL, msg, sizeof msg) == GB_BUSY) SDL_Delay(200);
-                    fprintf(stderr, "[gamebanana] test install %d:%d: %s\n", id, fi, msg);
-                }
-                p = strchr(p, ',');
-                if (p) p++;
-            }
-            fprintf(stderr, "[gamebanana] test installs done\n");
-            return NULL;
-        }, NULL);
+        pthread_create(&t, NULL, gb_test_installs, NULL);
         pthread_detach(t);
     }
 }
@@ -365,8 +370,8 @@ void mods_page(void) {
     opt_section("Mods");
     int page = g_page;
     if (np > 1)
-        opt_choice("Show", &page, pages, np, 0, "Installed: mods you added (they load at the next start). GameBanana: "
-                   "get more.");
+        opt_choice("Show", &page, (const char *const *)pages, np, 0, "Installed: mods you added (they load at the next start). GameBanana: "
+                   "get more.", true);
     if (page != g_page) g_mod = -1, g_gb = 0;  // (another page: no mod's page open)
     g_page = page;
     switch (g_page) {

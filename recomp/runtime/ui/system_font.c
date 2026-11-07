@@ -11,14 +11,13 @@ static bool exists(const char *p) {
 }
 
 bool ui_system_font(char *path, size_t n, int *face) {
-    static const char *const known[] = {"/System/Library/Fonts/Avenir Next.ttc", "/System/Library/Fonts/Helvetica.ttc",
-                                        "C:/Windows/Fonts/segoeui.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                                        "/usr/share/fonts/TTF/DejaVuSans.ttf", "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
-                                        "/system/fonts/Roboto-Regular.ttf"};
-    for (const char *p : known)
+    static const char *const known[] = {"C:/Windows/Fonts/segoeui.ttf"};
+    for (size_t i = 0; i < sizeof known / sizeof *known; i++) {
+        const char *p = known[i];
         if (exists(p)) {
             *face = 0;
             return (size_t)snprintf(path, n, "%s", p) < n;
         }
+    }
     return false;
 }

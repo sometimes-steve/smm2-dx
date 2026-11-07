@@ -786,9 +786,10 @@ def get_units(cfg, version, lib_id, lib_srcs):
                 '-DNOMINMAX']
     gdefs = game_defs(cfg)
     rt_flags = ['-O2', '-g', '-fno-strict-aliasing', '-Wall', '-Wno-unused-function', '-Iruntime', '-Iruntime/nvn',
-                deps_inc] + os_flags + gdefs
-    cxx_flags = ['-O2', '-g', '-std=c++17', '-Ithird_party/imgui', '-Ithird_party/imgui/backends', '-Iruntime',
-                 '-Iruntime/nvn', deps_inc] + gdefs
+                '-Ithird_party', '-DCIMGUI_NO_EXPORT', deps_inc] + os_flags + gdefs
+    # (the ImGui backends are built with plain C names, so C code can call them: runtime/ui/ig.h)
+    cxx_flags = ['-O2', '-g', '-std=c++17', '-Ithird_party', '-Ithird_party/imgui', '-Ithird_party/imgui/backends',
+                 '-Iruntime', '-Iruntime/nvn', '-DCIMGUI_NO_EXPORT', '-DIMGUI_IMPL_API=extern "C"', deps_inc] + gdefs
     mbed_flags = ['-Ithird_party/mbedtls/include', '-Iruntime/net', '-DMBEDTLS_USER_CONFIG_FILE="mbedtls_user_config.h"']
     lib_flags = [f'-DGAMELIB_ID="{lib_id}"']
     build_flags = lib_flags + [
@@ -858,6 +859,10 @@ def get_units(cfg, version, lib_id, lib_srcs):
         units.append(Unit(s, B / 'rt' / 'nvn' / 'vulkan' / (Path(s).stem + '.o'), 'cxx', cxx_flags + os_flags, rt_dep,
                           'backend'))
     # the setup screen and the overlay menu
+    for s in files_in('runtime/ui', '*.c'):
+        n = Path(s).stem
+        extra = [f'-DRECOMP_VERSION="{version}"'] if n in ('launcher', 'menu') else []
+        units.append(Unit(s, B / 'rt' / 'ui' / f'{n}.o', 'cc', rt_flags + extra, rt_dep, 'ui'))
     for s in files_in('runtime/ui', '*.cpp'):
         n = Path(s).stem
         extra = ['-x', 'c++'] + os_flags
@@ -865,7 +870,9 @@ def get_units(cfg, version, lib_id, lib_srcs):
             extra.append(f'-DRECOMP_VERSION="{version}"')
         units.append(Unit(s, B / 'rt' / 'ui' / f'{n}.o', 'cxx', cxx_flags + extra, rt_dep, 'ui'))
     # Dear ImGui
-    for n in ('imgui', 'imgui_draw', 'imgui_tables', 'imgui_widgets'):
+    units.append(Unit(RECOMP / 'third_party' / 'cimgui' / 'cimgui.cpp', B / 'imgui' / 'cimgui.o', 'cxx', cxx_flags, 0.0,
+                      'imgui'))
+    for n in ('imgui', 'imgui_demo', 'imgui_draw', 'imgui_tables', 'imgui_widgets'):
         units.append(Unit(RECOMP / 'third_party' / 'imgui' / f'{n}.cpp', B / 'imgui' / f'{n}.o', 'cxx', cxx_flags, 0.0,
                           'imgui'))
     for n in ('imgui_impl_sdl3', 'imgui_impl_vulkan'):

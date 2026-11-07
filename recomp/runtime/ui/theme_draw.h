@@ -4,7 +4,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "imgui.h"
+#include "ui/ig.h"
 
 #define NES_RGB(r, g, b) IM_COL32(r, g, b, 255)
 // NES.css's palette
@@ -20,44 +20,46 @@
 #define NES_RED     NES_RGB(231, 110, 85)    // #e76e55  (error)
 #define NES_RED_D   NES_RGB(140, 32, 34)     // #8c2022
 
-// A bitmap: rows of '.' (clear) or a digit 1-9 picking pal[digit - 1]; each pixel px screen pixels square.
-template <size_t N>
-static inline void nes_icon(ImDrawList *dl, ImVec2 p, const char *const (&rows)[N], float px, const ImU32 *pal,
-                            bool flip = false) {
-    for (size_t y = 0; y < N; y++) {
+// A bitmap: n rows of '.' (clear) or a digit 1-9 picking pal[digit - 1]; each pixel px screen pixels square.
+static inline void nes_icon(ImDrawList *dl, ImVec2 p, const char *const *rows, size_t n, float px, const ImU32 *pal,
+                            bool flip) {
+    for (size_t y = 0; y < n; y++) {
         int w = (int)strlen(rows[y]);
         for (int x = 0; x < w; x++) {
             if (rows[y][x] == '.') continue;
             int xx = flip ? w - 1 - x : x;
-            dl->AddRectFilled(ImVec2(floorf(p.x + xx * px), floorf(p.y + (float)y * px)),
-                              ImVec2(floorf(p.x + (xx + 1) * px), floorf(p.y + (float)(y + 1) * px)), pal[rows[y][x] - '1']);
+            ImDrawList_AddRectFilled(dl, IM_VEC2(floorf(p.x + xx * px), floorf(p.y + (float)y * px)),
+                                     IM_VEC2(floorf(p.x + (xx + 1) * px), floorf(p.y + (float)(y + 1) * px)),
+                                     pal[rows[y][x] - '1'], 0, 0);
         }
     }
 }
-template <size_t N> static inline int nes_icon_w(const char *const (&rows)[N]) { return (int)strlen(rows[0]); }
-template <size_t N> static inline int nes_icon_h(const char *const (&)[N]) { return (int)N; }
+// (for an array of row strings)
+#define NES_ROWS(a) ((size_t)(sizeof(a) / sizeof((a)[0])))
+#define nes_icon_w(rows) ((int)strlen((rows)[0]))
+#define nes_icon_h(rows) ((int)NES_ROWS(rows))
 
 static const char *const kNesArrow[] = {"1....", "11...", "111..", "1111.", "11111", "1111.", "111..", "11...", "1...."};  // points right
 static const char *const kNesCross[] = {"11...11", "111.111", ".11111.", "..111..", ".11111.", "111.111", "11...11"};
 
 // The NES.css container: a box whose corners are one step (u px) - the corner pixel missing, the border a stair - with an
 // optional inset shadow along the bottom and right (the buttons' look). Fill / shadow alpha 0 skips them.
-static inline void nes_box(ImDrawList *dl, ImVec2 a, ImVec2 b, ImU32 fill, ImU32 border, float u, ImU32 shadow = 0) {
+static inline void nes_box(ImDrawList *dl, ImVec2 a, ImVec2 b, ImU32 fill, ImU32 border, float u, ImU32 shadow) {
     u = floorf(u < 1 ? 1 : u);
-    a = ImVec2(floorf(a.x), floorf(a.y));
-    b = ImVec2(floorf(b.x), floorf(b.y));
-    dl->AddRectFilled(ImVec2(a.x + 2 * u, a.y + u), ImVec2(b.x - 2 * u, b.y - u), fill);
-    dl->AddRectFilled(ImVec2(a.x + u, a.y + 2 * u), ImVec2(b.x - u, b.y - 2 * u), fill);
+    a = IM_VEC2(floorf(a.x), floorf(a.y));
+    b = IM_VEC2(floorf(b.x), floorf(b.y));
+    ImDrawList_AddRectFilled(dl, IM_VEC2(a.x + 2 * u, a.y + u), IM_VEC2(b.x - 2 * u, b.y - u), fill, 0, 0);
+    ImDrawList_AddRectFilled(dl, IM_VEC2(a.x + u, a.y + 2 * u), IM_VEC2(b.x - u, b.y - 2 * u), fill, 0, 0);
     if (shadow & IM_COL32_A_MASK) {
-        dl->AddRectFilled(ImVec2(a.x + u, b.y - 2 * u), ImVec2(b.x - u, b.y - u), shadow);
-        dl->AddRectFilled(ImVec2(b.x - 2 * u, a.y + 2 * u), ImVec2(b.x - u, b.y - u), shadow);
+        ImDrawList_AddRectFilled(dl, IM_VEC2(a.x + u, b.y - 2 * u), IM_VEC2(b.x - u, b.y - u), shadow, 0, 0);
+        ImDrawList_AddRectFilled(dl, IM_VEC2(b.x - 2 * u, a.y + 2 * u), IM_VEC2(b.x - u, b.y - u), shadow, 0, 0);
     }
-    dl->AddRectFilled(ImVec2(a.x + u, a.y), ImVec2(b.x - u, a.y + u), border);          // top
-    dl->AddRectFilled(ImVec2(a.x + u, b.y - u), ImVec2(b.x - u, b.y), border);          // bottom
-    dl->AddRectFilled(ImVec2(a.x, a.y + u), ImVec2(a.x + u, b.y - u), border);          // left
-    dl->AddRectFilled(ImVec2(b.x - u, a.y + u), ImVec2(b.x, b.y - u), border);          // right
-    dl->AddRectFilled(ImVec2(a.x + u, a.y + u), ImVec2(a.x + 2 * u, a.y + 2 * u), border);  // the step in each corner
-    dl->AddRectFilled(ImVec2(b.x - 2 * u, a.y + u), ImVec2(b.x - u, a.y + 2 * u), border);
-    dl->AddRectFilled(ImVec2(a.x + u, b.y - 2 * u), ImVec2(a.x + 2 * u, b.y - u), border);
-    dl->AddRectFilled(ImVec2(b.x - 2 * u, b.y - 2 * u), ImVec2(b.x - u, b.y - u), border);
+    ImDrawList_AddRectFilled(dl, IM_VEC2(a.x + u, a.y), IM_VEC2(b.x - u, a.y + u), border, 0, 0);          // top
+    ImDrawList_AddRectFilled(dl, IM_VEC2(a.x + u, b.y - u), IM_VEC2(b.x - u, b.y), border, 0, 0);          // bottom
+    ImDrawList_AddRectFilled(dl, IM_VEC2(a.x, a.y + u), IM_VEC2(a.x + u, b.y - u), border, 0, 0);          // left
+    ImDrawList_AddRectFilled(dl, IM_VEC2(b.x - u, a.y + u), IM_VEC2(b.x, b.y - u), border, 0, 0);          // right
+    ImDrawList_AddRectFilled(dl, IM_VEC2(a.x + u, a.y + u), IM_VEC2(a.x + 2 * u, a.y + 2 * u), border, 0, 0);  // the step in each corner
+    ImDrawList_AddRectFilled(dl, IM_VEC2(b.x - 2 * u, a.y + u), IM_VEC2(b.x - u, a.y + 2 * u), border, 0, 0);
+    ImDrawList_AddRectFilled(dl, IM_VEC2(a.x + u, b.y - 2 * u), IM_VEC2(a.x + 2 * u, b.y - u), border, 0, 0);
+    ImDrawList_AddRectFilled(dl, IM_VEC2(b.x - 2 * u, b.y - 2 * u), IM_VEC2(b.x - u, b.y - u), border, 0, 0);
 }

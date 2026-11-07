@@ -2,15 +2,14 @@
 // screen's Controls page (launcher.mm): a table of Switch inputs with the controller button and the key bound to
 // each. Select a binding, then press the new button / key (Esc or 5 s without a press cancels; a button already in
 // use swaps over). Drawn in whichever ImGui context is current.
+#include "ui/ig.h"
+
 #include <SDL3/SDL.h>
+#include <float.h>
 #include <stdio.h>
 
-#include "imgui.h"
-
-extern "C" {
 #include "../input_bind.h"
 #include "../settings.h"
-}
 
 static void cell(int dev, int slot, int fam, int cap_dev, int cap_slot, int ms_left) {
     char lbl[96];
@@ -24,18 +23,18 @@ static void cell(int dev, int slot, int fam, int cap_dev, int cap_slot, int ms_l
     int n = dev == BIND_DEV_PAD ? BIND_PAD_COUNT : BIND_KEY_COUNT, pushed = 0;
     bool dup = false;
     for (int i = 0; i < n; i++) dup |= i != slot && t[i] == t[slot] && t[slot] > (dev == BIND_DEV_PAD ? -1 : 0);
-    if (waiting) { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.42f, 0.12f, 1)); pushed++; }
-    else if (dup) { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.16f, 0.12f, 1)); pushed++; }
-    if (!bind_is_default_slot(dev, slot)) { ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.98f, 0.82f, 0.38f, 1)); pushed++; }
-    if (ImGui::Button(lbl, ImVec2(-FLT_MIN, 0))) {
+    if (waiting) { igPushStyleColor_Vec4(ImGuiCol_Button, IM_VEC4(0.55f, 0.42f, 0.12f, 1)); pushed++; }
+    else if (dup) { igPushStyleColor_Vec4(ImGuiCol_Button, IM_VEC4(0.55f, 0.16f, 0.12f, 1)); pushed++; }
+    if (!bind_is_default_slot(dev, slot)) { igPushStyleColor_Vec4(ImGuiCol_Text, IM_VEC4(0.98f, 0.82f, 0.38f, 1)); pushed++; }
+    if (igButton(lbl, IM_VEC2(-FLT_MIN, 0))) {
         if (waiting) bind_capture_cancel();
         else bind_capture_begin(dev, slot);
     }
-    ImGui::PopStyleColor(pushed);
-    if (waiting && !ImGui::IsItemVisible()) ImGui::SetScrollHereY(0.5f);  // (a capture started by a test hook)
+    igPopStyleColor(pushed);
+    if (waiting && !igIsItemVisible()) igSetScrollHereY(0.5f);  // (a capture started by a test hook)
 }
 
-extern "C" void controls_bindings_draw(float scale) {
+void controls_bindings_draw(float scale) {
     (void)scale;
     int fam = bind_label_family();
     static const char *const fam_name[] = {"Nintendo", "Xbox", "PlayStation"};
@@ -46,11 +45,11 @@ extern "C" void controls_bindings_draw(float scale) {
     if (n > 0) snprintf(line, sizeof line, "Controller: %s  (%s button names)", pad_name ? pad_name : "connected", fam_name[fam % 3]);
     else snprintf(line, sizeof line, "No controller connected  (%s button names shown)", fam_name[fam % 3]);
     SDL_free(ids);
-    ImGui::TextUnformatted(line);
-    ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button "
-                        "that's already in use swaps with the old one.");
-    ImGui::PopTextWrapPos();
+    igTextUnformatted(line, NULL);
+    igPushTextWrapPos(0);
+    igTextDisabled("Select a binding, then press the new button or key. Esc (or 5 seconds) cancels. A button "
+                   "that's already in use swaps with the old one.");
+    igPopTextWrapPos();
 
     int cd, cs, ms;
     bind_capture_active(&cd, &cs, &ms);
@@ -72,43 +71,45 @@ extern "C" void controls_bindings_draw(float scale) {
         else if (kind == 4) snprintf(msg, sizeof msg, "Nothing pressed: %s unchanged.", bind_input_name(rslot));
         if (kind == 1 || kind == 2 || kind == 5) settings_save();
     }
-    if (msg[0]) ImGui::TextColored(ImVec4(0.93f, 0.76f, 0.33f, 1), "%s", msg);
+    if (msg[0]) igTextColored(IM_VEC4(0.93f, 0.76f, 0.33f, 1), "%s", msg);
 
-    if (ImGui::BeginTable("##binds", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX)) {
-        ImGui::TableSetupColumn("Switch", ImGuiTableColumnFlags_WidthStretch, 1.0f);
-        ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch, 1.3f);
-        ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthStretch, 1.3f);
-        ImGui::TableHeadersRow();
+    if (igBeginTable("##binds", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX,
+                     IM_VEC2(0, 0), 0.0f)) {
+        igTableSetupColumn("Switch", ImGuiTableColumnFlags_WidthStretch, 1.0f, 0);
+        igTableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch, 1.3f, 0);
+        igTableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthStretch, 1.3f, 0);
+        igTableHeadersRow();
         // in the order a player thinks of them: face buttons, shoulders, Plus / Minus, d-pad, sticks
         static const int order[] = {BIND_A, BIND_B, BIND_X, BIND_Y, BIND_L, BIND_R, BIND_ZL, BIND_ZR, BIND_PLUS,
                                     BIND_MINUS, BIND_UP, BIND_DOWN, BIND_LEFT, BIND_RIGHT, BIND_LSTICK, BIND_RSTICK,
                                     BIND_LS_UP, BIND_LS_DOWN, BIND_LS_LEFT, BIND_LS_RIGHT, BIND_RS_UP, BIND_RS_DOWN,
                                     BIND_RS_LEFT, BIND_RS_RIGHT};
-        for (int slot : order) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(bind_input_name(slot));
-            ImGui::TableNextColumn();
+        for (size_t oi = 0; oi < sizeof order / sizeof order[0]; oi++) {
+            int slot = order[oi];
+            igTableNextRow(0, 0.0f);
+            igTableNextColumn();
+            igAlignTextToFramePadding();
+            igTextUnformatted(bind_input_name(slot), NULL);
+            igTableNextColumn();
             if (slot < BIND_PAD_COUNT) cell(BIND_DEV_PAD, slot, fam, cd, cs, ms);
-            else ImGui::TextDisabled(slot < BIND_RS_UP ? "Left stick" : "Right stick");
-            ImGui::TableNextColumn();
+            else igTextDisabled(slot < BIND_RS_UP ? "Left stick" : "Right stick");
+            igTableNextColumn();
             cell(BIND_DEV_KEY, slot, fam, cd, cs, ms);
         }
-        ImGui::EndTable();
+        igEndTable();
     }
-    ImGui::Spacing();
-    ImGui::BeginDisabled(bind_is_default(BIND_DEV_PAD));
-    if (ImGui::Button("Reset controller to defaults")) { bind_capture_cancel(); bind_reset(BIND_DEV_PAD); }
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::BeginDisabled(bind_is_default(BIND_DEV_KEY));
-    if (ImGui::Button("Reset keyboard to defaults")) { bind_capture_cancel(); bind_reset(BIND_DEV_KEY); }
-    ImGui::EndDisabled();
-    ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Bindings apply to the game only. Menus keep the fixed layout (right face button / Enter "
-                        "select, bottom face button / Esc back), and the in-game menu always opens with F1 or Esc, or "
-                        "the controller's Back + Start held together, or its Home / Guide button - so this page can't be "
-                        "locked out. The game's button icons follow the controller bindings.");
-    ImGui::PopTextWrapPos();
+    igSpacing();
+    igBeginDisabled(bind_is_default(BIND_DEV_PAD));
+    if (igButton("Reset controller to defaults", IM_VEC2(0, 0))) { bind_capture_cancel(); bind_reset(BIND_DEV_PAD); }
+    igEndDisabled();
+    igSameLine(0, -1);
+    igBeginDisabled(bind_is_default(BIND_DEV_KEY));
+    if (igButton("Reset keyboard to defaults", IM_VEC2(0, 0))) { bind_capture_cancel(); bind_reset(BIND_DEV_KEY); }
+    igEndDisabled();
+    igPushTextWrapPos(0);
+    igTextDisabled("Bindings apply to the game only. Menus keep the fixed layout (right face button / Enter "
+                   "select, bottom face button / Esc back), and the in-game menu always opens with F1 or Esc, or "
+                   "the controller's Back + Start held together, or its Home / Guide button - so this page can't be "
+                   "locked out. The game's button icons follow the controller bindings.");
+    igPopTextWrapPos();
 }

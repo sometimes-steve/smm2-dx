@@ -1,17 +1,13 @@
 // Dear ImGui's Vulkan backend on our device (start screen and in-game menu; both draw inside the window image's
 // dynamic rendering begun by vk_frame_begin).
-#include "imgui.h"
-#include "imgui_impl_vulkan.h"
-
-extern "C" {
+#include "ui/ig.h"
 #include "vk.h"
-}
 
 // Per ImGui context (the start screen and the in-game menu each have one, and the start screen comes back after an
 // in-place reboot while the menu's context lives on): the backend keeps its data in the current context.
-extern "C" bool vk_imgui_backend_init(void) {
-    if (ImGui::GetIO().BackendRendererUserData) return true;
-    ImGui_ImplVulkan_InitInfo ii = {};
+bool vk_imgui_backend_init(void) {
+    if (igGetIO()->BackendRendererUserData) return true;
+    ImGui_ImplVulkan_InitInfo_C ii = {0};
     ii.ApiVersion = VK_API_VERSION_1_3;
     ii.Instance = g_vk.inst;
     ii.PhysicalDevice = g_vk.phys;
@@ -33,8 +29,8 @@ extern "C" bool vk_imgui_backend_init(void) {
     return ok;
 }
 
-extern "C" void vk_imgui_backend_shutdown(void) {
-    if (!ImGui::GetIO().BackendRendererUserData) return;
+void vk_imgui_backend_shutdown(void) {
+    if (!igGetIO()->BackendRendererUserData) return;
     vk_present_flush();
     vk_queue_lock();
     vkDeviceWaitIdle(g_vk.dev);
@@ -44,17 +40,17 @@ extern "C" void vk_imgui_backend_shutdown(void) {
 
 static VkImage g_last_image;  // (the image of the last vk_imgui_texture_rgba, for vk_imgui_texture_stream)
 // A static RGBA8 image for ImGui (start screen background). Returns the ImTextureID.
-extern "C" uint64_t vk_imgui_texture_rgba(const void *rgba, int w, int h) {
+uint64_t vk_imgui_texture_rgba(const void *rgba, int w, int h) {
     VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.format = VK_FORMAT_R8G8B8A8_UNORM;
-    ci.extent = {(uint32_t)w, (uint32_t)h, 1};
+    ci.extent = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
     ci.mipLevels = 1;
     ci.arrayLayers = 1;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
     ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    VmaAllocationCreateInfo ai = {};
+    VmaAllocationCreateInfo ai = {0};
     ai.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     VkImage img;
     VmaAllocation mem;
@@ -62,16 +58,16 @@ extern "C" uint64_t vk_imgui_texture_rgba(const void *rgba, int w, int h) {
     VkCommandBuffer cb = vk_upload_cmd();
     vk_image_init_layout(cb, img, VK_IMAGE_ASPECT_COLOR_BIT);
     VkSpan s = vk_transient_copy(rgba, (uint64_t)w * h * 4, 16);
-    VkBufferImageCopy rg = {};
+    VkBufferImageCopy rg = {0};
     rg.bufferOffset = s.off;
-    rg.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    rg.imageExtent = {(uint32_t)w, (uint32_t)h, 1};
+    rg.imageSubresource = (VkImageSubresourceLayers){VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    rg.imageExtent = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
     vkCmdCopyBufferToImage(cb, s.buf, img, VK_IMAGE_LAYOUT_GENERAL, 1, &rg);
     VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     vi.image = img;
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
     vi.format = VK_FORMAT_R8G8B8A8_UNORM;
-    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vi.subresourceRange = (VkImageSubresourceRange){VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     VkImageView view;
     if (vkCreateImageView(g_vk.dev, &vi, NULL, &view) != VK_SUCCESS) return 0;
     g_last_image = img;
@@ -81,7 +77,7 @@ extern "C" uint64_t vk_imgui_texture_rgba(const void *rgba, int w, int h) {
 // A streamed RGBA8 image for ImGui (a game's host-drawn screen, runtime/ui/menu.cpp game_overlay_draw): made on the
 // first call, its pixels replaced on later ones (on the upload command buffer, which runs before the frame's work
 // after a full barrier). One such image. Returns the ImTextureID.
-extern "C" uint64_t vk_imgui_texture_stream(const void *rgba, int w, int h) {
+uint64_t vk_imgui_texture_stream(const void *rgba, int w, int h) {
     static VkImage img;
     static uint64_t id;
     static int iw, ih;
@@ -93,10 +89,10 @@ extern "C" uint64_t vk_imgui_texture_stream(const void *rgba, int w, int h) {
     }
     VkCommandBuffer cb = vk_upload_cmd();
     VkSpan s = vk_transient_copy(rgba, (uint64_t)w * h * 4, 16);
-    VkBufferImageCopy rg = {};
+    VkBufferImageCopy rg = {0};
     rg.bufferOffset = s.off;
-    rg.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    rg.imageExtent = {(uint32_t)w, (uint32_t)h, 1};
+    rg.imageSubresource = (VkImageSubresourceLayers){VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    rg.imageExtent = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
     vkCmdCopyBufferToImage(cb, s.buf, img, VK_IMAGE_LAYOUT_GENERAL, 1, &rg);
     return id;
 }
