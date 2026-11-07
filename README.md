@@ -2,13 +2,16 @@
 
 **Super Mario Maker 2, running as a normal Windows program.** No emulator, no console. Just double-click and play.
 
-<p align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/settings-menu.png?raw=true" alt="The in-game settings menu" width="560"><br><sub>The in-game settings menu</sub></p>
-
-<p align="center">
-  <img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/startup-screen.png?raw=true" alt="The startup screen" width="380">
-  <img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/course-world.png?raw=true" alt="Course World, online through OpenCourse World" width="380">
-  <br><sub>The startup screen, and Course World running through OpenCourse World</sub>
-</p>
+<table align="center">
+  <tr>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/main-menu.png?raw=true" alt="The main menu" width="400"><br><sub>The main menu</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/course-world.png?raw=true" alt="Course World" width="400"><br><sub>Course World, online through OpenCourse World</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/settings-menu.png?raw=true" alt="The in-game settings menu" width="400"><br><sub>The in-game settings menu</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/startup-screen.png?raw=true" alt="The startup screen" width="400"><br><sub>The startup screen</sub></td>
+  </tr>
+</table>
 
 ## Why this exists
 
