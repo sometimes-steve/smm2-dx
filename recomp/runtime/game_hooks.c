@@ -79,6 +79,10 @@ WEAK bool game_splash(float *progress, const char **what) {
     (void)progress, (void)what;
     return false;
 }
+// game_launch_skipping: true while a game is still starting up with its intro skipped (Skip intro / Skip mode select):
+// the menu layer then shows the recomp's version in the game's own Ver. box's look (Show recomp version), which those
+// options never let the title screen show. It goes away once the game has launched.
+WEAK bool game_launch_skipping(void) { return false; }
 WEAK bool game_overlay_captured(void) { return false; }
 WEAK uint64_t game_input_mask(void) { return ~0ull; }
 // the game's mixed audio (interleaved stereo float) just before it is played: a host screen's sounds go in here

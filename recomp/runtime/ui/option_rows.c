@@ -1,4 +1,5 @@
-// Two-pane settings pages (see option_rows.h): rows on the left, the selected / hovered row's description on the right.
+// Settings pages (see option_rows.h): two panes (rows on the left, the selected / hovered row's description on the right) or one
+// (full-width rows, the description as a tooltip), with a sidebar of sections on pages that have several.
 #include "ui/ig.h"
 
 #include <ctype.h>
@@ -12,12 +13,14 @@ const char *menu_clipboard(void);  // (menu.mm: the system clipboard's text)
 #include "osk.h"
 #include "theme_draw.h"
 
-#define DESC_CAP 2400
+#define DESC_CAP 9000  // (GameBanana mod pages: runtime/ui/mods_page.c)
 #define TXT_CAP 640
 
 static float g_scale = 1;
 static char g_desc_hover[DESC_CAP], g_desc_focus[DESC_CAP], g_desc_shown[DESC_CAP];  // this frame's hovered / selected row, and the last shown
 static char g_desc_first[DESC_CAP];  // the page's first row (shown until a row is selected or hovered)
+typedef struct { uint64_t tex; int w, h; } DescImage;
+static DescImage g_img_hover, g_img_focus, g_img_shown;  // a picture for the description pane (opt_desc_image)
 
 // the menu theme's accent / caption colours (runtime/ui/menu.cpp)
 uint32_t menu_accent(int a);
@@ -37,6 +40,58 @@ void opt_touch(bool on) { g_touch = on; }
 void opt_indent(int step) { g_indent = g_indent + step < 0 ? 0 : g_indent + step; }
 
 static void set_desc(char *dst, const char *src) { snprintf(dst, DESC_CAP, "%s", src); }
+
+static char g_cur_page[64];
+static bool g_flat;  // a one-pane page: no description pane, a tooltip instead
+// One-pane rows are as wide as the page needs, not the window: the widest label and the widest value of the page (measured
+// in the page's last frame, in the font it is drawn in: the NES theme's wide letters get wider rows), the value column right
+// after the labels. g_*_cur: this frame's widest; g_*_use: what the page's rows use (its last frame's).
+static float g_labw_cur, g_valw_cur, g_labw_use, g_valw_use;
+static struct { char id[64]; float labw, valw; } g_flat_cache[24];
+static float flat_layout(float avail, float *vcol) {
+    float pad = 16 * g_scale, fs = igGetFontSize(), ap = fmaxf(2.0f, floorf(fs * 0.15f));
+    float lead = menu_row_notch() > 0 ? 8 * ap : 0;
+    float vc = pad + lead + (g_labw_use > 0 ? g_labw_use : avail * 0.4f) + 2 * pad;
+    // never narrower than the same minimum on every tab (the volume steppers on a short page looked small), the spare room
+    // going between the labels and the values
+    float w = fminf(avail, fmaxf(g_labw_use > 0 ? vc + g_valw_use + pad : 640 * g_scale, 580 * g_scale));
+    if (g_labw_use > 0) vc = fmaxf(vc, w - pad - g_valw_use);
+    if (vcol) *vcol = vc;
+    return w;
+}
+
+// Title Case for labels, headings and choices: every lowercase word starts with a capital, except the small ones in the middle
+// (to, for, the...); words that already have a capital (FPS, SMAA, OpenCourse) or start with a digit stay as written.
+static void title_case(char *t) {
+    static const char *const small[] = {"a", "an", "and", "as", "at", "but", "by", "for", "from", "in", "into", "of", "on", "or",
+                                        "the", "to", "vs", "with"};
+    size_t len = strlen(t);
+    for (size_t i = 0; i < len;) {
+        while (i < len && t[i] == ' ') i++;
+        size_t s = i;
+        while (i < len && t[i] != ' ') i++;
+        size_t n = i - s;
+        if (!n) break;
+        bool keep = !(t[s] >= 'a' && t[s] <= 'z');
+        for (size_t k = s + 1; k < s + n; k++)
+            if (t[k] >= 'A' && t[k] <= 'Z') keep = true;
+        bool first = s == 0, last = i >= len;
+        if (!keep && !first && !last)
+            for (size_t k = 0; k < sizeof small / sizeof small[0]; k++)
+                if (strlen(small[k]) == n && !strncmp(t + s, small[k], n)) keep = true;
+        if (!keep) t[s] = (char)toupper((unsigned char)t[s]);
+        for (size_t k = s + 1; k + 1 < s + n; k++)  // (after a hyphen too: Three-Point)
+            if (t[k] == '-' && t[k + 1] >= 'a' && t[k + 1] <= 'z') t[k + 1] = (char)toupper((unsigned char)t[k + 1]);
+    }
+}
+// a row's description over the page, wrapped (one-pane pages)
+static void flat_tooltip(const char *desc) {
+    igBeginTooltip();
+    igPushTextWrapPos(igGetFontSize() * 28);
+    igTextUnformatted(desc, NULL);
+    igPopTextWrapPos();
+    igEndTooltip();
+}
 
 static float text_w(const char *s) {
     ImVec2 v;
@@ -58,31 +113,53 @@ static void ellipsize(char *t, float room) {
     strcat(t, "...");
 }
 
-void opt_begin(const char *id, float scale) {
+static void begin_page(const char *id, float scale, bool flat) {
     static char page[128];  // another page: its own first row's description, not the last page's
     if (strcmp(page, id)) snprintf(page, sizeof page, "%s", id), g_desc_shown[0] = 0;
-    g_scale = scale;
+    snprintf(g_cur_page, sizeof g_cur_page, "%s", id);
+    // the pages pass fontSize / 34, and the NES theme's font (Press Start 2P, 20 px at 1080 p) is about half the default's
+    // (Baloo 2, 39 px: runtime/ui/menu.c): its rows, padding and minimum width came out half the size. The same unit in
+    // both themes: the NES scale is brought up to what the default theme's font would give.
+    g_scale = menu_row_notch() > 0 ? scale * (39.0f / 20.0f) : scale;
     g_take_first = g_focus_req;
     g_focus_req = false;
     if (g_take_first) igNavMoveRequestCancel();  // (this frame's Down goes to the first row instead)
     g_indent = 0;
     g_desc_hover[0] = 0, g_desc_focus[0] = 0;
+    g_img_hover = g_img_focus = (DescImage){0, 0, 0};
     ImVec2 avail;
     igGetContentRegionAvail(&avail);
+    g_flat = flat;
+    if (flat) {  // (this page's widths from its last frame)
+        int k = 0;
+        for (; k < 24 && strcmp(g_flat_cache[k].id, id); k++)
+            if (!g_flat_cache[k].id[0]) break;
+        if (k < 24 && !g_flat_cache[k].id[0]) snprintf(g_flat_cache[k].id, sizeof g_flat_cache[k].id, "%s", id);
+        g_labw_use = k < 24 ? g_flat_cache[k].labw : 0, g_valw_use = k < 24 ? g_flat_cache[k].valw : 0;
+        g_labw_cur = g_valw_cur = 0;
+    }
     igPushID_Str(id);
-    igBeginChild_Str("##rows", IM_VEC2(avail.x * 0.48f, avail.y), ImGuiChildFlags_NavFlattened, 0);  // (was the obsolete ImGuiWindowFlags_NavFlattened)
+    igBeginChild_Str("##rows", IM_VEC2(flat ? avail.x : avail.x * 0.48f, avail.y), ImGuiChildFlags_NavFlattened, 0);  // (was the obsolete ImGuiWindowFlags_NavFlattened)
     igPushStyleVar_Vec2(ImGuiStyleVar_ItemSpacing, IM_VEC2(igGetStyle()->ItemSpacing.x, (g_touch ? 8 : 4) * scale));  // (rows close)
     g_desc_first[0] = 0;
 }
+void opt_begin(const char *id, float scale) { begin_page(id, scale, false); }
+void opt_flat_begin(const char *id, float scale) { begin_page(id, scale, true); }
 
 void opt_section(const char *title) {
     char t[TXT_CAP];
     snprintf(t, sizeof t, "%s", title);
-    for (char *c = t; *c; c++) *c = (char)toupper((unsigned char)*c);
+    title_case(t);
     if (igGetCursorPosY() > igGetStyle()->WindowPadding.y + 1) igDummy(IM_VEC2(0, 10 * g_scale));
     igPushStyleColor_U32(ImGuiCol_Text, menu_muted());
     igTextUnformatted(t, NULL);
     igPopStyleColor(1);
+    ImVec2 p, avail;  // (a hairline under the heading, as Ship of Harkinian's separator text)
+    igGetCursorScreenPos(&p);
+    igGetContentRegionAvail(&avail);
+    ImDrawList_AddLine(igGetWindowDrawList(), IM_VEC2(p.x, p.y + 1), IM_VEC2(p.x + (g_flat ? flat_layout(avail.x, NULL) : avail.x), p.y + 1),
+                       menu_accent(70), 1.0f);
+    igDummy(IM_VEC2(0, 4 * g_scale));
 }
 
 // One row: draws it, handles A / click and left / right while selected. Returns 2 (A / click), -1 / +1 (left / right) or 0.
@@ -96,7 +173,21 @@ static int row(const char *label, const char *value, bool changed, const char *d
     const bool nes = menu_row_notch() > 0;  // (the NES theme: pixel-art buttons, pointer and arrows)
     ImVec2 availv;
     igGetContentRegionAvail(&availv);
-    float w = availv.x, h = igGetFontSize() * (g_touch || nes ? 2.5f : 1.9f);
+    // (the row's height in the same unit in every theme: the NES font alone is half the size, its rows were half as tall)
+    float vcol = 0, w = availv.x,
+          h = fmaxf(igGetFontSize() * (g_touch || nes ? 2.5f : 1.9f), g_scale * 34.0f * (g_touch ? 2.5f : 1.9f));
+    if (g_flat) {  // (one-pane pages: as wide as the page needs)
+        char t0[TXT_CAP], s0[TXT_CAP];
+        snprintf(t0, sizeof t0, "%s", label);
+        if (upper) title_case(t0);
+        snprintf(s0, sizeof s0, "%s", value);
+        if (arrows) title_case(s0);
+        float fs0 = igGetFontSize(), ap0 = fmaxf(2.0f, floorf(fs0 * 0.15f)), aw0 = nes ? 5 * ap0 : fs0 * 0.42f, gap0 = fs0 * 0.55f;
+        float lw = text_w(t0), vwid = s0[0] ? text_w(s0) + (arrows ? 2 * aw0 + 2 * gap0 : 0) : 0;
+        if (lw > g_labw_cur) g_labw_cur = lw;
+        if (vwid > g_valw_cur) g_valw_cur = vwid;
+        w = flat_layout(availv.x, &vcol);
+    }
     igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));  // (the row's own border shows the selection)
     bool clicked = igInvisibleButton("##row", IM_VEC2(w, h), ImGuiButtonFlags_EnableNav);
     igPopStyleColor(1);
@@ -130,11 +221,13 @@ static int row(const char *label, const char *value, bool changed, const char *d
     if (foc) set_desc(g_desc_focus, desc ? desc : "");
     if (hov) set_desc(g_desc_hover, desc ? desc : "");
     if (!g_desc_first[0] && desc) set_desc(g_desc_first, desc);
+    if (g_flat && (hov || foc) && desc && desc[0]) flat_tooltip(desc);
 
     ImDrawList *dl = igGetWindowDrawList();
-    float r = menu_row_round() * g_scale, pad = 16 * g_scale, fs = igGetFontSize();
-    ImU32 fill = hov || foc ? IM_COL32(255, 255, 255, 22) : IM_COL32(0, 0, 0, 40);
-    ImU32 edge = hov || foc ? (off ? menu_accent(120) : kGold) : IM_COL32(255, 255, 255, off ? 18 : 38);
+    const bool plain = g_flat && !nes;  // (one-pane rows: no box until pointed at, square corners)
+    float r = plain ? 0 : menu_row_round() * g_scale, pad = 16 * g_scale, fs = igGetFontSize();
+    ImU32 fill = hov || foc ? IM_COL32(255, 255, 255, 22) : plain ? 0 : IM_COL32(0, 0, 0, 40);
+    ImU32 edge = hov || foc ? (off ? menu_accent(120) : kGold) : plain ? 0 : IM_COL32(255, 255, 255, off ? 18 : 38);
     float bw = (hov || foc ? 2.0f * menu_row_border() : menu_row_border()) * (menu_row_border() > 1 ? g_scale : 1);
     const bool lit = (hov || foc) && !off;
     const float ap = fmaxf(2.0f, floorf(fs * 0.15f));  // (a pixel of the pointer / arrows)
@@ -149,8 +242,7 @@ static int row(const char *label, const char *value, bool changed, const char *d
     }
     char t[TXT_CAP];
     snprintf(t, sizeof t, "%s", label);
-    if (upper)
-        for (char *c = t; *c; c++) *c = (char)toupper((unsigned char)*c);
+    if (upper) title_case(t);
     float ty = p.y + (h - fs) * 0.5f;
     ImU32 label_col = off ? IM_COL32(110, 110, 102, 255) : nes ? NES_WHITE : IM_COL32(240, 236, 224, 255);  // (greyed out: clearly dim)
     float lead = nes ? 8 * ap : 0;  // (the NES pointer's room before the label)
@@ -161,13 +253,14 @@ static int row(const char *label, const char *value, bool changed, const char *d
     {  // a label that would run into the value is cut short with "..." (long names: mods, courses)
         float vw0 = !value[0] ? 0 : text_w(value);
         float vspace = !value[0] ? 0 : (vw0 < w * 0.6f ? vw0 : w * 0.6f) + fs * (arrows ? 2.4f : 0.9f);
-        float room = w - 2 * pad - vspace - lead;
+        float room = g_flat ? vcol - 2 * pad - lead : w - 2 * pad - vspace - lead;  // (one-pane: up to the value column)
         if (room > fs && text_w(t) > room) ellipsize(t, room);
     }
     ImDrawList_AddText_Vec2(dl, IM_VEC2(p.x + pad + lead, ty), label_col, t, NULL);
     float right = p.x + w - pad;  // (the value's right edge)
     if (arrows && value[0]) {  // ◀ value ▶, drawn (the fonts have no arrow glyphs); a click on one steps
         float aw = nes ? 5 * ap : fs * 0.42f, gap = fs * 0.55f, cy = ty + fs * 0.52f;
+        if (g_flat) right = p.x + vcol + aw + gap + text_w(value) + gap + aw;  // (one-pane: the value starts beside the label)
         float rx = right - aw, lx = rx - gap - text_w(value) - gap - aw;
         ImU32 ac = off ? IM_COL32(110, 110, 100, 255) : nes ? (lit ? NES_WHITE : NES_GREY) : hov || foc ? kGold : IM_COL32(170, 170, 160, 255);
         if (nes) {  // stepped pixel arrows
@@ -187,9 +280,10 @@ static int row(const char *label, const char *value, bool changed, const char *d
     }
     char shown[TXT_CAP];  // (a value wider than most of the row is cut short too)
     snprintf(shown, sizeof shown, "%s", value);
+    if (arrows) title_case(shown);  // (a choice's values: Match Display, Original 16:9)
     if (shown[0] && text_w(shown) > w * 0.6f) ellipsize(shown, w * 0.6f);
     if (shown[0]) {
-        float vw = text_w(shown), vx = right - vw;
+        float vw = text_w(shown), vx = g_flat && !arrows ? p.x + vcol : right - vw;
         ImDrawList_AddText_Vec2(dl, IM_VEC2(vx, ty), off ? IM_COL32(110, 110, 102, 255) : nes ? (lit || changed ? NES_WHITE : NES_GREY)
                                     : changed ? IM_COL32(255, 255, 255, 255) : IM_COL32(205, 205, 195, 255), shown, NULL);
     }
@@ -242,6 +336,11 @@ bool opt_int(const char *label, int *v, int lo, int hi, int step, int def, const
 }
 
 bool opt_button(const char *label, const char *desc) { return row(label, "", false, desc, true, false) == 2; }
+
+void opt_desc_image(uint64_t tex, int w, int h) {
+    if (igIsItemHovered(0)) g_img_hover = (DescImage){tex, w, h};
+    if (igIsItemFocused() && igGetCurrentContext()->NavCursorVisible) g_img_focus = (DescImage){tex, w, h};
+}
 
 bool opt_radio(const char *label, bool selected, const char *desc) {
     bool off = g_next_disabled;
@@ -316,10 +415,19 @@ void opt_end(void) {
     const char *scroll = getenv("LARECOMP_OPT_SCROLL");
     if (scroll) igSetScrollY_Float(igGetScrollMaxY() * (float)atof(scroll));  // (test)
     igEndChild();
+    if (g_flat) {  // (one pane: the descriptions were tooltips)
+        for (int k = 0; k < 24; k++)
+            if (g_flat_cache[k].id[0] && !strcmp(g_flat_cache[k].id, g_cur_page)) {
+                g_flat_cache[k].labw = g_labw_cur, g_flat_cache[k].valw = g_valw_cur;
+                break;
+            }
+        igPopID();
+        return;
+    }
     // the description: the hovered row (mouse) wins, else the selected one (controller), else the last shown
-    if (g_desc_hover[0]) set_desc(g_desc_shown, g_desc_hover);
-    else if (g_desc_focus[0]) set_desc(g_desc_shown, g_desc_focus);
-    else if (!g_desc_shown[0]) set_desc(g_desc_shown, g_desc_first);
+    if (g_desc_hover[0]) set_desc(g_desc_shown, g_desc_hover), g_img_shown = g_img_hover;
+    else if (g_desc_focus[0]) set_desc(g_desc_shown, g_desc_focus), g_img_shown = g_img_focus;
+    else if (!g_desc_shown[0]) set_desc(g_desc_shown, g_desc_first), g_img_shown = (DescImage){0, 0, 0};
     igSameLine(0, 0);
     ImVec2 p, avail;
     igGetCursorScreenPos(&p);
@@ -340,6 +448,28 @@ void opt_end(void) {
     igPopStyleVar(1);
     if (nes) igPopStyleColor(1);
     igSetWindowFontScale(nes ? 1.0f : 1.3f);  // (the description reads at a glance)
+    if (g_img_shown.w != 0) {  // a picture, or its place while it loads (w < 0: it won't come): a fixed 16:9 box
+        ImVec2 room, p0;
+        igGetContentRegionAvail(&room);
+        igGetCursorScreenPos(&p0);
+        float bw = fminf(room.x, room.y * 0.5f * 16 / 9), bh = bw * 9 / 16;
+        ImVec2 p1 = IM_VEC2(p0.x + bw, p0.y + bh);
+        ImDrawList *dl = igGetWindowDrawList();
+        ImDrawList_AddRectFilled(dl, p0, p1, IM_COL32(0, 0, 0, 110), 0, 0);
+        if (g_img_shown.tex && g_img_shown.w > 0) {  // (fitted inside the box)
+            float s = fminf(bw / g_img_shown.w, bh / g_img_shown.h), iw = g_img_shown.w * s, ih = g_img_shown.h * s;
+            ImVec2 q = IM_VEC2(p0.x + (bw - iw) / 2, p0.y + (bh - ih) / 2);
+            ImDrawList_AddImage(dl, (ImTextureID)g_img_shown.tex, q, IM_VEC2(q.x + iw, q.y + ih), IM_VEC2(0, 0), IM_VEC2(1, 1),
+                                IM_COL32(255, 255, 255, 255));
+        } else {
+            const char *t = g_img_shown.w < 0 ? "No screenshot" : "Loading screenshot...";
+            ImVec2 ts;
+            igCalcTextSize(&ts, t, NULL, false, -1.0f);
+            ImDrawList_AddText_Vec2(dl, IM_VEC2(p0.x + (bw - ts.x) / 2, p0.y + (bh - ts.y) / 2), menu_muted(), t, NULL);
+        }
+        igDummy(IM_VEC2(bw, bh));
+        igSpacing();
+    }
     igPushTextWrapPos(0);
     igTextUnformatted(g_desc_shown, NULL);
     igPopTextWrapPos();

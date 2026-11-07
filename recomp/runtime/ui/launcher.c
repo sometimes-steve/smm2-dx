@@ -856,16 +856,23 @@ static void *job_thread(void *arg) {
 static char g_update_tag[256];
 static pthread_mutex_t g_update_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static long long tag_rank(const char *t) {  // v<major>.<minor>.<patch> (anything after: the same release)
-    int a, b, c;
-    if (sscanf(t, "v%d.%d.%d", &a, &b, &c) == 3 && a >= 0 && b >= 0 && c >= 0 && b < 4096 && c < 4096)
-        return ((long long)a << 24) + ((long long)b << 12) + c;
-    return -1;  // (dev builds: any release is newer)
+// [v]<major>.<minor>.<patch>, the leading v optional. A release is exactly that (0.1.0, v0.1.0); anything after the
+// numbers (0.1.0+dev-menu, 0.1.0-rc1) is a dev build of that version and ranks just below its release, so the release
+// counts as newer than its own dev builds (they get the notice, for testing) but not than a later dev build's number.
+static long long tag_rank(const char *t) {
+    int a, b, c, n = 0;
+    if (*t == 'v') t++;
+    if (sscanf(t, "%d.%d.%d%n", &a, &b, &c, &n) == 3 && a >= 0 && b >= 0 && c >= 0 && b < 4096 && c < 4096) {
+        bool release = t[n] == 0;
+        return ((((long long)a << 24) + ((long long)b << 12) + c) << 1) + (release ? 1 : 0);
+    }
+    return -1;  // (not a version at all: any release is newer)
 }
 void menu_notice(const char *text, double seconds);  // (menu.c: a notice over the game)
 static void *update_thread(void *arg) {
     (void)arg;
     char *body;
+    LOG("[update] check running (this is %s, rank %lld)\n", RECOMP_VERSION, tag_rank(RECOMP_VERSION));
     if (getenv("RECOMP_UPDATE_TAGS")) {
         body = xfmt("\"tag_name\": \"%s\"", getenv("RECOMP_UPDATE_TAGS"));
     } else {
@@ -877,29 +884,35 @@ static void *update_thread(void *arg) {
         snprintf(out, sizeof out, "%s" SEP "latest-release.json", dir);
         const char *av[] = {curl, "-fsSL", "--max-time", "15", "-H", "Accept: application/vnd.github+json",
                             "-A", "smm2-dx/" RECOMP_VERSION, RELEASES_API, NULL};
-        PlatProc p = file_exists(curl) ? plat_spawn(av, out, false) : 0;
+        bool have_curl = file_exists(curl);
+        PlatProc p = have_curl ? plat_spawn(av, out, false) : 0;
         free(curl);
-        if (!p || plat_proc_wait(p, true) != 0) { remove(out); return NULL; }
+        int rc = p ? plat_proc_wait(p, true) : -1;
+        if (!p || rc != 0) {
+            LOG("[update] no answer from GitHub: %s (curl exit %d)\n", !have_curl ? "curl.exe not found" : !p ? "curl could not be started" : "curl failed", rc);
+            remove(out);
+            return NULL;
+        }
         body = read_text(out, NULL);
         remove(out);
     }
     const char *at = strstr(body, "\"tag_name\"");
-    if (!at) { free(body); return NULL; }
+    if (!at) { LOG("[update] the answer has no tag_name\n"); free(body); return NULL; }
     const char *colon = strchr(at, ':');
     const char *q1 = strchr(colon ? colon + 1 : body, '"'), *q2 = q1 ? strchr(q1 + 1, '"') : NULL;
-    if (!q2) { free(body); return NULL; }
+    if (!q2) { LOG("[update] could not read the tag_name\n"); free(body); return NULL; }
     char *tag = xdup_n(q1 + 1, (size_t)(q2 - q1 - 1));
     free(body);
+    LOG("[update] latest release %s (rank %lld), this is %s (rank %lld): %s\n", tag, tag_rank(tag), RECOMP_VERSION,
+        tag_rank(RECOMP_VERSION), tag_rank(tag) > tag_rank(RECOMP_VERSION) ? "newer, will say so" : "not newer, nothing to say");
     if (tag_rank(tag) > tag_rank(RECOMP_VERSION)) {
         LOG("[launcher] a newer release is out: %s (this is %s): %s\n", tag, RECOMP_VERSION, RELEASES_PAGE);
         pthread_mutex_lock(&g_update_lock);
         snprintf(g_update_tag, sizeof g_update_tag, "%s", tag);
         pthread_mutex_unlock(&g_update_lock);
-        // said over the game too, once it's past its start logos: the Mods tab's row alone went unseen (issue #25)
-        while (SDL_GetTicks() < 25000) SDL_Delay(500);
+        // said over the game too, as soon as the check has the answer (the Mods tab's row alone went unseen, issue #25)
         char note[400];
-        snprintf(note, sizeof note, "Version %s is out (this is %s). Menu (F1) > Online: New version.",
-                 tag, RECOMP_VERSION);
+        snprintf(note, sizeof note, "New version available: %s", tag);
         menu_notice(note, 12);
     }
     free(tag);
@@ -907,10 +920,12 @@ static void *update_thread(void *arg) {
 }
 void launcher_update_check_start(void) {
     static bool started;
-    if (started || (getenv("RECOMP_NO_UPDATE_CHECK") && !getenv("RECOMP_UPDATE_TAGS"))) return;
+    if (started) { LOG("[update] check not started again: it already runs or ran\n"); return; }
+    if (getenv("RECOMP_NO_UPDATE_CHECK") && !getenv("RECOMP_UPDATE_TAGS")) { LOG("[update] check off: RECOMP_NO_UPDATE_CHECK is set\n"); return; }
     config_load();
-    if (!g_cfg.update_check) return;
+    if (!g_cfg.update_check) { LOG("[update] check off: \"Check for updates\" is turned off\n"); return; }
     started = true;
+    LOG("[update] check starting (at %.1f s)\n", SDL_GetTicks() / 1000.0);
     pthread_t th;
     if (pthread_create(&th, NULL, update_thread, NULL) == 0) pthread_detach(th);
 }
@@ -926,10 +941,9 @@ const char *launcher_update_tag(void) {
 void rt_request_reboot(int kind);
 void menu_toggle(void);
 bool launcher_has_settings(void) { return true; }
-bool launcher_settings_rows(void) {
+bool launcher_settings_rows(void) {  // (the app's rows: the Quit tab's About section, runtime/ui/menu.c tab_quit)
     static bool loaded;
     if (!loaded) loaded = true, config_load();
-    opt_section("App");
     bool uc = g_cfg.update_check;
     if (opt_toggle("Check for updates", &uc, true,
                    "Asks GitHub for the newest release of " GAME_TITLE " at each start and says when there is one. "
@@ -944,9 +958,6 @@ bool launcher_settings_rows(void) {
         snprintf(d, sizeof d, "Version %s is out (this is %s). Opens its download page in your browser.", tag, RECOMP_VERSION);
         if (opt_action("New version available", tag, d, true)) SDL_OpenURL(RELEASES_PAGE);
     }
-    if (opt_action("Game files", "Set up...", "Back to the setup screen: choose other game files, keys or "
-                   "firmware. Progress since your last save is lost.", true))
-        rt_request_reboot(2 /* RT_REBOOT_TITLE */), menu_toggle();
     return true;
 }
 

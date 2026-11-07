@@ -4,8 +4,9 @@
 
 <table align="center">
   <tr>
-    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/main-window.png?raw=true" alt="The main window" width="400"><br><sub>The main window</sub></td>
-    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/course-world.png?raw=true" alt="Course World" width="400"><br><sub>Course World, online through OpenCourse World</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/main-window.png?raw=true" alt="The main window" width="270"><br><sub>The main window</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/course-world.png?raw=true" alt="Course World" width="270"><br><sub>Course World, online through OpenCourse World</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/mods-peachette.png?raw=true" alt="A mod in game" width="270"><br><sub>Mods: Peachette over Toadette</sub></td>
   </tr>
 </table>
 

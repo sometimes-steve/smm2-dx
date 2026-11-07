@@ -7,9 +7,11 @@
 #include <SDL3/SDL.h>
 #include <float.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "../input_bind.h"
 #include "../settings.h"
+#include "option_rows.h"
 
 static void cell(int dev, int slot, int fam, int cap_dev, int cap_slot, int ms_left) {
     char lbl[96];
@@ -112,4 +114,81 @@ void controls_bindings_draw(float scale) {
                    "the controller's Back + Start held together, or its Home / Guide button - so this page can't be "
                    "locked out. The game's button icons follow the controller bindings.");
     igPopTextWrapPos();
+}
+
+// The same editor as the menu's option rows (one-pane pages): the controller buttons, then the keys, one row per Switch
+// input; select one and press the new button / key.
+void controls_bindings_rows(void) {
+    int fam = bind_label_family();
+    static const char *const fam_name[] = {"Nintendo", "Xbox", "PlayStation"};
+    int n = 0;
+    SDL_JoystickID *ids = SDL_GetGamepads(&n);
+    const char *pad_name = ids && n > 0 ? SDL_GetGamepadNameForID(ids[0]) : NULL;
+    char line[200];
+    if (n > 0) snprintf(line, sizeof line, "%s", pad_name ? pad_name : "Controller Connected");
+    else snprintf(line, sizeof line, "No Controller Connected");
+    SDL_free(ids);
+    char how[300];
+    snprintf(how, sizeof how, "Button names are shown for %s controllers. Select a binding, then press the new button or key. "
+             "Esc (or 5 seconds) cancels. A button that's already in use swaps with the old one.", fam_name[fam % 3]);
+
+    int cd, cs, ms;
+    bind_capture_active(&cd, &cs, &ms);
+    // a finished capture: say what happened, keep the settings file current
+    static int seen_serial = -1;
+    static char msg[200];
+    int rdev, rslot, rother, serial;
+    int kind = bind_last_result(&rdev, &rslot, &rother, &serial);
+    if (seen_serial < 0) seen_serial = serial;
+    if (serial != seen_serial) {
+        seen_serial = serial;
+        const char *now = rslot < 0 ? "" : rdev == BIND_DEV_PAD ? bind_pad_label(g_bind_pad[rslot], fam) : bind_key_label(g_bind_key[rslot]);
+        if (kind == 5) snprintf(msg, sizeof msg, "%s bindings reset to the defaults.", rdev == BIND_DEV_PAD ? "Controller" : "Keyboard");
+        else if (kind == 1) snprintf(msg, sizeof msg, "%s is now %s.", bind_input_name(rslot), now);
+        else if (kind == 2)
+            snprintf(msg, sizeof msg, "%s is now %s; %s moved to %s (swapped).", bind_input_name(rslot), now,
+                     bind_input_name(rother), rdev == BIND_DEV_PAD ? bind_pad_label(g_bind_pad[rother], fam) : bind_key_label(g_bind_key[rother]));
+        else if (kind == 3) snprintf(msg, sizeof msg, "Cancelled: %s unchanged.", bind_input_name(rslot));
+        else if (kind == 4) snprintf(msg, sizeof msg, "Nothing pressed: %s unchanged.", bind_input_name(rslot));
+        if (kind == 1 || kind == 2 || kind == 5) settings_save();
+    }
+    opt_section("Bindings");
+    opt_action(line, "", how, false);
+    if (msg[0]) opt_action(msg, "", how, false);
+    // in the order a player thinks of them: face buttons, shoulders, Plus / Minus, d-pad, sticks
+    static const int order[] = {BIND_A, BIND_B, BIND_X, BIND_Y, BIND_L, BIND_R, BIND_ZL, BIND_ZR, BIND_PLUS,
+                                BIND_MINUS, BIND_UP, BIND_DOWN, BIND_LEFT, BIND_RIGHT, BIND_LSTICK, BIND_RSTICK,
+                                BIND_LS_UP, BIND_LS_DOWN, BIND_LS_LEFT, BIND_LS_RIGHT, BIND_RS_UP, BIND_RS_DOWN,
+                                BIND_RS_LEFT, BIND_RS_RIGHT};
+    for (int dev = BIND_DEV_PAD; dev <= BIND_DEV_KEY; dev++) {
+        opt_section(dev == BIND_DEV_PAD ? "Controller Buttons" : "Keyboard Keys");
+        for (size_t oi = 0; oi < sizeof order / sizeof order[0]; oi++) {
+            int slot = order[oi];
+            if (dev == BIND_DEV_PAD && slot >= BIND_PAD_COUNT) continue;  // (the sticks' directions: the controller's own)
+            bool waiting = cd == dev && cs == slot;
+            char val[96];
+            if (waiting) snprintf(val, sizeof val, "Press %s...  %d", dev == BIND_DEV_PAD ? "a Button" : "a Key", (ms + 999) / 1000);
+            else snprintf(val, sizeof val, "%s", dev == BIND_DEV_PAD ? bind_pad_label(g_bind_pad[slot], fam) : bind_key_label(g_bind_key[slot]));
+            if (!waiting && !bind_is_default_slot(dev, slot)) snprintf(val + strlen(val), sizeof val - strlen(val), " *");  // (changed)
+            if (opt_action(bind_input_name(slot), val, how, false)) {
+                if (waiting) bind_capture_cancel();
+                else bind_capture_begin(dev, slot);
+            }
+        }
+    }
+    opt_section("Reset");
+    if (bind_is_default(BIND_DEV_PAD)) opt_disable_next();
+    if (opt_button("Reset Controller to Defaults", "Puts every controller button back to its default. A * marks a changed binding.")) {
+        bind_capture_cancel();
+        bind_reset(BIND_DEV_PAD);
+    }
+    if (bind_is_default(BIND_DEV_KEY)) opt_disable_next();
+    if (opt_button("Reset Keyboard to Defaults", "Puts every key back to its default. A * marks a changed binding.")) {
+        bind_capture_cancel();
+        bind_reset(BIND_DEV_KEY);
+    }
+    opt_action("Bindings apply to the game only", "", "Menus keep the fixed layout (right face button / Enter select, bottom "
+               "face button / Esc back), and the in-game menu always opens with F1 or Esc, or the controller's Back + Start "
+               "held together, or its Home / Guide button - so this page can't be locked out. The game's button icons "
+               "follow the controller bindings.", false);
 }

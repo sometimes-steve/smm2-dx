@@ -27,6 +27,13 @@ bool opt_radio(const char *label, bool selected, const char *desc);
 // an action / item row with a value on the right (upper: the label in capitals, as option rows; false: as written,
 // e.g. a seed name); true when activated
 bool opt_action(const char *label, const char *value, const char *desc, bool upper);
+// One-pane pages (the Ship of Harkinian look): full-width rows, each row's description as a tooltip while it is hovered or
+// selected. opt_flat_begin takes the place of opt_begin (opt_end closes both). The two-pane page stays for the Mods.
+void opt_flat_begin(const char *id, float scale);
+// A picture (an ImTextureID, w x h) for the description pane of the row just drawn: shown above its text while that row is
+// the hovered / selected one. w < 0: it won't come (a place says so); tex 0: still loading (a place says so).
+#include <stdint.h>
+void opt_desc_image(uint64_t tex, int w, int h);
 // text: the value shown on the right (hint when empty); A / click turns the row into a text field (the on-screen
 // keyboard with a controller). True when Enter / the keyboard confirmed a change.
 #include <stddef.h>

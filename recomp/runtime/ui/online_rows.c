@@ -19,7 +19,7 @@ void online_offline_notice(void) {
     if (last && now - last < 20000) return;
     last = now;
     const char *t = "You're offline. The game needs OpenCourse World, even for Course Practice: add your OpenCourse "
-                    "World config (ocw-config.json) in the setup screen or the menu's Online tab, then restart the game.";
+                    "World config (ocw-config.json) in the menu's Online tab, then restart the game (Quit > Restart the Game).";
     rt_log("[online] notice: %s\n", t);
     menu_notice(t, 8);
 }

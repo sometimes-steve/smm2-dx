@@ -32,6 +32,7 @@ typedef struct {
     bool reverb;         // room reverb effect
     bool movie_audio;
     bool show_fps;
+    float menu_scale;  // General tab > Menu size: the in-game menu's size relative to its default (1 = 100%)
     bool show_memory;  // the app's memory use in the corner (menu.mm, platform.h plat_memory_used)
     bool dpad_move;      // the d-pad (and arrow keys) move Link like the stick
     bool pads_from_p2;   // every controller is player 2, 3, 4 (the keyboard / on-screen controls stay player 1):
@@ -61,9 +62,10 @@ typedef struct {
     int tunic;           // index into g_tunic_colours (0 = Default: the game's / the seed's own)
     int hearts;          // index into g_heart_colours (0 = Default red)
     char rando_seed[128];  // active randomizer seed (rando/<name>/), empty = vanilla
+    bool show_recomp_version; // the title screen's Ver. box shows the recomp's version, not the game's: services/am.c
     bool skip_intro;     // skip the boot logo presentation animations
     bool skip_mode_select;  // SMM2: press L+R on the title screen and open Course World by itself (games/smm2/mods/skip_intro.c)
-    int theme;           // THEME_*: the look of the menu (Video tab > Theme)
+    int theme;           // THEME_*: the look of the menu (General tab > Theme)
     bool ahead_fast;     // prepare shaders at full speed (all cores, no waiting for quiet moments): Video > Shaders
 } Settings;
 

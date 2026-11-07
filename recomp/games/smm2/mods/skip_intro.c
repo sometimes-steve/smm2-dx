@@ -107,6 +107,29 @@ bool game_splash(float *progress, const char **what) {
     return true;
 }
 
+// An in-place reboot (Restart the Game, runtime/main.c) starts the sequence again, with the setting as it is by then:
+// the reset hook bumps the epoch, the driver sees it once the reboot is done and starts over (the boot logo's hooks
+// and the scene manager are the new boot's; the presented-frame count carries on across boots, so each boot's frames
+// are counted from where it began).
+extern int rt_reboot_requested(void);  // runtime/main.c: set from the request until the game is torn down
+static _Atomic unsigned g_ms_epoch;
+static _Atomic int g_ms_state;  // Skip mode select this boot: 0 not decided yet, 1 running, 2 done (or off)
+RT_ON_RESET(skip_intro_reset) {
+    g_boot_hook_at = g_boot_hook_first = g_boot_state = 0;
+    atomic_fetch_add(&g_ms_epoch, 1);
+    atomic_store(&g_ms_state, 0);
+}
+
+// The game is still launching with its intro skipped (runtime/game_hooks.c game_launch_skipping): Skip mode select
+// until its sequence is over, Skip intro until the title screen is up (the boot logo's hooks have gone quiet).
+bool game_launch_skipping(void) {
+    int st = atomic_load(&g_ms_state);
+    if (st == 0 ? g_settings.skip_mode_select : st == 1) return true;
+    if (!g_settings.skip_intro || g_settings.skip_mode_select) return false;  // (mode select replaces Skip intro)
+    bool title_up = g_boot_hook_first && renderer_present_count() - g_boot_hook_at >= 30;
+    return !title_up;
+}
+
 // Hardened against slow starts: a press only goes out once the game has run at a steady frame rate for 2 s (first-run
 // shader compiles and asset loads stall the frames, and a press during a stall is lost), the settle delays count in
 // presented frames (so they stretch with a slow machine), and the player's own buttons cancel the sequence.
@@ -115,31 +138,47 @@ static void *ms_driver(void *arg) {
     uint64_t next_at = 0, win_frames = 0, steady_since = 0;
     double win_t = 0;
     size_t step = 0;
+    bool latched = false, enabled = false, finished = false;
+    unsigned epoch = atomic_load(&g_ms_epoch);
+    uint64_t base = 0;  // (the frame this boot began at)
     bool logging = getenv("RECOMP_SKIP_MODE_SELECT_LOG") != NULL, started = false;
     uint64_t last_target = ~0ull, done_at = 0;
     double t_start = 0;
     uint64_t g_ms_logged_at = 0;
     for (;;) {
         usleep(20000);
+        if (rt_reboot_requested()) continue;  // (the game is being torn down: its memory is about to be wiped)
         uint64_t now = renderer_present_count();
+        if (epoch != atomic_load(&g_ms_epoch)) {  // (a new boot: start over)
+            epoch = atomic_load(&g_ms_epoch);
+            next_at = win_frames = steady_since = done_at = 0;
+            win_t = t_start = 0;
+            step = 0, last_target = ~0ull, base = now;
+            latched = enabled = finished = started = false;
+            g_test_buttons = 0;
+            atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false);
+        }
         if (logging && now != g_ms_logged_at && now % 60 == 0) {
             g_ms_logged_at = now;
             LOG("[mod] skip mode select: (diag) frame %llu hooks first %llu last %llu state %llu\n", (unsigned long long)now,
                 (unsigned long long)g_boot_hook_first, (unsigned long long)g_boot_hook_at, (unsigned long long)g_boot_state);
         }
-        if (!g_settings.skip_mode_select) continue;
         uint64_t s = g64(SCENE_MGR);
         if (!s) continue;
+        // (the setting counts as it was when the game booted: turning it on in the menu does nothing until the next
+        // start, and turning it off mid-sequence lets the sequence finish)
+        if (!latched) latched = true, enabled = g_settings.skip_mode_select, atomic_store(&g_ms_state, enabled ? 1 : 2);
+        if (!enabled || finished) continue;
         uint32_t target = g32(s + 0x33c);
         if (logging && target != last_target) LOG("[mod] skip mode select: scene 0x%x at frame %llu\n", target, (unsigned long long)now);
         last_target = target;
         // The presses run unseen and unpaced (the window stays black), then Course World appears: the lease is
         // renewed while the sequence runs and let go ~1.5 s of game time after the last press, or after 120 s.
         if (!t_start) t_start = ms_wall();
-        if (ms_wall() - t_start > 120.0) { atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false); break; }
+        if (ms_wall() - t_start > 120.0) { atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2); continue; }
         if (step >= sizeof g_ms_steps / sizeof *g_ms_steps) {
             if (!done_at) done_at = now;
-            if (now - done_at >= 90) { atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false); break; }
+            if (now - done_at >= 90) { atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2); continue; }
         }
         atomic_store(&g_present_hidden, 300), g_audio_muted = 1, atomic_store(&g_splash, true);
         {   // the loading bar: waiting for the title screen, then one fifth of the rest for each press, then Course World
@@ -149,7 +188,7 @@ static void *ms_driver(void *arg) {
                 p = 0.9f + 0.1f * (done_at ? fminf((float)(now - done_at) / 90.0f, 1.0f) : 0.0f);
                 g_splash_what = "Opening Course World";
             } else if (!started) {
-                p = 0.15f * fminf((float)now / 900.0f, 1.0f);
+                p = 0.15f * fminf((float)(now - base) / 900.0f, 1.0f);
                 g_splash_what = "Waiting for the title screen";
             } else {
                 p = 0.2f + 0.7f * (float)step / (float)nsteps;
@@ -162,7 +201,8 @@ static void *ms_driver(void *arg) {
             LOG("[mod] skip mode select: cancelled, the player pressed a button\n");
             g_test_buttons = 0;
             atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false);
-            break;
+            finished = true, atomic_store(&g_ms_state, 2);
+            continue;
         }
         // frame rate over one-second windows: steady = at least 45 fps and no change pending in the scene manager
         double t = ms_wall();
@@ -174,8 +214,10 @@ static void *ms_driver(void *arg) {
             win_t = t, win_frames = now;
         }
         // the title screen is up once the boot logo's hooks have run and gone quiet (with Skip intro off the logo plays
-        // for ~1100 frames and any press before then would be lost); if they never run, go after 2400 frames
-        bool title_up = (g_boot_hook_first && now - g_boot_hook_at >= 30) || now >= 2400;
+        // for ~1100 frames and any press before then would be lost); if they never run, go after 2400 frames. The title
+        // screen takes input some time after the hooks stop (it fades in): 30 frames was too early on some starts (the
+        // L+R was lost and the rest of the sequence did nothing), 190 worked, so wait 180
+        bool title_up = (g_boot_hook_first && now - g_boot_hook_at >= 180) || now - base >= 2400;
         if (!title_up || !steady_since || now - steady_since < 120) continue;
         if (!next_at) next_at = now + g_ms_steps[step].settle;
         if (now < next_at) continue;

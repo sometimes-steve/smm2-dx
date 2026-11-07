@@ -836,6 +836,8 @@ def get_units(cfg, version, lib_id, lib_srcs):
         if r in ('runtime/services/ssl.c', 'runtime/net/http.c', 'runtime/net/roots.c'):
             extra += mbed_flags
             dep = max(dep, mbed_dep)
+        if r == 'runtime/services/am.c':  # (the General tab's "Show recomp version": the title screen's Ver. box)
+            extra += [f'-DRECOMP_VERSION="{version}"']
         if r == 'runtime/nvn/smaa_data.c':
             extra += [f'-I{fwd(B / "inc")}', '-Ithird_party/smaa/Textures']
             dep = max(dep, mtime(smaa_inc))

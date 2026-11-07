@@ -347,7 +347,7 @@ size_t usermods_overlay(char *buf, size_t cap) {
         l += (size_t)w;
         LOG("[usermods] on: %s (%s, %d files)\n", g_e[i].m.name, g_e[i].m.id, g_e[i].m.nfiles);
     }
-    if (!g_started_set) identity_locked(g_started, sizeof g_started), g_started_set = true;
+    identity_locked(g_started, sizeof g_started), g_started_set = true;  // (each boot: what this start of the game used)
     pthread_mutex_unlock(&g_lock);
     return l;
 }
