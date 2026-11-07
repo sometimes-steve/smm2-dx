@@ -4,7 +4,7 @@
 
 <table align="center">
   <tr>
-    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/main-menu.png?raw=true" alt="The main menu" width="400"><br><sub>The main menu</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/main-window.png?raw=true" alt="The main window" width="400"><br><sub>The main window</sub></td>
     <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/course-world.png?raw=true" alt="Course World" width="400"><br><sub>Course World, online through OpenCourse World</sub></td>
   </tr>
   <tr>
