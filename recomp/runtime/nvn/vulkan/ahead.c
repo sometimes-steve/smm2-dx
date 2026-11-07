@@ -1,9 +1,9 @@
-// Shader compile-ahead for the Vulkan backend (shader_ahead.h; the Metal backend's is in renderer.m, the design and
-// measurements in recomp/docs/smm2-bringup.md "Shader compile-ahead"). Same order and sources as Metal's: the programs
+// Shader compile-ahead for the Vulkan backend (shader_ahead.h; the design and
+// measurements in recomp/docs/smm2-bringup.md "Shader compile-ahead"). The programs
 // the game sets (fresh ones first, the boot backlog oldest first), the game's shader files in the RomFS by rank, a
 // file the game reads or a game's hint first. Each is translated to GLSL as the first use will translate it and
-// compiled to SPIR-V into cache/spirv/ (shaders.c), where the first use then finds it: unlike Metal's shader cache, that
-// one is ours and stays. Left for the first use: the pipelines (the driver's compile; VkPipelineCache), programs with
+// compiled to SPIR-V into cache/spirv/ (shaders.c), where the first use then finds it: that
+// cache is ours and stays. Left for the first use: the pipelines (the driver's compile; VkPipelineCache), programs with
 // another key. One low-priority thread; it waits while the game is building (build_idle_ms()).
 // LARECOMP_AHEAD=0: off; =force: ignore the stamp (cache/ahead_vk.done). LARECOMP_AHEAD_QUIET_MS (1500).
 #include <SDL3/SDL_thread.h>
@@ -86,7 +86,7 @@ static void take_set(int wait_ms, double max_age_ms, int most) {
     }
 }
 
-// (the order: renderer.m's ahead_scanned)
+// (the order: ahead_scanned)
 static bool scanned(const AheadShader *s, void *ud) {
     (void)ud;
     take_set(0, 10000, 1 << 30);

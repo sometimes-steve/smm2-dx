@@ -10,10 +10,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
-#ifndef _WIN32
-#include <sys/mman.h>
-#include <unistd.h>
-#endif
 
 #include "../platform.h"  // (pread, mkdir on Windows)
 #include "../zstd_lib.h"
@@ -293,20 +289,11 @@ static void scan_file(Scan *s, const char *root, const char *rel) {
                 !memcmp(head, "BAHS", 4) || !memcmp(head, "VFXB", 4) || !memcmp(head, "FSHA", 4);
     if (!want) { close(fd); return; }
     size_t n = (size_t)sb.st_size;
-#ifndef _WIN32
-    void *m = mmap(NULL, n, PROT_READ, MAP_PRIVATE, fd, 0);
-    close(fd);
-    if (m == MAP_FAILED) return;
-    s->st->files++;
-    scan_blob(s, m, n, rel, 0);
-    munmap(m, n);
-#else
     uint8_t *m = malloc(n);
     bool ok = m && pread(fd, m, n, 0) == (ssize_t)n;
     close(fd);
     if (ok) { s->st->files++; scan_blob(s, m, n, rel, 0); }
     free(m);
-#endif
 }
 
 // Files the game has just read (shader_ahead_prefer): scanned next, ahead of the rest

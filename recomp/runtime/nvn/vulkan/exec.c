@@ -1,4 +1,4 @@
-// Executes recorded NVN command lists with Vulkan (port of renderer.m; same structure, same behaviour).
+// Executes recorded NVN command lists with Vulkan.
 #include <SDL3/SDL_cpuinfo.h>
 #include <SDL3/SDL_timer.h>
 #include <float.h>
@@ -415,7 +415,7 @@ void renderer_flush(void) {
     gpu_read_clear();
 }
 
-// Guest memory the GPU reads when it runs, not when we record (renderer.m has the same): vertex and index data bound
+// Guest memory the GPU reads when it runs, not when we record: vertex and index data bound
 // in place or copied at submission (guest_direct), storage buffers. Commands the guest GPU runs in order but we apply
 // on the CPU while recording (UpdateUniformBuffer) must not overwrite it under draws recorded and not yet run: SMM2
 // updates a buffer between draws that read it, and every draw saw the last update (3D World terrain stretched across
@@ -1766,7 +1766,7 @@ static void build_pipeline(void *arg) {
     else atomic_store(&pp->state, v);
 }
 
-// ================================================================== feedback snapshots (renderer.m resolve_feedback)
+// ================================================================== feedback snapshots
 static NvnTexture *feedback_tex[4];
 static VkImageView feedback_view[4];
 static int nfeedback;
@@ -1807,7 +1807,7 @@ static TexBackend *snapshot_image(NvnTexture *t, TexBackend *src) {
     }
     TexBackend *d = &s->copy;
     // (all mip levels: a pass drawing into one level of a texture while sampling another, as SMM2's bloom chain does
-    // from 200x114 down, reads that other level from the snapshot; renderer.m resolve_feedback)
+    // from 200x114 down, reads that other level from the snapshot)
     uint32_t nlv = src->samples > 1 || !src->levels ? 1 : src->levels;
     if (d->image && (d->width != src->width || d->height != src->height || d->format != src->format || d->levels != nlv)) {
         vk_views_forget(d);  // (resolution change)
@@ -2100,7 +2100,7 @@ static VkDescriptorBufferInfo ubo_span(VkSpan s, uint64_t size) {
     return (VkDescriptorBufferInfo){s.buf, s.off, size > max ? max : size};
 }
 
-// Constant buffer k of a stage (renderer.m bind_cbufs), copied into transient memory.
+// Constant buffer k of a stage, copied into transient memory.
 static VkDescriptorBufferInfo cbuf_info(int stage, ShaderInfo *si, int k, uint32_t gx, uint32_t gy, uint32_t gz) {
     static const uint8_t zeros[0x10000];
     if (k == 0) {
@@ -2146,7 +2146,7 @@ static VkDescriptorBufferInfo cbuf_info(int stage, ShaderInfo *si, int k, uint32
 }
 
 // Global memory (shader LDG/STG, maxwell_gmem_base = HEAP_BASE): the guest heap imported as a GPU buffer
-// (VK_EXT_external_memory_host), zero-copy like metal.m's g_guest_buffer, so compute results land in guest
+// (VK_EXT_external_memory_host), zero-copy, so compute results land in guest
 // memory. The import pins its pages, so it covers only the heap the game set up (SetHeapSize), made on first use.
 // LARECOMP_VK_NO_GMEM=1: no import, reads return zero.
 static VkBuffer gmem_buf;
@@ -2259,8 +2259,7 @@ static VkDescriptorBufferInfo gmem_desc(void) {
     return (VkDescriptorBufferInfo){s.buf, s.off, sizeof ab};
 }
 
-// Draw stages without the heap on the GPU (no host memory import: maxwell_glsl_gmap_gfx; Android's emulator, many
-// phones), where global memory reads gave zero (sm35recomp 3fce300: its course cards and menu rows lost their text):
+// Draw stages without the heap on the GPU (no host memory import: maxwell_glsl_gmap_gfx), where global memory reads gave zero (sm35recomp 3fce300: its course cards and menu rows lost their text):
 // the stage's bound storage buffers are copied from guest memory into this draw's transient memory, and the table
 // (binding GMAP_BUFFER_INDEX) says where each one sits - the compute fast path's scheme (gfast_prepare), filled by the
 // CPU. Buffers over 8 MB, or more than 16 MB in all, are left out (their reads give zero, as before).
@@ -2583,7 +2582,7 @@ void vc_flush(void) {
     vc_npend = 0;
 }
 
-// Vertex / index data from the imported guest heap (renderer.m bind_guest reads g_guest_buffer the same way): the
+// Vertex / index data from the imported guest heap: the
 // device-local cache above, else read in place - no per-draw copy, no index scan for the copy size. The game fences its
 // CPU writes as on the Switch. Falls back to copies outside the heap or without the import; LARECOMP_VK_COPY_VERTICES=1
 // forces copies.
@@ -2693,7 +2692,7 @@ static VkDescriptorSet stage_set(Prog *p, VkDescriptorSetLayout layout, uint32_t
     VkDescriptorImageInfo ii[MAX_BIND];
     int n = 0;
     int sg = stage == 1 ? 1 : 0;
-    float rs[66][4] = {{1, 1, 0, 0}};  // ([65]: mirror mode, renderer.m)
+    float rs[66][4] = {{1, 1, 0, 0}};  // ([65]: mirror mode)
     if (rscale_row0) memcpy(rs[0], rscale_row0, 16);
     rs[65][0] = g_mirror_w;
     bool gx_stage = stage != 5 && si->uses_gmem_map;  // (a draw stage on per-draw copies: gfx_gmap)
@@ -2863,7 +2862,7 @@ static void dispatch_compute(uint32_t gx, uint32_t gy, uint32_t gz) {
     // What the dispatch writes to guest memory is read by later draws as uniform buffers, which are copied from guest
     // memory when they are recorded - before the GPU has run the dispatch. Finishing the GPU work here puts the
     // results in guest memory first (SMM2 computes its scene lighting this way: without it the lights were zero and
-    // every frame black; renderer.m does the same). RECOMP_NO_COMPUTE_FLUSH=1: off.
+    // every frame black). RECOMP_NO_COMPUTE_FLUSH=1: off.
     static int no_flush = -1;
     if (no_flush < 0) no_flush = getenv("RECOMP_NO_COMPUTE_FLUSH") != NULL;
     if (!no_flush && cp->si->uses_gmem_store) { wait_why = "compute results"; renderer_flush(); }
@@ -2991,7 +2990,7 @@ static void pipe_key(const ExecState *s, const PassLayout *pl, Prog *pr, int top
     }
     for (uint32_t i = 0; i < k->ncolor && i < 8; i++) {
         if (!s->rt.color[i] || k->color[i] == VK_FORMAT_UNDEFINED) continue;
-        // Targets the fragment shader doesn't output keep their contents on Metal, but are undefined in Vulkan
+        // Targets the fragment shader doesn't output are undefined in Vulkan
         // (NVIDIA writes black): mask them. Foliage depth pre-passes left black silhouettes (user 2026-10-08).
         k->write_mask[i] = ((pr->fi->out_mask >> (i * 4)) & 0xF) ? (s->channel_mask >> (i * 4)) & 0xF : 0;
         if (((s->color_state[0] >> i) & 1) && !rt_kind(s->rt.color[i]->format)) {
@@ -3014,7 +3013,7 @@ static uint64_t prof_tp_;
 static void draw_(CmdRec *r, bool indexed) {
     if (prof) prof_tp_ = SDL_GetTicksNS();
     if (!st.program) SKIP_DRAW();
-    // Culling both faces (NVN Face FRONT_AND_BACK, polygon state 3) draws no polygons (as renderer.m; Vulkan's
+    // Culling both faces (NVN Face FRONT_AND_BACK, polygon state 3) draws no polygons (Vulkan's
     // FRONT_AND_BACK would too, but cull mode 3 isn't mapped below). SMM2's 3D World background keeps a clear pipe's
     // yellow stand-in mesh switched off this way.
     if (st.poly[0] == 3 && (uint32_t)r->x[0] >= 4) SKIP_DRAW();
@@ -3025,7 +3024,7 @@ static void draw_(CmdRec *r, bool indexed) {
     if (shader_mode() == SHADERS_PREFETCH) g_prefetch.unforeseen += g_prog_creates - made;
     if (!prog_ready(pr)) SKIP_DRAW();
     g_mirror_w = 0;
-    {   // mirror mode (runtime/hle/mirror.c; as renderer.m): the scene's composite into the window image is mirrored
+    {   // mirror mode (runtime/hle/mirror.c): the scene's composite into the window image is mirrored
         extern bool mirror_draw(bool composite);
         bool composite = false;
         if (st.rt.ncolor && st.rt.color[0] && renderer_texture_presented(st.rt.color[0]) && !(st.color_state[0] & 1) &&
@@ -3041,7 +3040,7 @@ static void draw_(CmdRec *r, bool indexed) {
             g_mirror_w = (float)st.rt.color[0]->width;
         }
     }
-    {   // fragment-shader hash: interior backdrop detection (widescreen), skip lists, item twinkle (renderer.m)
+    {   // fragment-shader hash: interior backdrop detection (widescreen), skip lists, item twinkle
         static uint64_t last_fs, last_hash;
         uint64_t fs = st.program->stages[1].code_addr;
         if (fs != last_fs) {
@@ -3200,7 +3199,7 @@ static void draw_(CmdRec *r, bool indexed) {
     VkCullModeFlags cm = cull == 1 ? VK_CULL_MODE_FRONT_BIT : cull == 2 ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE;
     if (ss_need(SS_CULL, ss.cull == cm)) { ss.cull = cm; vkCmdSetCullMode(cb, cm); }
     bool ccw = st.poly[1] == 1;
-    static int flipw = -1;  // LARECOMP_VK_FLIP_WINDING: invert the front-face mapping (A/B against Metal)
+    static int flipw = -1;  // LARECOMP_VK_FLIP_WINDING: invert the front-face mapping
     if (flipw < 0) flipw = getenv("LARECOMP_VK_FLIP_WINDING") != NULL;
     bool front_ccw = (ccw != vkey.flip_y) != (flipw != 0);
     VkFrontFace ff = front_ccw ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
@@ -3274,7 +3273,7 @@ static void draw_(CmdRec *r, bool indexed) {
     }
     if (prof) prof_tex += SDL_GetTicksNS() - prof_tx_;
     if (fabsf(pass_sx - pass_sy) > 0.01f * pass_sy && st.rt.ncolor && renderer_texture_presented(st.rt.color[0])) {
-        // Draws into the swapchain image (see renderer.m): composites fill the window, UI goes in a centred 16:9 box.
+        // Draws into the swapchain image composites fill the window, UI goes in a centred 16:9 box.
         bool reads_scene = false;
         for (int i = 0; i < pr->fi->ntex && i < 64; i++)
             if ((tex_sc[1][i][0] != 1 || tex_sc[1][i][1] != 1) && tex_wh[1][i][0] == st.rt.color[0]->width &&
@@ -3430,7 +3429,7 @@ static void draw_(CmdRec *r, bool indexed) {
     // ---- draw
     // Instanced draws with item spots among their instances (bushsanity: bushes are drawn in batches, each instance's
     // model matrix in vertex storage buffer 0, indexed by instance id): drawn as runs of instances, gold runs tinted
-    // (as renderer.m; gl_InstanceIndex includes the base instance, so a run [b + k, b + k + n) draws exactly those).
+    // (gl_InstanceIndex includes the base instance, so a run [b + k, b + k + n) draws exactly those).
     enum { MAX_RUNS = 64 };
     uint32_t run_at[MAX_RUNS], run_n[MAX_RUNS];
     bool run_gold[MAX_RUNS];
@@ -3539,7 +3538,7 @@ static void debug_draw(Prog *pr, CmdRec *r, bool indexed) {
             b && b->scalable ? " scalable" : "", pr->fi->tex[i].type, pr->fi->tex[i].shadow ? " shadow" : "", t->label, t->target,
             (unsigned long long)t->addr, b && b->uploaded ? " uploaded" : "", b && b->gpu_owned ? " gpu-owned" : "", b ? b->refs : 0);
     }
-    LOG("[draw]   streams:");  // (as renderer.m: attribute format / stream / offset, stream stride / divisor)
+    LOG("[draw]   streams:");  // (attribute format / stream / offset, stream stride / divisor)
     for (int i = 0; i < st.nattrib; i++) LOG(" a%d(f%#x s%u o%u)", i, st.attrib[i] & 0xFF, (st.attrib[i] >> 8) & 0x1F, st.attrib[i] >> 13);
     for (int i = 0; i < 12; i++)
         if (st.vbuf[i].addr) LOG(" vb%d(%llx,%llu,stride %u div %u)", i, (unsigned long long)st.vbuf[i].addr, (unsigned long long)st.vbuf[i].size,
@@ -3784,7 +3783,7 @@ static VkPipeline present_pipeline(VkFormat fmt) {
     return p;
 }
 
-// Scanout shows the bytes the game wrote: sRGB images are read through a UNORM view (no decode), like metal.m.
+// Scanout shows the bytes the game wrote: sRGB images are read through a UNORM view (no decode).
 static VkImageView raw_view(TexBackend *b) {
     VkFormat f = b->format == VK_FORMAT_R8G8B8A8_SRGB ? VK_FORMAT_R8G8B8A8_UNORM
                : b->format == VK_FORMAT_B8G8R8A8_SRGB ? VK_FORMAT_B8G8R8A8_UNORM : b->format;
@@ -3793,8 +3792,8 @@ static VkImageView raw_view(TexBackend *b) {
 }
 
 // ---- post passes (Video tab "Anti-aliasing" / "Upscaler"): SMAA 1x at the game image's size, then AMD FSR 1 (EASU
-// upscale to the image's size in the window, RCAS sharpen) when it is smaller than its place in the window, as
-// metal.m does with MetalFX. Each pass: a fullscreen triangle into an RGBA8 image (gamma-encoded, like the input);
+// upscale to the image's size in the window, RCAS sharpen) when it is smaller than its place in the window. Each
+// pass: a fullscreen triangle into an RGBA8 image (gamma-encoded, like the input);
 // up to four inputs (bindings 0-3), sampled linear / clamp. Frame generation's passes (framegen_src.c) are post passes
 // too, some into RGBA16F images.
 static VkPipelineLayout post_layout;
@@ -4004,7 +4003,7 @@ void vk_present_draw(VkCommandBuffer cb, TexBackend *b, float vx, float vy, floa
     vkCmdSetViewport(cb, 0, 1, &full);
 }
 
-// ---- frame generation (runtime/nvn/framegen.h; the passes: framegen_src.c, as framegen_metal.m encodes them)
+// ---- frame generation (runtime/nvn/framegen.h; the passes: framegen_src.c)
 TexBackend *vk_framegen_image(int i, uint32_t w, uint32_t h) { return post_image(FG_GAME + i, w, h, VK_FORMAT_R8G8B8A8_UNORM); }
 
 // Inside the window image's rendering: src over all of it
@@ -4161,7 +4160,7 @@ void renderer_save_texture_tex(TexBackend *b, const char *path) {
     vmaDestroyImage(g_vk.vma, img, mem);
 }
 
-// ================================================================== executor (renderer.m exec_list)
+// ================================================================== executor
 // Binding-state commands: s updated, nothing else touched (the executor and the prefetch scan share it). false:
 // not one of them.
 static bool apply_state(ExecState *s, const CmdRec *r) {
@@ -4263,7 +4262,7 @@ static void exec_list(uint64_t handle, int depth) {
             for (uint64_t i = 0; i < r->x[0] && depth < 8; i++) exec_list(h[i], depth + 1);
             break;
         }
-        case CMD_SET_RENDER_ENABLE:  // (runtime/nvn/cmdbuf.c; as renderer.m)
+        case CMD_SET_RENDER_ENABLE:  // (runtime/nvn/cmdbuf.c)
             if (r->x[2]) {  // conditional: the counters at x1 and x1 + 16 (mode 0: render if equal, 1: if different)
                 const uint64_t *q = (const uint64_t *)(uintptr_t)r->x[1];
                 bool eq = q ? q[0] == q[2] : true;
@@ -4309,7 +4308,7 @@ static void exec_list(uint64_t handle, int depth) {
             break;
         }
         case CMD_CLEAR_TEXTURE: {
-            // ClearTexture(cmd, texture, view, region, color, mask): a render-target clear of the texture alone (renderer.m)
+            // ClearTexture(cmd, texture, view, region, color, mask): a render-target clear of the texture alone
             const struct { uint64_t tex; NvnTextureView view; uint8_t has_view; int32_t region[6]; float color[4]; } *ct = x;
             NvnTexture *t = (NvnTexture *)(uintptr_t)ct->tex;
             if (!t) break;
@@ -4432,7 +4431,7 @@ static void exec_list(uint64_t handle, int depth) {
     }
 }
 
-// ================================================================== shader prefetch (as renderer.m)
+// ================================================================== shader prefetch
 // Before a submission runs, its lists are walked on a copy of the state (the shadow) and the programs and pipelines
 // their draws will need start building, side by side (docs/superpowers/specs/2026-10-20-shader-prefetch-design.md).
 // Advisory only: a draw the scan got wrong builds its own and waits, as without it.

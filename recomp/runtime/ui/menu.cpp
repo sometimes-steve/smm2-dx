@@ -1,14 +1,8 @@
-// In-game overlay menu built with Dear ImGui (Metal renderer on macOS, Vulkan elsewhere; input fed from SDL events).
+// In-game overlay menu built with Dear ImGui (Vulkan; input fed from SDL events).
 //
 // Threads: SDL events arrive on the main thread and are queued; the menu is laid out and drawn on the
 // render thread inside backend_present, after the game image, into the same drawable.
-#ifdef __APPLE__
-#import <Metal/Metal.h>
-#endif
 #include <SDL3/SDL.h>
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
 #include "../game.h"
 #include <math.h>
 #include <pthread.h>
@@ -20,12 +14,8 @@
 #include "theme_draw.h"
 #include "imgui_internal.h"  // (NavCursorVisible)
 #include "osk.h"
-#ifdef __APPLE__
-#include "imgui_impl_metal.h"
-#else
 #include "imgui_impl_vulkan.h"
 extern "C" bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.cpp
-#endif
 
 extern "C" {
 #include "../game_rows.h"
@@ -198,7 +188,7 @@ bool menu_handle_event(const SDL_Event *e) {
     case SDL_EVENT_KEY_DOWN:
         if (!e->key.repeat && (e->key.scancode == SDL_SCANCODE_F1 ||
                                ((e->key.scancode == SDL_SCANCODE_ESCAPE || e->key.scancode == SDL_SCANCODE_AC_BACK) &&
-                                !g_open.load()))) {  // (AC_BACK: Android's Back)
+                                !g_open.load()))) {
             if (!typing) set_open(!g_open.load());  // (Esc with the menu open goes to ImGui below: it cancels a field)
             return true;
         }
@@ -301,13 +291,7 @@ void menu_apply_window_requests(void *win) {
     SDL_Window *w = (SDL_Window *)win;
     g_pixel_density = SDL_GetWindowPixelDensity(w);
     static bool text_input;
-#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
-    // (iOS, Android: text input brings up the system keyboard - only for a text field or the name entry, not the whole
-    // menu)
-    bool want_text = (g_open.load() && g_text_busy.load()) || (g_kbd.load() == 1 && !g_last_pad.load());
-#else
     bool want_text = capturing();
-#endif
     if (want_text != text_input) {
         if (want_text) SDL_StartTextInput(w);
         else SDL_StopTextInput(w);
@@ -316,9 +300,7 @@ void menu_apply_window_requests(void *win) {
     static bool first = true;
     if (first || g_want_fullscreen_apply.exchange(false)) {
         first = false;
-#if !(defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) && !defined(__ANDROID__)  // (iOS, Android: always the whole screen)
         SDL_SetWindowFullscreen(w, g_settings.fullscreen);
-#endif
     }
 }
 
@@ -333,7 +315,7 @@ extern "C" const unsigned int g_nes_font_ttf_len;
 static int g_tab, g_tab_request = -2;  // (-2: no request; -1 is the Prelaunch tab)
 static int g_focus_tab = -99;  // put the nav cursor on this tab next frame (-100: the selected one; -99: none)
 static int g_focus_frames;
-// The fonts are rasterised at the output's size (up to twice the 1080 p sizes), so text on an iPad or a 4K screen is
+// The fonts are rasterised at the output's size (up to twice the 1080 p sizes), so text on a 4K screen is
 // as sharp as at 1080 p rather than a scaled-up 1080 p atlas
 static float g_atlas_scale = 1;
 
@@ -447,11 +429,7 @@ static void style_init(void) {
 }
 
 
-#ifdef __APPLE__
-static void init(id<MTLDevice> dev) {
-#else
 static void init(void) {
-#endif
     IMGUI_CHECKVERSION();
     g_ctx = ImGui::CreateContext();
     ImGui::SetCurrentContext(g_ctx);
@@ -497,31 +475,15 @@ static void init(void) {
     if (!g_font_big) g_font_big = g_font;
     if (!g_menu_font || !g_menu_font_big) g_menu_font = g_font, g_menu_font_big = g_font_big;
     style_init();
-#ifdef __APPLE__
-    ImGui_ImplMetal_Init(dev);
-#else
     vk_imgui_backend_init();
-#endif
     g_inited = true;
 }
 
-// Touch: the last pointer input was a finger (SDL's mice made up from touches; the iPhone / iPad from the start). The
+// Touch: the last pointer input was a finger (SDL's mice made up from touches). The
 // menu then has bigger rows, tabs and scrollbars, and a drag scrolls the page.
-static bool g_touch_ui =
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-    true;
-#else
-    false;
-#endif
-// What a pointer event says: on the iPhone / iPad always touch - iPadOS hands a pointer event over when the app comes
-// back from another one, which turned the rows compact (the text fields lost their margins: owner, 2026-10-30)
+static bool g_touch_ui = false;
 static bool touch_layout(bool touch) {
-#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
-    (void)touch;
-    return true;
-#else
     return touch;
-#endif
 }
 
 // The clipboard's text (kept until the next call: SDL's copy is freed), "" when there is none
@@ -543,7 +505,7 @@ static void drain_events(ImGuiIO &io) {
         case QEvent::ANALOG: io.AddKeyAnalogEvent(q.key, q.value > 0.1f, q.value); break;
         // A finger is a touch screen to ImGui: its press comes a frame after the move (there is no hover before a
         // tap), so a single tap selects a tab or a row (as a mouse's press, it came in the same frame as the jump to
-        // the new spot, and the first tap often only moved there: tabs needed a double tap on the iPad)
+        // the new spot, and the first tap often only moved there: tabs needed a double tap)
         case QEvent::MOUSE_POS:
             io.AddMouseSourceEvent(q.touch ? ImGuiMouseSource_TouchScreen : ImGuiMouseSource_Mouse);
             io.AddMousePosEvent(q.x, q.y);
@@ -663,16 +625,10 @@ static void tab_display(void) {
             snprintf(d + n, sizeof d - n, " Dynamic: %.0f%% of the display right now.", output_scale_dynamic_factor() * 100);
         if (opt_choice("Internal resolution", &ri, res, NRES, RES_MATCH_AT, d, false)) g_settings.res_mode = res_mode[ri];
     }
-    {   // each OS's own upscaler next to bilinear (UPSCALE_SHARP: MetalFX on macOS, AMD FSR 1 on Windows)
-#ifdef __APPLE__
-        static const char *ups[] = {"Bilinear", "MetalFX"};
-        const char *ud = "How the image is scaled up to the window when it renders at a lower resolution. MetalFX: Apple's "
-                         "upscaler, sharper. Bilinear: plain and soft.";
-#else
+    {   // the upscaler next to bilinear (UPSCALE_SHARP: AMD FSR 1)
         static const char *ups[] = {"Bilinear", "AMD FSR 1"};
         const char *ud = "How the image is scaled up to the window when it renders at a lower resolution. AMD FSR 1: "
                          "edge-aware upscaling and sharpening, sharper. Bilinear: plain and soft.";
-#endif
         int ui = g_settings.upscaler == UPSCALE_BILINEAR ? 0 : 1;
         char udm[512];
         if (g_settings.res_mode == RES_MATCH) {  // (renders at the window's size: nothing to scale up)
@@ -686,13 +642,8 @@ static void tab_display(void) {
     opt_choice("Anti-aliasing", &g_settings.antialias, aa, 2, AA_OFF,
                "Smooths jagged edges of the game image before it is scaled to the window. SMAA: finds the edges and "
                "blends only along them, so textures stay sharp. Most useful at a lower internal resolution.");
-#if defined(__APPLE__)
-    static const char *fg[] = {"Off", "120 fps", "120 fps (replay)"};
-    int nfg = 3;
-#else
     static const char *fg[] = {"Off", "120 fps"};
     int nfg = 2;
-#endif
     opt_choice("Frame generation", &g_settings.frame_gen, fg, nfg, FRAMEGEN_OFF,
                "Adds a generated frame between each pair of real frames for 120 fps on 120 Hz displays (ProMotion, "
                "high-refresh monitors). The game itself still runs at 60. Adds a little input lag; fast motion may show "
@@ -779,18 +730,14 @@ static void tab_online(void) {
 // Quit: back to the start screen (in game: the game reboots to it) or out to the desktop. Each asks first (progress
 // since the last save is lost); B / Esc or Cancel backs out.
 extern "C" void rt_request_reboot(int kind);  // runtime/main.c (RT_REBOOT_TITLE = 2: the start screen)
-// "v0.5.3" and, in an app bundle (iOS, the macOS app), its build number: "v0.5.3 (330)"
+// "v0.5.3"
 #ifndef RECOMP_VERSION
-#define RECOMP_VERSION "dev"  // (the Makefile passes the tag or git's description)
+#define RECOMP_VERSION "dev"  // (the build passes the tag or git's description)
 #endif
 static const char *app_version(void) {
     static char v[64];
     if (!v[0]) {
         snprintf(v, sizeof v, "%s", RECOMP_VERSION);
-#ifdef __APPLE__
-        NSString *b = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"];
-        if (b.length && ![b isEqualToString:@"1"]) snprintf(v + strlen(v), sizeof v - strlen(v), " (%s)", b.UTF8String);
-#endif
     }
     return v;
 }
@@ -1006,7 +953,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
             snprintf(lbl, sizeof lbl, prelaunch ? " %s " : "  %s  ", t.name);  // (ten tabs: tighter, so none is cut short)
             ImGui::BeginDisabled(!t.on);  // (out of the game: Save Editor, Warp, Cheats)
             // focus (controller / keyboard): the tab lights up a little with a gold bar along its bottom, instead of
-            // ImGui's outline (it sits 4 px outside the tab and the tab bar's clipping could cut its top off on macOS)
+            // ImGui's outline (it sits 4 px outside the tab and the tab bar's clipping could cut its top off)
             // (focused_tab: from the frame before - colours go in before the tab is drawn)
             bool lit = focused_tab == t.id && ImGui::GetCurrentContext()->NavCursorVisible;
             ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4(0, 0, 0, 0));
@@ -1089,28 +1036,13 @@ void menu_tabs_draw(float scale, ImFont *font, ImFont *font_big, bool in_game, v
 // ---- a game's host-drawn screen (game_overlay_image, runtime/game_hooks.c): one RGBA8 image, drawn first (under the
 // menu) into the 16:9 rectangle of the window; when it covers the game the rest of the window goes black.
 extern "C" const uint8_t *game_overlay_image(int *w, int *h, int *full, uint64_t *seq);
-#ifndef __APPLE__
 extern "C" uint64_t vk_imgui_texture_stream(const void *rgba, int w, int h);  // runtime/nvn/vulkan/imgui_glue.cpp
-#endif
 static void game_overlay_draw(const uint8_t *img, int w, int h, bool full, uint64_t seq, ImVec2 disp) {
     static uint64_t shown = ~0ull;
     ImTextureID tid = 0;
-#ifdef __APPLE__
-    static id<MTLTexture> tex;
-    if (!tex || (int)tex.width != w || (int)tex.height != h) {
-        MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                                                                     width:w height:h mipmapped:NO];
-        d.usage = MTLTextureUsageShaderRead;
-        tex = [MTLCreateSystemDefaultDevice() newTextureWithDescriptor:d];
-        shown = ~0ull;
-    }
-    if (seq != shown) [tex replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:img bytesPerRow:(NSUInteger)w * 4];
-    tid = (ImTextureID)(intptr_t)(__bridge void *)tex;
-#else
     static uint64_t vk_id;
     if (seq != shown || !vk_id) vk_id = vk_imgui_texture_stream(img, w, h);
     tid = (ImTextureID)vk_id;
-#endif
     shown = seq;
     float s = fminf(disp.x / w, disp.y / h), dw = w * s, dh = h * s, x = (disp.x - dw) / 2, y = (disp.y - dh) / 2;
     ImDrawList *dl = ImGui::GetBackgroundDrawList();
@@ -1189,35 +1121,15 @@ static void touch_drag_scroll(ImGuiIO &io, float scale) {
 
 static bool g_drew;  // the last menu_render drew (menu_redraw draws it again)
 
-#ifdef __APPLE__
-void menu_redraw(id<MTLDevice> dev, id<MTLCommandBuffer> cb, id<MTLTexture> target) {
-    (void)dev;
-    if (!g_drew) return;
-    ImGui::SetCurrentContext(g_ctx);
-    MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
-    rp.colorAttachments[0].texture = target;
-    rp.colorAttachments[0].loadAction = MTLLoadActionLoad;
-    rp.colorAttachments[0].storeAction = MTLStoreActionStore;
-    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
-    ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
-    [enc endEncoding];
-}
-#else
 void menu_redraw(void *cmd, uint32_t target_w, uint32_t target_h) {
     (void)target_w, (void)target_h;
     if (!g_drew) return;
     ImGui::SetCurrentContext(g_ctx);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), (VkCommandBuffer)cmd);  // inside the window image's rendering
 }
-#endif
 
-#ifdef __APPLE__
-void menu_render(id<MTLDevice> dev, id<MTLCommandBuffer> cb, id<MTLTexture> target) {
-    const double tw = target.width, th = target.height;
-#else
 void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     const double tw = target_w, th = target_h;
-#endif
     bool open = g_open.load();
     bool kbd = g_kbd.load() == 1;
     int ov_w = 0, ov_h = 0, ov_full = 0;
@@ -1232,11 +1144,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         return;
     }
     if (!g_inited) g_atlas_scale = th / 1080.0 < 1 ? 1.0f : th / 1080.0 > 2 ? 2.0f : (float)(th / 1080.0);
-#ifdef __APPLE__
-    if (!g_inited) init(dev);
-#else
     if (!g_inited) init();
-#endif
     ImGui::SetCurrentContext(g_ctx);
     ImGuiIO &io = ImGui::GetIO();
     io.DisplaySize = ImVec2((float)tw, (float)th);
@@ -1251,12 +1159,6 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     if (scale < 0.45f) scale = 0.45f;
     io.FontGlobalScale = scale / g_atlas_scale;
 
-#ifdef __APPLE__
-    MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
-    rp.colorAttachments[0].texture = target;
-    rp.colorAttachments[0].loadAction = MTLLoadActionLoad;
-    rp.colorAttachments[0].storeAction = MTLStoreActionStore;
-#endif
     // spacing/rounding follow the output size too (style tuned for 1080 p)
     static ImGuiStyle base;
     static float style_scale = -1;
@@ -1269,11 +1171,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGui::GetStyle().ScaleAllSizes(scale);
         style_scale = scale;
     }
-#ifdef __APPLE__
-    ImGui_ImplMetal_NewFrame(rp);
-#else
     ImGui_ImplVulkan_NewFrame();
-#endif
     ImGui::NewFrame();
     if (splash) splash_draw(io.DisplaySize, splash_p, splash_what);
     if (ov_img) game_overlay_draw(ov_img, ov_w, ov_h, ov_full, ov_seq, io.DisplaySize);
@@ -1397,11 +1295,5 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     ImGui::Render();
     g_drew = true;
     g_text_busy = open && ui_text_busy();
-#ifdef __APPLE__
-    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
-    ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
-    [enc endEncoding];
-#else
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), (VkCommandBuffer)cmd);  // inside the window image's rendering
-#endif
 }

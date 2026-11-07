@@ -14,11 +14,9 @@ void rt_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 #define FATAL(...) (fprintf(stderr, "FATAL: " __VA_ARGS__), rt_fatal_trace())
 
 // ---- address space layout (guest addresses == host addresses)
-// macOS reserves 0x2_0000_0000-0x70_0000_0000, and guest addresses must fit in 39 bits, so the
-// guest lives in a 12.5 GB window at 0x70_0000_0000 claimed at startup (see main.c). iOS 27 with the
-// extended-virtual-addressing entitlement gives an app up to 0x80_0000_0000 and keeps 0x2_ee00_0000-0x70_0000_0000
-// for itself, so the same window works there (measured on an iPad Pro M5). The window can move (a system with less
-// address space): make GUEST_ORIGIN=<base> generates the game code for that base and builds the runtime with it.
+// Guest addresses must fit in 39 bits, so the guest lives in a 12.5 GB window at 0x70_0000_0000 claimed at startup
+// (see main.c). The window can move: GUEST_ORIGIN=<base> is the base the game code is generated for and the runtime
+// is built with.
 #ifndef GUEST_ORIGIN
 #define GUEST_ORIGIN 0x7000000000ull
 #endif
@@ -85,7 +83,7 @@ int rt_reboot_requested(void);
 extern volatile int g_rt_unwind;   // set while guest threads are being stopped (kernel.c)
 void rt_unwind_point(void);        // guest threads: unwind to thread_main if a reboot is stopping them
 
-// ---- ui (runtime/nvn/metal.m)
+// ---- ui (runtime/nvn/vulkan/device.c)
 int ui_run(void);  // window loop; returns the reboot kind requested (the window stays open)
 
 // ---- helpers

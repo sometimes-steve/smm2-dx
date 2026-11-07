@@ -18,30 +18,29 @@ You need all of these, from your own console:
 ## Building on Windows
 
 The **Build Helper** builds everything on Windows with nothing to install first: no MSYS2, no Visual Studio, no
-compiler. It needs only Windows 10 or 11 (PowerShell and the `curl` and `tar` that come with Windows).
+compiler. It needs only Windows 10 or 11 (the `curl` and `tar` that come with Windows).
 
 ```
 cmd /c "git clone https://github.com/sometimes-steve/smm2-dx smm2-dx && cd smm2-dx && build-helper.cmd"
 ```
 
-That one line works from cmd or PowerShell and clones into `smm2-dx\` in the current folder. To rebuild later, run `build-helper.cmd` inside it, with options such as `-Package` after it. It fetches what it needs, builds, and
+That one line works from cmd or PowerShell and clones into `smm2-dx\` in the current folder. To rebuild later, run `build-helper.cmd` inside it, with options such as `--clean` after it. It fetches what it needs, builds, and
 leaves the finished app in `dist\`: `smm2-dx-windows-x86_64.exe` and one folder, `smm2-dx_data\`, which holds the runtime, its
 DLLs, Python, zig, hactool, your saves and settings, and `work\` (the build's intermediates and fetched tools). Keep the
 exe and its folder together. No game dump is needed to build.
 
 | Option | What it does |
 |---|---|
-| `-Package` | also writes `dist\SMM2Recomp-windows-x86_64.zip`, the exe and `smm2-dx_data` with nothing from the game |
-| `-Run` | starts the app when the build is done |
-| `-NoBanner` | skips the picture. By default the picture stays on the left of the window and the log scrolls beside it (shrunk to fit small windows) |
-| `-Clean` | deletes the compiled objects first (the fetched tools are kept) |
-| `-Jobs n` | files compiled at once (default: one per logical processor) |
+| `--run` | starts the app when the build is done |
+| `--no-banner` | prints a one-line header instead of the title banner |
+| `--clean` | deletes the compiled objects first (the fetched tools are kept) |
+| `--jobs n` | files compiled at once (default: one per logical processor) |
 
 ### Where everything comes from
 
 Nothing below is stored in this repo. **Everything can be pulled by the Build Helper, or downloaded by hand.** The Build
 Helper downloads each piece from the source below and checks it against a pinned sha256 (listed in
-`recomp/tools/dx-toolchain.ps1`). A piece that is missing, half fetched or broken is fetched again on the next run.
+`recomp/tools/build.py`; the Python one also in `build-helper.cmd`). A piece that is missing, half fetched or broken is fetched again on the next run.
 
 To download a piece yourself instead, save the file under the name shown into `dist\smm2-dx_data\work\dl\` (in the
 folder shown). If the file's sha256 matches, the Build Helper uses it and doesn't download anything.
@@ -57,8 +56,8 @@ folder shown). If the file's sha256 matches, the Build Helper uses it and doesn'
 
 #### Pinned sha256
 
-A file is used only if its sha256 matches. Check one by hand with `Get-FileHash <file>` in PowerShell. The same values are
-in `recomp/tools/dx-toolchain.ps1`.
+A file is used only if its sha256 matches. Check one by hand with `certutil -hashfile <file> SHA256`. The same values are
+in `recomp/tools/build.py` (the Python one also in `build-helper.cmd`).
 
 | File | sha256 |
 |---|---|
@@ -74,7 +73,7 @@ in `recomp/tools/dx-toolchain.ps1`.
 
 The Python packages (capstone, unicorn, lz4) are checked by pip against the hashes in `recomp/tools/requirements-gen.txt`.
 
-Then `recomp/tools/dx-stage.ps1` copies the recompiler scripts, the headers the game code is built against, and the
+Then `recomp/tools/build.py` copies the recompiler scripts, the headers the game code is built against, and the
 licenses into `smm2-dx_data`, so the app finds everything beside itself.
 
 The game files, keys and firmware are never downloaded. You supply those through the setup screen.

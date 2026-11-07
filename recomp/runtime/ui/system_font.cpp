@@ -1,14 +1,9 @@
-// The overlay menu's text font (system_font.h): a system font file ImGui can load. The known paths first (the Mac's,
-// Windows', Linux's, Android's), then on Apple systems the file CoreText reports for Avenir Next or Helvetica: iOS keeps
-// its fonts elsewhere, and without one the menu fell back to ImGui's built-in 13 px bitmap font (tiny on an iPad).
+// The overlay menu's text font (system_font.h): a system font file ImGui can load. The known paths are tried in order;
+// without one the menu falls back to ImGui's built-in 13 px bitmap font.
 #include "system_font.h"
 
 #include <stdio.h>
 #include <sys/stat.h>
-
-#ifdef __APPLE__
-#import <CoreText/CoreText.h>
-#endif
 
 static bool exists(const char *p) {
     struct stat st;
@@ -25,27 +20,5 @@ bool ui_system_font(char *path, size_t n, int *face) {
             *face = 0;
             return (size_t)snprintf(path, n, "%s", p) < n;
         }
-#ifdef __APPLE__
-    return ui_system_font_coretext(path, n, face);
-#else
-    return false;
-#endif
-}
-
-#ifdef __APPLE__
-bool ui_system_font_coretext(char *path, size_t n, int *face) {
-    static const CFStringRef names[] = {CFSTR("AvenirNext-Regular"), CFSTR("Helvetica")};
-    for (CFStringRef name : names) {
-        CTFontDescriptorRef d = CTFontDescriptorCreateWithNameAndSize(name, 12);
-        CFURLRef url = d ? (CFURLRef)CTFontDescriptorCopyAttribute(d, kCTFontURLAttribute) : NULL;
-        bool ok = url && CFURLGetFileSystemRepresentation(url, true, (UInt8 *)path, (CFIndex)n) && exists(path);
-        if (url) CFRelease(url);
-        if (d) CFRelease(d);
-        if (ok) {
-            *face = 0;
-            return true;
-        }
-    }
     return false;
 }
-#endif

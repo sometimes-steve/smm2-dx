@@ -1,7 +1,7 @@
 """The known-good Super Mario Maker 2 v3.0.3 dumps: identifiers of the player's own files, never the files.
 
 setup.py checks a dump against these before anything is built from it; the launcher (runtime/ui/launcher.cpp) runs
-setup.py, and scripts/check_package.py uses the hashes to make sure no release package carries the game's code.
+setup.py.
 
 - NSO build ids (module ids) name a build of the code: the recomp's addresses, patches and findings are for v3.0.3's.
 - SHA-256 of the extracted ExeFS files: the same for every v3.0.3 dump (NSP, XCI, an emulator's extraction), since the

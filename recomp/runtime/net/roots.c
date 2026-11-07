@@ -1,8 +1,8 @@
 // Embedded root certificates (runtime/net/roots.h): the roots a public server's chain ends in (Let's Encrypt's
 // among them: OpenCourse World's), plus the Google roots, so
-// a machine with no usable system bundle (iOS, Android, a bare Linux) still verifies it; and USERTrust RSA, where
-// GameBanana's file server's chain ends (mod downloads: runtime/gamebanana.c). Public data, copied from the
-// macOS system root store; each one's SHA-256 fingerprint is in the comment above it.
+// a machine with no usable system bundle still verifies it; and USERTrust RSA, where
+// GameBanana's file server's chain ends (mod downloads: runtime/gamebanana.c). Public data, copied from a
+// system root store; each one's SHA-256 fingerprint is in the comment above it.
 #include "roots.h"
 
 const char *net_root_pems(void) {

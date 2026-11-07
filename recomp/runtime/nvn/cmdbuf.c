@@ -351,7 +351,7 @@ PLAIN(nvnCommandBufferSetPointSize, CMD_SET_POINT_SIZE)
 PLAIN(nvnCommandBufferSetSampleMask, CMD_SET_SAMPLE_MASK)
 // Render enable: SetRenderEnable(enable) / SetRenderEnableConditional(mode, counters). The condition compares the
 // two 64-bit counter values at counters and counters + 16 (mode 0: render if equal, 1: if not equal) when executed,
-// so reports written earlier in the same submission count (runtime/nvn/renderer.m). SMM2 clears a render target
+// so reports written earlier in the same submission count. SMM2 clears a render target
 // on its first bind each frame this way: every bind records a clear guarded by a report that the clear resets.
 NVN(nvnCommandBufferSetRenderEnable) {
     Snap s = snap(c);

@@ -308,9 +308,8 @@ static KThread *thread_new(uint64_t entry, uint64_t arg, uint64_t stack_top, int
 
 // Joins the host threads of guest threads that have ended. Until then an ended thread's stack is freed but a small
 // piece of it stays mapped, so the 256 MB hole it leaves is too small for the next stack and every new thread takes
-// fresh address space. The game starts about 8 threads per course; on iOS, whose address space is far smaller than
-// macOS's, the threads of a session's 11th course could no longer be created and the course never came (a black
-// screen with the map's music, 2026-11-01).
+// fresh address space. The game starts about 8 threads per course; without the join the threads of a session's 11th
+// course could no longer be created and the course never came (a black screen with the map's music, 2026-11-01).
 static void threads_reap(void) {
     KThread *done[64];
     int n = 0;

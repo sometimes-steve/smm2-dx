@@ -1,7 +1,7 @@
 // Unpacking a downloaded archive (zip, rar 4 / 5, 7z, tar...; archive.h) with the system's own libarchive, loaded at
-// run time: macOS and iOS have it (/usr/lib/libarchive.2.dylib), Windows 10+ too (archiveint.dll, behind its tar.exe),
-// and most Linux systems (libarchive.so.13). Nothing is bundled. Entries are written one by one here, so a path that
-// would land outside the destination (absolute, or with "..") is skipped, and links are never created.
+// run time: Windows 10+ has it (archiveint.dll, behind its tar.exe). Nothing is bundled. Entries are written one by
+// one here, so a path that would land outside the destination (absolute, or with "..") is skipped, and links are
+// never created.
 #include "archive.h"
 
 #include <errno.h>
@@ -10,24 +10,13 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "platform.h"  // (Windows: POSIX mkdir)
+#include "platform.h"  // (POSIX mkdir)
 #include "rt.h"
 
-#ifdef _WIN32
 #include <windows.h>
 #define LIB_OPEN(n) ((void *)LoadLibraryA(n))
 #define LIB_SYM(h, n) ((void *)GetProcAddress((HMODULE)(h), n))
 static const char *const k_libs[] = {"archiveint.dll", "archive.dll", NULL};
-#else
-#include <dlfcn.h>
-#define LIB_OPEN(n) dlopen(n, RTLD_NOW | RTLD_LOCAL)
-#define LIB_SYM(h, n) dlsym(h, n)
-#ifdef __APPLE__
-static const char *const k_libs[] = {"/usr/lib/libarchive.2.dylib", "libarchive.2.dylib", NULL};
-#else
-static const char *const k_libs[] = {"libarchive.so.13", "libarchive.so", NULL};
-#endif
-#endif
 
 // (the few libarchive calls used; their C API is stable)
 struct archive;
@@ -93,7 +82,6 @@ static void mkdirs_for(char *path, bool include_last) {
     if (include_last) mkdir(path, 0755);
 }
 
-#ifdef _WIN32
 // (Windows without archiveint.dll's calls: its tar.exe, libarchive's bsdtar, which refuses paths outside the folder)
 static bool tar_exe(const char *archive_path, const char *dest, char *why, size_t why_cap) {
     char tar[MAX_PATH];
@@ -107,13 +95,10 @@ static bool tar_exe(const char *archive_path, const char *dest, char *why, size_
     LOG("[archive] %s: tar.exe %s\n", archive_path, code ? "failed" : "unpacked it");
     return code == 0;
 }
-#endif
 
 bool archive_extract(const char *archive_path, const char *dest, void (*progress)(int files, void *user), void *user,
                      char *why, size_t why_cap) {
-#ifdef _WIN32
     if (!load()) return tar_exe(archive_path, dest, why, why_cap);
-#endif
     if (!load()) { snprintf(why, why_cap, "this system has no libarchive to unpack it"); return false; }
     struct archive *a = A.read_new();
     A.support_filter_all(a), A.support_format_all(a);

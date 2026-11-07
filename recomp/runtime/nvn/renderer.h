@@ -1,18 +1,5 @@
-// Interface between the NVN executor (renderer.m) and the Metal plumbing (metal.m).
+// Interface between the NVN executor and the Vulkan backend (runtime/nvn/vulkan/).
 #pragma once
-#ifdef __OBJC__
-#import <Metal/Metal.h>
-void renderer_init(id<MTLDevice> dev);
-id<MTLCommandQueue> renderer_queue(void);
-id<MTLTexture> renderer_texture(NvnTexture *t, id<MTLBlitCommandEncoder> blit, bool for_render);
-MTLPixelFormat renderer_pixel_format(uint32_t nvn_format);
-MTLPixelFormat renderer_texture_pixel_format(NvnTexture *t);  // (no texture made: what it has, or will be made with)
-bool renderer_format_alpha_one(uint32_t nvn_format);
-extern id<MTLBuffer> g_guest_buffer;
-extern uint64_t g_guest_buffer_base;
-// The heap buffer holding a guest address (the heap is wrapped in <= 2 GiB chunks) and its offset, or nil.
-id<MTLBuffer> guest_buffer_chunk(uint64_t addr, uint64_t size, uint64_t *offset);
-#endif
 #include <SDL3/SDL_events.h>
 
 bool renderer_is_gpu_owned(NvnTexture *t);

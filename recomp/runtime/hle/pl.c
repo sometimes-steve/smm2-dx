@@ -6,7 +6,7 @@
 //     simplified Chinese course names) are loaded the first time the game asks for them, from the same folder
 //  3. fonts/BIZUDPGothic-Regular.ttf: BIZ UDPGothic (SIL Open Font License 1.1), bundled with the program and put in
 //     fonts/ by setup. A TrueType UD gothic with Latin, kana and kanji: the stand-in for the Standard font
-//  4. Arial (no kana or kanji), then a Japanese gothic: Hiragino Sans W4 on macOS, Yu Gothic Regular / Medium on Windows
+//  4. Arial (no kana or kanji), then a Japanese gothic: Yu Gothic Regular / Medium
 //  The NintendoExt font (button glyphs) is the one that must come from the console: the game crashes without it.
 // .bfttf is the console's obfuscated TTF: 8-byte header (magic, size) then every u32 XORed with a fixed key.
 // .ttc collections get face 0 copied out as a standalone font (the game's font engine wants one sfnt).
@@ -141,13 +141,8 @@ static void load_fonts(void) {
     const char *std[] = {env, "fonts/nintendo_udsg-r_std_003.bfttf", "fonts/nintendo_udsg-r_std_003.ttf",
                          "fonts/nintendo_udsgr_std_003.ttf", "fonts/nintendo_udsgr_std_003.bfttf",
                          "fonts/BIZUDPGothic-Regular.ttf",
-                         "/System/Library/Fonts/Supplemental/Arial.ttf", "C:/Windows/Fonts/arial.ttf",
-                         "/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc", "C:/Windows/Fonts/YuGothR.ttc",
-                         "C:/Windows/Fonts/YuGothM.ttc",
-                         // Linux: DejaVu Sans (Debian / Ubuntu, Arch, Fedora). Not Noto Sans CJK: CFF outlines,
-                         // which the game's font engine crashes on (it wants TrueType)
-                         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf",
-                         "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf"};
+                         "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/YuGothR.ttc",
+                         "C:/Windows/Fonts/YuGothM.ttc"};
     for (size_t i = 0; i < sizeof std / sizeof *std && !fonts[0].addr; i++)
         if (std[i]) load_one(std[i], &fonts[0]);
     if (!fonts[0].addr) FATAL("no usable system font substitute\n");

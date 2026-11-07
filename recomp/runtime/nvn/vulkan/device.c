@@ -1,12 +1,9 @@
-// Vulkan device, window, swapchain and presentation (counterpart of the window/present half of metal.m).
+// Vulkan device, window, swapchain and presentation.
 #include <SDL3/SDL.h>
 #include "../../game.h"
 #include <SDL3/SDL_vulkan.h>
 #include <math.h>
 #include <pthread.h>
-#ifdef __ANDROID__
-#include <android/native_window.h>
-#endif
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -341,31 +338,23 @@ static void surface_lost(void);
 static void create_swapchain(void) {
     VkSurfaceCapabilitiesKHR caps;
     VkResult cr = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g_vk.phys, g_vk.surface, &caps);
-    if (cr == VK_ERROR_SURFACE_LOST_KHR) { surface_lost(); return; }  // (Android, in the background: vk_frame_begin)
+    if (cr == VK_ERROR_SURFACE_LOST_KHR) { surface_lost(); return; }  // (vk_frame_begin)
     VK_CHECK(cr);
     int w, h;
     SDL_GetWindowSizeInPixels(window, &w, &h);
     VkExtent2D ext = caps.currentExtent.width != UINT32_MAX ? caps.currentExtent : (VkExtent2D){(uint32_t)w, (uint32_t)h};
     VkSurfaceTransformFlagBitsKHR xform = caps.currentTransform;
-#ifdef __ANDROID__
-    // A phone held in landscape reports a 90 / 270 degree transform (its display is portrait) with a landscape size:
-    // the image is made upright at that size and the compositor turns it (no pre-rotation).
-    static int logged;
-    if (!logged++) LOG("[vk] surface %ux%u, transform %#x, window %dx%d\n", caps.currentExtent.width, caps.currentExtent.height,
-                       caps.currentTransform, w, h);
-    if (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) xform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-#endif
     if (!ext.width || !ext.height) return;  // minimised
     uint32_t nf = 0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(g_vk.phys, g_vk.surface, &nf, NULL);
     VkSurfaceFormatKHR fmts[64];
     if (nf > 64) nf = 64;
     vkGetPhysicalDeviceSurfaceFormatsKHR(g_vk.phys, g_vk.surface, &nf, fmts);
-    // scanout shows the bytes the game wrote (see the raw views in the present pass): a UNORM swapchain like Metal's
+    // scanout shows the bytes the game wrote (see the raw views in the present pass): a UNORM swapchain
     VkSurfaceFormatKHR sf = fmts[0];
     for (uint32_t i = 0; i < nf; i++)
         if (fmts[i].format == VK_FORMAT_B8G8R8A8_UNORM && fmts[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { sf = fmts[i]; break; }
-    if (sf.format != VK_FORMAT_B8G8R8A8_UNORM)  // (Android offers RGBA: still UNORM, not an sRGB format that would re-encode)
+    if (sf.format != VK_FORMAT_B8G8R8A8_UNORM)  // (RGBA: still UNORM, not an sRGB format that would re-encode)
         for (uint32_t i = 0; i < nf; i++)
             if (fmts[i].format == VK_FORMAT_R8G8B8A8_UNORM && fmts[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { sf = fmts[i]; break; }
     uint32_t count = caps.minImageCount + 1;
@@ -415,8 +404,7 @@ static void recreate_swapchain(void) {
     create_swapchain();
 }
 
-// The window's surface went away (Android destroys it while the app is in the background and makes a new one on
-// return): swapchain and surface dropped; vk_frame_begin makes new ones from the window once it has one again.
+// The window's surface went away (a new one is made on return): swapchain and surface dropped; vk_frame_begin makes new ones from the window once it has one again.
 static void surface_lost(void) {
     device_wait_idle();
     for (uint32_t i = 0; i < g_vk.sc_count; i++) vkDestroyImageView(g_vk.dev, g_vk.sc_views[i], NULL);
@@ -717,10 +705,6 @@ static bool save_png_plain(const char *path, const uint8_t *rgba, uint32_t w, ui
 #endif
 
 void vk_save_png(const char *path, const uint8_t *rgba, uint32_t w, uint32_t h) {
-#ifdef __ANDROID__  // (SDL takes a relative path as one in the app's internal storage: keep it in the data root)
-    char abs[1200];
-    if (path[0] != '/' && getcwd(abs, 1000)) { snprintf(abs + strlen(abs), sizeof abs - strlen(abs), "/%s", path); path = abs; }
-#endif
 #if SDL_VERSION_ATLEAST(3, 4, 0)
     SDL_Surface *s = SDL_CreateSurfaceFrom((int)w, (int)h, SDL_PIXELFORMAT_ABGR8888, (void *)rgba, (int)w * 4);
     if (!s || !SDL_SavePNG(s, path)) LOG("[vk] saving %s failed: %s\n", path, SDL_GetError());
@@ -732,7 +716,7 @@ void vk_save_png(const char *path, const uint8_t *rgba, uint32_t w, uint32_t h) 
 #endif
 }
 
-// ================================================================== game presentation (metal.m backend_present)
+// ================================================================== game presentation
 // Draws the game's image into the window with the widescreen crop, then the overlay menu.
 extern void vk_present_draw(VkCommandBuffer cb, TexBackend *b, float vx, float vy, float vw, float vh, const float pv[8]);
 void renderer_submit(void);
@@ -790,19 +774,6 @@ void backend_present(NvnTexture *t) {
     static int fg_k;
     static bool fg_last_gen;
     bool fg_on = g_settings.frame_gen != FRAMEGEN_OFF;
-#ifdef __ANDROID__
-    {   // (the display's refresh follows what the app asks for: 120 while frame generation is on)
-        // (the request belongs to the surface: asked again for a new one, after the app was in the background)
-        static int asked = -1;
-        static void *asked_win;
-        ANativeWindow *aw = SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, NULL);
-        if (aw && (asked != fg_on || aw != asked_win)) {
-            asked = fg_on, asked_win = aw;
-            if (__builtin_available(android 30, *))
-                ANativeWindow_setFrameRate(aw, fg_on ? 120.0f : 0.0f, ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_DEFAULT);
-        }
-    }
-#endif
     TexBackend *fgc = NULL;
     bool have;
     if (fg_on && g_vk.swapchain) {  // (the swapchain at the window's size first: our image is made at its size)
@@ -906,7 +877,7 @@ void backend_present(NvnTexture *t) {
         }
         // LARECOMP_WINDOW_SHOT=<frame> saves the window image at that frame (LARECOMP_SHOT_PATH, default
         // build/window.png); <first>:<last>[:<step>] every step-th frame in between, LARECOMP_SHOT_PATH then a printf
-        // pattern taking the frame number (build/win_%05d.png) - as metal.m's LARECOMP_CG_SHOT, for comparisons
+        // pattern taking the frame number (build/win_%05d.png), for comparisons
         static long win_a = -1, win_b, win_step = 1;
         if (win_a < 0) {
             const char *e = getenv("LARECOMP_WINDOW_SHOT");
@@ -1019,7 +990,7 @@ presented:;  // (frame generation: no window image for this frame's own present)
     prev_present = now;
     if (now - last_fps_time >= fps_iv) {
         extern const char *game_level_name(void);
-        static uint64_t fg_real0, fg_gen0;  // frame generation: generated / real frames since the last line (as metal.m)
+        static uint64_t fg_real0, fg_gen0;  // frame generation: generated / real frames since the last line
         char fgs[64] = "";
         if (g_settings.frame_gen != FRAMEGEN_OFF)
             snprintf(fgs, sizeof fgs, " gen %llu/%llu", (unsigned long long)(g_fg_generated - fg_gen0),
@@ -1052,9 +1023,7 @@ static void quick_exit_handler(void) {
     if (trace) LOG("[vk] exit: terminating\n");
     fflush(stdout);
     fflush(stderr);
-#if defined(_WIN32) || defined(__linux__)
     plat_terminate();
-#endif
 }
 
 void ui_window_init(void) {
@@ -1066,9 +1035,6 @@ void ui_window_init(void) {
     int win_w = 1280, win_h = 720;
     if (getenv("LARECOMP_WINDOW")) sscanf(getenv("LARECOMP_WINDOW"), "%dx%d", &win_w, &win_h);
     SDL_WindowFlags wflags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-#ifdef __ANDROID__
-    wflags |= SDL_WINDOW_FULLSCREEN;  // (immersive: no status / navigation bar over the game)
-#endif
     if (getenv("LARECOMP_HIDDEN")) wflags |= SDL_WINDOW_HIDDEN;
     {   // scripted test runs (user input ignored: runtime/hle/input.c input_user_blocked) open without taking the
         // keyboard focus from whatever the player is doing
@@ -1126,7 +1092,7 @@ int ui_run(void) {
                 exit(0);
             }
             extern bool input_user_blocked(const SDL_Event *e);
-            if (input_user_blocked(&e)) continue;  // scripted test runs: the real keyboard / mouse / pads do nothing (as metal.m)
+            if (input_user_blocked(&e)) continue;  // scripted test runs: the real keyboard / mouse / pads do nothing
             if (menu_handle_event(&e)) continue;
             input_handle_event(&e);
         }

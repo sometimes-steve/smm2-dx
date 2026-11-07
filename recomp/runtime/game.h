@@ -12,13 +12,13 @@
 #define GAME_TITLE_ID 0x0100000000000000ull  // the game's program (title) id
 #endif
 #ifndef GAME_BUNDLE_ID
-#define GAME_BUNDLE_ID "org.smcraft.recomp." GAME_ID  // macOS data folder (~/Library/Application Support/<this>)
+#define GAME_BUNDLE_ID "org.smcraft.recomp." GAME_ID
 #endif
 
 #ifndef GAME_DISPLAY_VERSION
 #define GAME_DISPLAY_VERSION "1.0.0"  // the version the game shows (control data; am GetDisplayVersion)
 #endif
 
-#define GAME_EXE GAME_ID "recomp"       // the executable's name (the Linux data folder)
+#define GAME_EXE GAME_ID "recomp"       // the executable's name
 #define GAME_LOG "smm2-dx"              // the log files' name (smm2-dx.log) and the crash report's module name
 #define GAME_SETTINGS GAME_ID ".ini"    // settings file in the data root

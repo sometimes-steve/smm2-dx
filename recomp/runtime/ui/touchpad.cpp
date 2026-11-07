@@ -1,4 +1,4 @@
-// On-screen controller for touch-only devices (iPad, iPhone): a left stick, A/B/X/Y, L/R/ZL/ZR, Plus/Minus and a
+// On-screen controller for touch devices: a left stick, A/B/X/Y, L/R/ZL/ZR, Plus/Minus and a
 // button that opens the overlay menu, drawn over the game with Dear ImGui (runtime/ui/menu.cpp calls touchpad_draw).
 // A finger that lands on one of them belongs to the controller until it lifts (it may slide between buttons); every
 // other finger goes on to the console's touch screen (runtime/hle/touch.c), which the Course Maker is made for. The
@@ -18,7 +18,7 @@ enum { B_A = 0, B_B, B_X, B_Y, B_L = 6, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS };  // 
 enum { C_STICK = 1, C_BUTTON, C_MENU, C_TOGGLE };
 
 struct Control { int kind, bit; float x, y, r; const char *label; };  // x, y, r in units of the screen's height
-// (x < 0: from the right edge). Landscape, laid out for 4:3 (iPad) to 19.5:9 (iPhone).
+// (x < 0: from the right edge). Landscape, laid out for 4:3 to 19.5:9.
 static const Control CONTROLS[] = {
     {C_STICK, -1, 0.20f, 0.74f, 0.13f, ""},
     {C_BUTTON, B_A, -0.10f, 0.72f, 0.055f, "A"},
@@ -36,7 +36,7 @@ static const Control CONTROLS[] = {
 };
 static const int NCONTROLS = sizeof CONTROLS / sizeof *CONTROLS;
 
-// The window's safe area (iPhone: the notch / Dynamic Island in landscape): left and right insets in pixels, kept by
+// The window's safe area: left and right insets in pixels, kept by
 // the UI thread (safe-area events, touches) for both threads. The controls keep clear of them.
 static std::atomic<float> g_inset_l{0}, g_inset_r{0};
 static void update_insets(SDL_Window *win) {
@@ -53,14 +53,7 @@ static float cx(const Control &c, float w, float h) {
     return c.x < 0 ? w - g_inset_r.load() + c.x * h : g_inset_l.load() + c.x * h;
 }
 
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#endif
-#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
-static std::atomic<bool> g_touch_device{true};  // (iOS, Android: touch is the input there is)
-#else
 static std::atomic<bool> g_touch_device{false};  // set by the first finger
-#endif
 static std::atomic<bool> g_hidden{false};
 static std::atomic<uint64_t> g_buttons{0};
 static std::atomic<int32_t> g_lx{0}, g_ly{0};

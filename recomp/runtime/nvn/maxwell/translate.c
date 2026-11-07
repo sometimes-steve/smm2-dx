@@ -10,10 +10,7 @@
 // in.x / out.x stage I/O -> GLSL globals and built-ins), helpers with MSL names (saturate, fmin, clz, mulhi, ...)
 // are defined in the GLSL prelude, and the structurally different constructs (texture lookups, global memory,
 // half-float packing, subgroup shuffles, barriers, discard, declarations and entry point) are emitted per dialect.
-// The MSL text is byte-identical to the MSL-only translator (tools/test_translate.c checks it).
-#if defined(_WIN32)
 #include <malloc.h>  // alloca
-#endif
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -194,8 +191,8 @@ static const char *fresult(const char *e, bool sat, char *buf) {
 #define FRES(e, sat) fresult((e), (sat), alloca(strlen(e) + 64))
 // FMUL / FFMA's multiply mode (FMUL bits 44-45, FMUL32I / FFMA / FFMA32I bits 53-54): 1 FTZ, 2 FMZ. Under FMZ a
 // product with a zero operand is zero, even with an infinite or NaN operand (IEEE gives NaN), which shaders rely on
-// to switch terms off. Without it those pixels go NaN, and each GPU shows that differently: speckle on Apple's iOS
-// GPUs, blooming white on lavapipe (3D World Mario).
+// to switch terms off. Without it those pixels go NaN, and each GPU shows that differently: blooming white
+// on lavapipe (3D World Mario).
 #define FMZ (getenv("LARECOMP_NO_FMZ") ? -1 : 2)  // (LARECOMP_NO_FMZ: as before, for comparisons)
 
 static const char *cmp_op(int op) {
@@ -2240,8 +2237,7 @@ ShaderInfo *maxwell_translate(const uint8_t *blob, size_t max_size, int stage, c
     // a warp that differ on P rejoin right there. On an RTX 5080 Laptop (driver 617.42) the old form hung the GPU when
     // the lanes of a warp went different ways at such a skip: the vertex shader of a 3D World effect (4 vertices, 4-5
     // instances) ran until the 2 s watchdog (vkWaitSemaphores: device lost, "ip invalid", #30 / #37); the recorded draw
-    // replayed offline hangs with the old form and runs in 2 ms with this one. MSL is left as it was (tools/test_translate
-    // checks it byte for byte). LARECOMP_NO_BRA_IF=1: the old form.
+    // replayed offline hangs with the old form and runs in 2 ms with this one. LARECOMP_NO_BRA_IF=1: the old form.
     static int bra_if = -1;
     if (bra_if < 0) bra_if = getenv("LARECOMP_NO_BRA_IF") == NULL;
     int open_ifs = 0;  // (the regions open now all end at the same label: none holds one)

@@ -39,7 +39,7 @@ static void bt_check(uint64_t a, uint64_t lr, uint64_t x0) {
             fprintf(stderr, "[fnprof-bt] %llx entered from guest lr %llx x0 %llx (vtable %llx, +0x100 %llx, [x0+8] %llx):\n",
                     (unsigned long long)a, (unsigned long long)lr, (unsigned long long)x0, (unsigned long long)vt,
                     (unsigned long long)v100, (unsigned long long)p8);
-            plat_print_backtrace();  // (execinfo is macOS / glibc only)
+            plat_print_backtrace();
         }
 }
 

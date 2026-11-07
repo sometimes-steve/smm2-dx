@@ -4,7 +4,7 @@
 // has to be consistent: directories and files are sorted by name, children before siblings' children.
 #include "romfs_build.h"
 
-#include "platform.h"  // (Windows: POSIX mkdir)
+#include "platform.h"  // (POSIX mkdir)
 
 #include <dirent.h>
 #include <errno.h>
@@ -13,12 +13,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#ifdef __APPLE__
-#include <sys/clonefile.h>
-#endif
-#ifdef _WIN32
 #include <windows.h>
-#endif
 
 #define EMPTY 0xFFFFFFFFu
 #define DATA_START 0x200u
@@ -342,14 +337,7 @@ bool romfs_index(const char *dir, const char *overlay, RomfsIndex *ix, char *why
 static bool copy_file(const char *src, const char *dst, uint64_t size, uint64_t *done, uint64_t total,
                       void (*progress)(uint64_t, uint64_t)) {
     remove(dst);
-#ifdef __APPLE__
-    if (clonefile(src, dst, 0) == 0) goto linked;  // (APFS: a copy-on-write clone, instant)
-#endif
-#ifdef _WIN32
     if (CreateHardLinkA(dst, src, NULL)) goto linked;  // (same NTFS volume: a hard link)
-#else
-    if (link(src, dst) == 0) goto linked;  // (same volume: a hard link)
-#endif
     {
         FILE *in = fopen(src, "rb"), *out = in ? fopen(dst, "wb") : NULL;
         bool ok = in && out;

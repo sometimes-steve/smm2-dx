@@ -5,15 +5,10 @@
 enum { ASPECT_UNLOCKED = 0, ASPECT_ORIGINAL = 1 };
 enum { RES_MATCH = 0, /* 1..8 = 1x..8x */ RES_DYNAMIC = 9, RES_Q75 = 10, RES_Q25 = 11, RES_Q50 = 12 };
 // (11 was 67% of the display: larecomp.ini "67%" now loads as RES_Q75)
-enum { UPSCALE_BILINEAR = 0, UPSCALE_METALFX = 1 /* macOS */, UPSCALE_FSR1 = 2 /* Windows: AMD FSR 1 */ };
-#ifdef __APPLE__
-#define UPSCALE_SHARP UPSCALE_METALFX  // each OS's non-bilinear upscaler (the default)
-#else
+enum { UPSCALE_BILINEAR = 0, UPSCALE_METALFX = 1, UPSCALE_FSR1 = 2 /* Windows: AMD FSR 1 */ };
 #define UPSCALE_SHARP UPSCALE_FSR1
-#endif
 enum { AA_OFF = 0, AA_SMAA = 1 };
-enum { FRAMEGEN_OFF = 0, FRAMEGEN_120 = 1, FRAMEGEN_REPLAY = 2 };  // runtime/nvn/framegen.h; REPLAY: Metal's frame replay
-                                                                  // (renderer.m), elsewhere the same as 120
+enum { FRAMEGEN_OFF = 0, FRAMEGEN_120 = 1, FRAMEGEN_REPLAY = 2 };  // runtime/nvn/framegen.h; REPLAY: the same as 120
 // Menu colour themes (runtime/ui/menu.cpp kThemes: the palettes, in this order; names are the ini values)
 enum { THEME_DEFAULT = 0, THEME_NES = 1, N_THEMES = 2 };
 extern const char *const g_theme_names[N_THEMES];  // the ini's value and the menu's label: "Default", "NES"
@@ -30,7 +25,7 @@ typedef struct {
     int aspect;          // ASPECT_*: unlocked = fill the window (wider/taller views), original = 16:9 with bars
     bool fullscreen;
     int res_mode;        // RES_MATCH, 1..4 (N x the Switch's 1080p), RES_DYNAMIC, RES_Q75/50/25 (share of the display)
-    int upscaler;        // UPSCALE_*: how a lower internal resolution reaches the window (MetalFX: macOS, FSR 1: Windows)
+    int upscaler;        // UPSCALE_*: how a lower internal resolution reaches the window (FSR 1)
     int antialias;       // AA_*: anti-aliasing of the game image before it is scaled to the window
     int frame_gen;       // FRAMEGEN_*: an in-between frame per real one for 120 Hz displays (the game stays at 60)
     float volume;        // master volume, 1 = 100%

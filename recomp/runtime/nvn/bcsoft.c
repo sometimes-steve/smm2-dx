@@ -1,4 +1,4 @@
-// BC1-7 textures decoded on the CPU, for GPUs without BC support (the iOS Simulator, older iPhones): runtime/nvn/bcsoft.h.
+// BC1-7 textures decoded on the CPU, for GPUs without BC support: runtime/nvn/bcsoft.h.
 // The decoder is bcdec (third_party/bcdec, MIT).
 #include "bcsoft.h"
 

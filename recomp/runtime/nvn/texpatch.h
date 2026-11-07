@@ -1,6 +1,6 @@
 // Runtime edits of a few of the game's UI textures, made on upload (runtime/nvn/texpatch.c): Xbox / PlayStation
 // button prompts, the hidden Hero Mode icon, the tunic colour; also identifies textures for per-draw tints (gold
-// Escape Bottle, heart colour). Shared by the Metal and Vulkan backends.
+// Escape Bottle, heart colour).
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>

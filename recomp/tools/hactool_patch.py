@@ -1,4 +1,4 @@
-"""Patches to hactool 1.4.0's source for this project (tools/dx-toolchain.ps1 applies them before compiling).
+"""Patches to hactool 1.4.0's source for this project (tools/build.py applies them before compiling).
 
     python hactool_patch.py <hactool source dir>
 """
@@ -8,8 +8,8 @@ src = sys.argv[1]
 
 # Fixes to 1.4.0 (nca.c):
 # - an update's (BKTR) relocation and subsection tables are spread out in place with memcpy over overlapping memory:
-#   Apple's and glibc's memcpy happen to cope, Windows' copies forwards and scrambles the tables, so applying an
-#   update crashed there (0xC0000005 in bktr_get_relocation). memmove.
+#   Windows' memcpy copies forwards and scrambles the tables, so applying an update crashed
+#   (0xC0000005 in bktr_get_relocation). memmove.
 # - reads of fewer than 16 bytes inside one AES block: in a patched RomFS the bytes came from the stale sector_ofs
 #   instead of this read's block offset; in plain CTR sections the next seek dropped the bytes just read (upstream's
 #   fix #98, after 1.4.0)

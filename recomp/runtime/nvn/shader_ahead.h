@@ -11,7 +11,7 @@
 // as programs. A fragment shader's translation depends on its vertex shader only for inputs that one doesn't write,
 // so alone it's translated as if all were written - as most of the game's programs pair them. The BNSH variations
 // (models' shader archives) are also taken whole, as the programs they are (that covers the rest, and the programs
-// with a geometry stage, which Metal draws as one vertex function); effects pair their shaders otherwise. Shaders are
+// with a geometry stage); effects pair their shaders otherwise. Shaders are
 // deduplicated by their bytes (most models carry the same few). Nothing is kept: each file is read, its shaders passed
 // on, freed.
 #include <stdbool.h>

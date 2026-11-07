@@ -6,12 +6,10 @@
 //   1. LARECOMP_DATA_ROOT (tests, scratch installs)
 //   2. dev / portable mode: the starting directory already has extracted/ (a source checkout: `./build/lasrecomp
 //      extracted`, the test scripts) - used as is
-//   3. macOS: ~/Library/Application Support/com.peiikai.lasrecomp (the .app bundle itself is never written to)
-//      Windows: the folder of the .exe (portable, no installer); refuses to start, with a message, if not writable
-//      Linux: $XDG_DATA_HOME/lasrecomp (~/.local/share/lasrecomp)
+//   3. the folder of the .exe (portable, no installer); refuses to start, with a message, if not writable
 //
 // Resources: files that ship with the app (helper programs, the window icon) - next to the executable (the
-// Windows folder, the .app's Contents/MacOS), in the .app's Contents/Resources, or in the source tree.
+// folder of the .exe), or in the source tree.
 #pragma once
 #include "game.h"
 #include <stdbool.h>

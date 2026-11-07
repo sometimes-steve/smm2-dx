@@ -11,7 +11,7 @@
 // main+0x4d3720 / 0x4d4110 / 0x4d41a0 / 0x4d32f8 and the kind 3 handler's requeue at 0x4d3fe4) while the worker
 // steps it (reads the head entry, pops it: a count decrement). Two threads changing the count at once lose one of the
 // changes - a request that is never seen (its object waits for good: SMM2 sits on the course's start after a retry,
-// the owner's black screen on the iPad, 2026-10-24) or a finished one that comes back - and a worker that sees the
+// the owner's black screen, 2026-10-24) or a finished one that comes back - and a worker that sees the
 // new count before the entry is written takes a stale one. So each of those spans runs under one host lock (hook points
 // in mods/patches.py: taken where the count is loaded - and the count loaded again under it - released after the
 // stores). None of the spans calls anything, so the lock is never taken twice and never waits on the game's own.

@@ -1,5 +1,5 @@
 ; The executable's exports for the game code DLL (runtime/platform/windows_exports.c has the same list).
-; LIBRARY is replaced by the Makefile with the executable's name.
+; LIBRARY is replaced by tools/build.py with the executable's name.
 EXPORTS
 rt_dispatch
 rt_svc

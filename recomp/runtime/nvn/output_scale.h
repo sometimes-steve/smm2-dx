@@ -1,4 +1,4 @@
-// Output resolution (runtime/nvn/output_scale.c), shared by the Metal and Vulkan backends.
+// Output resolution (runtime/nvn/output_scale.c), 
 #pragma once
 #include <stdbool.h>
 

@@ -1,5 +1,4 @@
 // Vulkan textures: NVN formats, images, change-detected uploads from guest memory, views and samplers
-// (counterpart of the texture half of metal.m and the view helpers of renderer.m).
 #include <SDL3/SDL_timer.h>
 #include <float.h>
 #include <math.h>
@@ -18,7 +17,7 @@ typedef struct { VkFormat vf; uint8_t expand_rgb, alpha_one; } VkFmt;
 
 // DEPTH24_STENCIL8 as itself where the GPU has it for everything the game does with depth (NVIDIA, Intel): half the
 // bytes of D32_SFLOAT_S8_UINT (4 instead of 8 per pixel) for every depth test, clear and copy - the game copies its
-// full-size depth twice a frame. AMD has no D24S8 attachments: D32S8 there (and on Metal). LARECOMP_VK_D24=0: D32S8.
+// full-size depth twice a frame. AMD has no D24S8 attachments: D32S8 there. LARECOMP_VK_D24=0: D32S8.
 static VkFormat depth24_stencil8(void) {
     static VkFormat f;
     if (!f) {
@@ -76,15 +75,15 @@ static VkFmt fmt_of(uint32_t f) {
     case 0x30: return (VkFmt){VK_FORMAT_R32G32B32A32_SINT};
     case 0x31: return (VkFmt){VK_FORMAT_S8_UINT};
     case 0x32: return (VkFmt){VK_FORMAT_D16_UNORM};
-    case 0x33: return (VkFmt){VK_FORMAT_D32_SFLOAT};  // DEPTH24 (as on Metal: no 24-bit depth there)
+    case 0x33: return (VkFmt){VK_FORMAT_D32_SFLOAT};  // DEPTH24
     case 0x34: return (VkFmt){VK_FORMAT_D32_SFLOAT};
     case 0x35: return (VkFmt){depth24_stencil8()};
     case 0x36: return (VkFmt){VK_FORMAT_D32_SFLOAT_S8_UINT};
     case 0x37: return (VkFmt){VK_FORMAT_R8G8B8A8_SRGB, 0, 1};
     case 0x38: return (VkFmt){VK_FORMAT_R8G8B8A8_SRGB};
-    case 0x39: return (VkFmt){VK_FORMAT_R4G4B4A4_UNORM_PACK16};   // Metal ABGR4Unorm
-    case 0x3A: return (VkFmt){VK_FORMAT_R5G6B5_UNORM_PACK16};     // Metal B5G6R5Unorm
-    case 0x3B: return (VkFmt){VK_FORMAT_R5G5B5A1_UNORM_PACK16};   // Metal A1BGR5Unorm
+    case 0x39: return (VkFmt){VK_FORMAT_R4G4B4A4_UNORM_PACK16};
+    case 0x3A: return (VkFmt){VK_FORMAT_R5G6B5_UNORM_PACK16};
+    case 0x3B: return (VkFmt){VK_FORMAT_R5G5B5A1_UNORM_PACK16};
     case 0x3C: return (VkFmt){VK_FORMAT_R5G6B5_UNORM_PACK16};
     case 0x3D: return (VkFmt){VK_FORMAT_A2B10G10R10_UNORM_PACK32};
     case 0x3E: return (VkFmt){VK_FORMAT_A2B10G10R10_UINT_PACK32};
@@ -99,7 +98,7 @@ static VkFmt fmt_of(uint32_t f) {
     case 0x49: return (VkFmt){VK_FORMAT_BC4_UNORM_BLOCK};
     case 0x4A: return (VkFmt){VK_FORMAT_BC4_SNORM_BLOCK};
     case 0x4B: return (VkFmt){VK_FORMAT_BC5_UNORM_BLOCK};
-    // 0x4C = signed RGTC2; LARECOMP_BC5_UNORM=1 decodes it unsigned (see metal.m / notes/PLAN.md)
+    // 0x4C = signed RGTC2; LARECOMP_BC5_UNORM=1 decodes it unsigned (see notes/PLAN.md)
     case 0x4C: return (VkFmt){getenv("LARECOMP_BC5_UNORM") ? VK_FORMAT_BC5_UNORM_BLOCK : VK_FORMAT_BC5_SNORM_BLOCK};
     case 0x4D: return (VkFmt){VK_FORMAT_BC7_UNORM_BLOCK};
     case 0x4E: return (VkFmt){VK_FORMAT_BC7_SRGB_BLOCK};
@@ -165,7 +164,6 @@ static bool format_supports(VkFormat f, VkFormatFeatureFlags want) {
 }
 
 // ================================================================== output resolution / per-frame clears
-// Same rules as metal.m (see the comments there).
 static float g_rs_x = 1, g_rs_y = 1;
 void renderer_get_scale(float *sx, float *sy) { *sx = g_rs_x; *sy = g_rs_y; }
 void renderer_set_scale(float sx, float sy) { g_rs_x = sx; g_rs_y = sy; }
@@ -197,7 +195,7 @@ void vk_level_change_check(void) {
     }
 }
 
-// Reshaped output only (as metal.m): at 16:9 render targets keep their contents from frame to frame, as on the Switch
+// Reshaped output only: at 16:9 render targets keep their contents from frame to frame, as on the Switch
 bool renderer_texture_frame_fresh(NvnTexture *t) {
     static int on = -1;
     if (on < 0) on = getenv("LARECOMP_NO_FRAME_CLEAR") == NULL;
@@ -370,7 +368,7 @@ static void create_image(NvnTexture *t, TexBackend *b) {
                  : layers > 1 || t->target == 4 || t->target == 6 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
     vk_image_init_layout(vk_upload_cmd(), b->image, b->aspect);
     if (depthfmt) {
-        // New depth / stencil images start zeroed (as fresh memory reads on Apple GPUs). The game builds its depth
+        // New depth / stencil images start zeroed. The game builds its depth
         // pyramid with depth-only copies, so the stencil of those images was never written: whatever the memory
         // held, different per image and per run, then failed or passed the depth-of-field passes' stencil test in
         // patches (flicker that came and went between runs, every other frame, below 1x internal resolution).
@@ -423,7 +421,7 @@ static void live_remove(TexBackend *b) {
     b->reg = 0;
 }
 
-// ---- storage aliases (as metal.m). Engines create texture objects over the same memory again and again (SMM2's agl
+// ---- storage aliases. Engines create texture objects over the same memory again and again (SMM2's agl
 // allocates its render targets per frame from a pool: a target drawn through one NVNtexture is sampled through another
 // made over the same storage). On the console they are the same texels; here each object had its own image, and the
 // one sampled was never drawn into (black frames). Textures over the same storage with the same shape share one
@@ -523,7 +521,7 @@ void vk_textures_reset(void) {
     LOG("[vk] reboot: %d textures released\n", n);
 }
 
-// ================================================================== uploads (same change detection as metal.m)
+// ================================================================== uploads
 static uint64_t full_hash_budget, full_hash_budget_frame;
 
 // Four independent lanes (one serial multiply chain ran at ~1.5 bytes/cycle; dynamic textures are hashed every
@@ -712,7 +710,7 @@ static void upload_texture(NvnTexture *t, TexBackend *b) {
     }
 }
 
-// A texture rendered to before it was ever sampled starts from what its memory holds, as on the GPU (as metal.m):
+// A texture rendered to before it was ever sampled starts from what its memory holds, as on the GPU:
 // SMM2 loads each 2D style's tile sheet from a file and then draws the animated tiles into the same texture every
 // frame; without the upload only the animated cells existed and the ground and blocks were missing.
 static void first_render_use(NvnTexture *t, TexBackend *b) {
@@ -817,7 +815,7 @@ static const VkComponentMapping IDENTITY = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_CO
                                             VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
 
 // render: attachment view (one level, one layer). Otherwise a sampled view of type want_textype (TEXTYPE_*),
-// with the NVN component swizzle, converting between compatible types the way renderer.m does.
+// with the NVN component swizzle, converting between compatible types.
 VkImageView vk_view(NvnTexture *t, const NvnTextureView *v, bool has_view, bool render, int want_textype) {
     TexBackend *b = vk_tex(t, render);
     if (!has_view) v = NULL;
@@ -837,7 +835,7 @@ VkImageView vk_view(NvnTexture *t, const NvnTextureView *v, bool has_view, bool 
     if (render) {
         if (b->base_type == VK_IMAGE_VIEW_TYPE_3D) {
             // 3D target: the view's layer is a depth slice (create_image made the image 2D-array compatible), drawn
-            // through a 2D view of that slice (SMM2 fills its colour-correction LUT one slice per target; renderer.m)
+            // through a 2D view of that slice (SMM2 fills its colour-correction LUT one slice per target)
             uint32_t d = b->depth >> lv0 ? b->depth >> lv0 : 1;
             uint32_t slice = v && (v->setmask & 2) ? v->min_layer : 0;
             if (slice >= d) slice = d - 1;
@@ -875,7 +873,7 @@ VkImageView vk_view(NvnTexture *t, const NvnTextureView *v, bool has_view, bool 
     if (want == VK_IMAGE_VIEW_TYPE_CUBE && have == VK_IMAGE_VIEW_TYPE_2D_ARRAY && b->layers >= 6 && b->width == b->height)
         return vk_image_view(b, want, fmt, lv0, nlv, ly0 + 6 <= b->layers ? ly0 : 0, 6, sw, aspect);
     if (want == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY && have == VK_IMAGE_VIEW_TYPE_2D_ARRAY && b->layers >= 6 && b->width == b->height)
-        // (a 2D array sampled as cubes, six layers each: SMM2's character reflection maps, 72 layers; renderer.m)
+        // (a 2D array sampled as cubes, six layers each: SMM2's character reflection maps, 72 layers)
         return vk_image_view(b, want, fmt, lv0, nlv, 0, b->layers / 6 * 6, sw, aspect);
     if (want == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY && have == VK_IMAGE_VIEW_TYPE_CUBE)
         return vk_image_view(b, want, fmt, lv0, nlv, 0, 6, sw, aspect);

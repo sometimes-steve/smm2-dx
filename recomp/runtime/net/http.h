@@ -1,5 +1,5 @@
 // A small blocking HTTP/1.1 client for the host's own requests (https://, TLS 1.2 with the certificate verified: see
-// http.c). Portable: BSD sockets on macOS / Linux / iOS, Winsock on Windows. Each request opens its own connection
+// http.c). Winsock sockets. Each request opens its own connection
 // ("Connection: close"), so it is safe from any thread; calls block for at most the timeout given.
 #pragma once
 #include <stddef.h>

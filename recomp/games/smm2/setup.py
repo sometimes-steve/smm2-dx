@@ -1,6 +1,6 @@
 """Lay out the player's own Super Mario Maker 2 v3.0.3 files for the recomp.
 
-From extracted folders (`make setup`):
+From extracted folders:
 
     setup.py --base-romfs <dir> --update-exefs <dir> --update-romfs <dir> --out <dir>
 
@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import versions  # noqa: E402
 
 EXEFS_FILES = versions.EXEFS_FILES
-BUILD_IDS = versions.BUILD_IDS['3.0.3']  # (make's setup and older callers)
+BUILD_IDS = versions.BUILD_IDS['3.0.3']  # (older callers)
 
 
 class SetupError(Exception):
@@ -245,11 +245,6 @@ HACTOOL_CRASHES = {0xC0000005: 'it crashed: access violation', 0xC00000FD: 'it c
                    0xC0000135: 'a DLL it needs is missing', 0xC0000139: 'a DLL it needs is the wrong version',
                    0xC0000142: 'it could not start', 0xC000007B: 'it is built for another kind of Windows',
                    0xC0000409: 'it crashed: buffer overrun', 0xC0000374: 'it crashed: heap corruption'}
-# ... and the signals that stop it on Linux and macOS (a negative return code)
-HACTOOL_SIGNALS = {11: 'it crashed: segmentation fault', 6: 'it crashed: abort',
-                   7: 'it crashed: bus error (the file or its drive went away while it was read?)',
-                   4: 'it crashed: illegal instruction (a CPU it wasn\'t built for?)', 9: 'it was killed (out of memory?)',
-                   8: 'it crashed: arithmetic error'}
 
 
 BAD_KEYS_HINT = ('Choose the prod.keys dumped from your own console with a current Lockpick_RCM: it must have the keys '
@@ -282,8 +277,7 @@ class Hactool:
             if not tail:
                 # hactool said nothing at all: it didn't start or it crashed, which isn't the keys' fault
                 code = r.returncode & 0xFFFFFFFF
-                why = (HACTOOL_SIGNALS.get(-r.returncode, f'it was stopped by signal {-r.returncode}')
-                       if r.returncode < 0 else HACTOOL_CRASHES.get(code, f'exit code {r.returncode} ({code:#x})'))
+                why = HACTOOL_CRASHES.get(code, f'exit code {r.returncode} ({code:#x})')
                 raise SetupError('HACTOOL_CRASH', f'{what} failed: hactool stopped without a message ({why})',
                                  'Please report this with the setup log. Meanwhile you can extract the game '
                                  'yourself (an emulator\'s "Extract ExeFS / RomFS" of the updated game) and choose '

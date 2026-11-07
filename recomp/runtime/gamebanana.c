@@ -12,7 +12,7 @@
 #include "archive.h"
 #include "net/http.h"
 #include "net/json.h"
-#include "platform.h"  // plat_remove_tree; (Windows: POSIX mkdir)
+#include "platform.h"  // plat_remove_tree; (POSIX mkdir)
 #include "rt.h"
 #include "usermods.h"
 

@@ -29,7 +29,6 @@
 #include "netcfg.h"
 #include "roots.h"
 
-#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 typedef SOCKET sock_t;
@@ -47,35 +46,6 @@ static void sock_timeouts(sock_t s, int ms) {
     setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&t, sizeof t);
     setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char *)&t, sizeof t);
 }
-#else
-#include <fcntl.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-typedef int sock_t;
-#define SOCK_BAD (-1)
-#define sock_close close
-static void net_init(void) {}
-static int sock_err_inprogress(void) { return errno == EINPROGRESS; }
-static int sock_err_again(void) { return errno == EAGAIN || errno == EWOULDBLOCK; }
-static void sock_nonblock(sock_t s, int on) {
-    int f = fcntl(s, F_GETFL, 0);
-    fcntl(s, F_SETFL, on ? f | O_NONBLOCK : f & ~O_NONBLOCK);
-}
-static void sock_timeouts(sock_t s, int ms) {
-    struct timeval tv = {ms / 1000, (ms % 1000) * 1000};
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-#ifdef SO_NOSIGPIPE
-    int one = 1;
-    setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
-#endif
-}
-#endif
 
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0

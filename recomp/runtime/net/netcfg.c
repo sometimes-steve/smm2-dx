@@ -13,9 +13,6 @@
 
 #include "../hle.h"
 #include "hostsock.h"
-#ifndef _WIN32
-#include <netdb.h>
-#endif
 
 // a game's own settings store (runtime/game_hooks.c, weak: none): SMM2 keeps these in smm2mods.ini
 bool game_net_config(const char *key, char *out, size_t cap);

@@ -144,7 +144,7 @@ enum {
 
 
 
-// renderer backend (runtime/nvn/metal.m)
+// renderer backend (runtime/nvn/vulkan/)
 void backend_init(void);
 void backend_execute(uint64_t handle);            // run a recorded command list
 void backend_prefetch(const uint64_t *handles, int n);  // start the builds a submission will need (shader prefetch)

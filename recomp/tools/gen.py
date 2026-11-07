@@ -459,7 +459,7 @@ from patches import PATCHES
 
 
 def write_if_changed(path, text):
-    """Leaves unchanged chunks untouched so make only recompiles what a patch affected."""
+    """Leaves unchanged chunks untouched so the build only recompiles what a patch affected."""
     try:
         with open(path) as f:
             if f.read() == text:

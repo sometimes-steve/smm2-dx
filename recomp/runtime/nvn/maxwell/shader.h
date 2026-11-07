@@ -109,8 +109,7 @@ extern uint64_t maxwell_gmem_base, maxwell_gmem_size;
 // instead of a storage buffer over the heap (set by the Vulkan backend when the device has bufferDeviceAddress)
 extern bool maxwell_glsl_bda;
 // GLSL: draw stages read global memory through per-draw copies of their storage buffers (GMap / GFast, as compute) -
-// set by the Vulkan backend when the device can't reach the heap at all (no host memory import: Android's emulator,
-// many phones). Their stores go to the copy and are lost (without the import they were lost before too).
+// set by the Vulkan backend when the device can't reach the heap at all (no host memory import). Their stores go to the copy and are lost (without the import they were lost before too).
 extern bool maxwell_glsl_gmap_gfx;
 // Debug: when translating the shader whose code starts at maxwell_dbg_code, output register
 // maxwell_dbg_reg as captured after the instruction at maxwell_dbg_pc (greyscale, all targets).

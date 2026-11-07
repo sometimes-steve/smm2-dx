@@ -1,4 +1,4 @@
-// movie:: (nnMedia) implemented with FFmpeg: an Android MediaExtractor/MediaCodec-style API.
+// movie:: (nnMedia) implemented with FFmpeg: a MediaExtractor/MediaCodec-style API.
 // The game owns the objects (vtable at +0); we keep host state at +8.
 //
 // Extractor slots: 4 GetTrackCount(int*), 5 GetTrackConfiguration(int, MediaData*), 6 SelectTrack(int),

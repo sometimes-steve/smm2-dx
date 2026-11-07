@@ -4,11 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef _WIN32
 #include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
 
 #include "paths.h"
 #if defined(__x86_64__)
@@ -18,23 +14,6 @@
 
 static const GameLibTables *g_tables;
 static char g_error[256];
-
-#ifdef GAMELIB_STATIC
-// iOS: the game code is part of the executable (tools/gamelib_entry.c linked in; nothing is loaded at run time)
-const GameLibTables *recomp_game_tables(void);
-bool gamelib_present(const char *game_dir) { (void)game_dir; return true; }
-bool gamelib_load(const char *game_dir, char *why, size_t why_size) {
-    (void)game_dir;
-    if (!g_tables) {
-        g_tables = recomp_game_tables();
-        if (g_tables && (g_tables->abi != GAMELIB_ABI || strcmp(g_tables->id, GAMELIB_ID))) g_tables = NULL;
-        if (g_tables) LOG("[gamelib] linked in (%llu + %llu functions)\n", (unsigned long long)*g_tables->main_count,
-                          (unsigned long long)*g_tables->sdk_count);
-    }
-    if (!g_tables && why) snprintf(why, why_size, "the game code linked into this app was built for another version");
-    return g_tables != NULL;
-}
-#else
 
 // The library's id file (<library>.id, written next to it by the build): its GAMELIB_ID, read without loading it. On
 // x86-64 the CPU level it was built for follows ("x86-64-v3", "x86-64-v2", "forced"; gamebuild.c): a v3 build, or one
@@ -69,13 +48,6 @@ static bool exists(const char *p) {
 static int candidates(const char *game_dir, char out[3][1100]) {
     int n = 0;
     const char *env = getenv("LARECOMP_GAME_LIB");
-#ifdef __ANDROID__
-    // Android: the library in the APK, by its name (the app's library path finds it; it may stay inside the APK, so
-    // there is no file or id file to look at: its own id decides, as with LARECOMP_GAME_LIB)
-    (void)game_dir;
-    snprintf(out[n++], 1100, "%s", env && *env ? env : GAMELIB_NAME);
-    return n;
-#endif
     if (env && *env) snprintf(out[n++], 1100, "%s", env);
     char exe_side[1024];
     if (rt_resource(GAMELIB_NAME, NULL, exe_side, sizeof exe_side) && exists(exe_side))
@@ -86,10 +58,6 @@ static int candidates(const char *game_dir, char out[3][1100]) {
 
 bool gamelib_present(const char *game_dir) {
     if (g_tables) return true;
-#ifdef __ANDROID__
-    (void)game_dir;
-    return true;  // (packaged with the app)
-#endif
     char c[3][1100];
     int n = candidates(game_dir, c);
     for (int i = 0; i < n; i++)
@@ -98,15 +66,9 @@ bool gamelib_present(const char *game_dir) {
 }
 
 static const GameLibTables *open_lib(const char *path) {
-#ifdef _WIN32
     HMODULE h = LoadLibraryA(path);
     if (!h) { snprintf(g_error, sizeof g_error, "can't load %s (error %lu)", path, GetLastError()); return NULL; }
     GameLibEntry entry = (GameLibEntry)(void *)GetProcAddress(h, GAMELIB_ENTRY);
-#else
-    void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-    if (!h) { snprintf(g_error, sizeof g_error, "%s", dlerror()); return NULL; }
-    GameLibEntry entry = (GameLibEntry)dlsym(h, GAMELIB_ENTRY);
-#endif
     if (!entry) { snprintf(g_error, sizeof g_error, "%s: not game code", path); return NULL; }
     const GameLibTables *t = entry();
     if (!t || t->abi != GAMELIB_ABI || !t->id || strcmp(t->id, GAMELIB_ID)) {
@@ -122,18 +84,13 @@ bool gamelib_load(const char *game_dir, char *why, size_t why_size) {
     if (!tried) {
         tried = true;
         snprintf(g_error, sizeof g_error, "the game code hasn't been built: put your game files in extracted/ (exefs, romfs), and for the first-launch "
-                 "build run setup.bat / setup.sh next to the program (tools/venv; zig/ and gamelib-src/ must be there too)");
+                 "build run setup.bat next to the program (tools/venv; zig/ and gamelib-src/ must be there too)");
         char c[3][1100];
         int n = candidates(game_dir, c);
         const char *env = getenv("LARECOMP_GAME_LIB");
         for (int i = 0; i < n && !g_tables; i++) {
-#ifdef __ANDROID__
-            bool given = true;  // (a name for the dynamic linker, not a path: candidates())
-            (void)env;
-#else
             if (!exists(c[i])) continue;
             bool given = i == 0 && env && *env;  // LARECOMP_GAME_LIB: loaded as given, the library's own id decides
-#endif
             if (!given && !id_matches(c[i])) {
                 snprintf(g_error, sizeof g_error, "%s was built for another version", c[i]);
                 continue;
@@ -146,7 +103,5 @@ bool gamelib_load(const char *game_dir, char *why, size_t why_size) {
     if (!g_tables && why) snprintf(why, why_size, "%s", g_error);
     return g_tables != NULL;
 }
-
-#endif  // GAMELIB_STATIC
 
 const GameLibTables *gamelib_tables(void) { return g_tables; }

@@ -5,7 +5,7 @@
 //                            drag to erase along the way
 //   middle mouse button      drag to scroll the course (the right stick, which scrolls the view)
 //   mouse wheel              scroll left / right (Shift: up / down)
-//   Ctrl+Z (Cmd+Z on macOS)  undo (B: the Undodog's button)
+//   Ctrl+Z                   undo (B: the Undodog's button)
 //   1 ... 9, 0, -, =         the palette's twelve slots, left to right (a tap on the slot)
 //
 // Only while the Course Maker is up (the play info's kind word: 0 = edit, research/specs/maker.md "Edit mode words")

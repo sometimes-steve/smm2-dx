@@ -7,7 +7,7 @@
 
 #include "../../../runtime/hle.h"
 
-#define MAIN_ADDR(off) (MAIN_BASE + (off))  // an offset in main -> its address (runtime/rt.h: moves on iOS devices)
+#define MAIN_ADDR(off) (MAIN_BASE + (off))  // an offset in main -> its address (runtime/rt.h)
 
 // ---- settings (settings.c): environment variables, else smm2mods.ini in the data folder
 typedef struct {

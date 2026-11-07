@@ -17,9 +17,6 @@
 #include "bsd.h"
 
 #include <pthread.h>
-#ifndef _WIN32
-#include <sys/ioctl.h>
-#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -297,9 +294,7 @@ static void do_getsockopt(BsdSock *s, IpcReq *req, IpcResp *resp) {
 static short ev_to_host(int16_t ev) {
     short h = 0;
     if (ev & (0x1 | 0x40 | 0x80)) h |= POLLIN;  // POLLIN, POLLRDNORM, POLLRDBAND
-#ifndef _WIN32
-    if (ev & 0x2) h |= POLLPRI;
-#endif  // (WSAPoll fails with WSAEINVAL when POLLPRI is asked for, and poll_fds then reported "nothing ready" forever)
+    // (POLLPRI is not asked for: WSAPoll fails with WSAEINVAL when it is, and poll_fds then reported "nothing ready" forever)
     if (ev & (0x4 | 0x100)) h |= POLLOUT;       // POLLOUT (= POLLWRNORM), POLLWRBAND
     return h;
 }
@@ -334,14 +329,10 @@ static int poll_fds(int32_t *fds, int16_t *events, int16_t *revents, uint32_t n,
         int slice = timeout_ms == 0 ? 0 : WAIT_SLICE_MS;
         if (end != UINT64_MAX && now < end && (end - now) / 1000000 < (uint64_t)slice) slice = (int)((end - now) / 1000000) + 1;
         if (slice && !released) kernel_host_wait_begin(), released = true;
-#ifdef _WIN32
         // (WSAPoll wants at least one valid socket)
         bool any = false;
         for (uint32_t i = 0; i < n; i++) any |= p[i].fd != HSOCK_BAD;
         int r = any ? hsock_poll(p, n, slice) : (Sleep(slice), 0);
-#else
-        int r = hsock_poll(p, n, slice);
-#endif
         if (r > 0) {
             for (uint32_t i = 0; i < n; i++)
                 if (ss[i] && p[i].revents) revents[i] = ev_from_host(p[i].revents, events[i]), ready += revents[i] != 0;
@@ -669,13 +660,8 @@ static void bsd_host_client_1(IpcReq *req, IpcResp *resp) {
         IpcBuf *b = in_buf(req, 0), *o = out_buf(req, 0);
         if (rq == 0x8004667e && b && b->size >= 4) s->nonblock = *(uint32_t *)(uintptr_t)b->addr != 0;
         if (rq == 0x4004667f && o && o->size >= 4) {
-#ifdef _WIN32
             u_long avail = 0;
             ioctlsocket(s->h, FIONREAD, &avail);
-#else
-            int avail = 0;
-            ioctl(s->h, FIONREAD, &avail);
-#endif
             *(uint32_t *)(uintptr_t)o->addr = (uint32_t)avail;
         }
         result(resp, 0, 0);

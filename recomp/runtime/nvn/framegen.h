@@ -1,7 +1,7 @@
 // Frame generation (Video tab "Frame generation"): one in-between frame per real 60 Hz frame for 120 Hz displays.
 // The game still runs and is paced at 60 (objects.c display_pace); the generated frames exist only on the screen.
-// framegen.c decides per real frame whether one is made; framegen_src.c holds the passes (MSL / GLSL);
-// framegen_metal.m and vulkan/exec.c encode them; metal.m / vulkan/device.c present the two images.
+// framegen.c decides per real frame whether one is made; framegen_src.c holds the passes (GLSL);
+// vulkan/exec.c encodes them; vulkan/device.c presents the two images.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
@@ -14,7 +14,7 @@ typedef struct {
     uint64_t now_ns;      // plat_now_ns() at this real frame's present
     float display_hz;     // the window's display refresh (SDL), 0 = unknown
     bool enabled;         // g_settings.frame_gen != FRAMEGEN_OFF
-    bool held;            // a re-present while the game is held (backend_represent / iOS background)
+    bool held;            // a re-present while the game is held
     bool any_pace;        // (tests on slow software renderers, LARECOMP_FRAMEGEN_ANY_PACE=1: no 12-22 ms gap rule)
 } FgFrame;
 typedef struct { bool valid; uint32_t w, h, fmt; float crop[4]; uint64_t last_ns; } FgState;
@@ -31,15 +31,6 @@ extern uint64_t g_fg_real, g_fg_generated;  // counters for the fps log
 // otherwise replace it with the real one)
 uint64_t framegen_real_present_at(uint64_t planned_ns, uint64_t gen_done_ns);
 
-// The passes (framegen_src.c): one shared source, assembled per backend.
+// The passes (framegen_src.c): one shared source.
 char *framegen_msl(void);                     // malloc'd MSL library: every pass as fragment function <pass>_fs, plus fg_vs
 const char *framegen_glsl(const char *pass);  // GLSL 450 fragment source for "fg_luma.frag" ... "fg_warp.frag" (NULL: unknown)
-
-#ifdef __OBJC__
-#import <Metal/Metal.h>
-// The in-between image of prev and cur (same size and format) at phase t, drawn into out (any colour format, same
-// size). reset: drop the kept luma pyramid and motion (prev's pyramid is then built from prev). false on a shader /
-// pipeline error (logged once; frame generation then stays off).
-bool fgm_encode(id<MTLDevice> dev, id<MTLCommandBuffer> cb, id<MTLTexture> prev, id<MTLTexture> cur, float t, bool reset,
-                id<MTLTexture> out);
-#endif

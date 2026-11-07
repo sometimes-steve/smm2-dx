@@ -1,11 +1,10 @@
-// Host sockets for the game's own network stack (runtime/services/bsd.c, ssl.c): the few things POSIX and Winsock
-// spell differently, and errno numbers as the game expects them (FreeBSD's, as Horizon's bsd service reports them).
+// Host sockets for the game's own network stack (runtime/services/bsd.c, ssl.c): thin wrappers over Winsock, and
+// errno numbers as the game expects them (FreeBSD's, as Horizon's bsd service reports them).
 #pragma once
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 typedef SOCKET hsock_t;
@@ -21,30 +20,6 @@ static inline void hsock_startup(void) {
 static inline void hsock_nonblock(hsock_t s) { u_long v = 1; ioctlsocket(s, FIONBIO, &v); }
 typedef int hsocklen_t;
 #define HSOCK_IOLEN(n) ((int)(n))
-#else
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
-typedef int hsock_t;
-#define HSOCK_BAD (-1)
-#define hsock_close close
-typedef struct pollfd hpollfd;
-static inline int hsock_poll(hpollfd *f, unsigned n, int ms) { return poll(f, (nfds_t)n, ms); }
-static inline int hsock_errno(void) { return errno; }
-static inline void hsock_startup(void) {}
-static inline void hsock_nonblock(hsock_t s) {
-    fcntl(s, F_SETFL, fcntl(s, F_GETFL, 0) | O_NONBLOCK);
-#ifdef SO_NOSIGPIPE
-    int one = 1;
-    setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
-#endif
-}
-typedef socklen_t hsocklen_t;
-#define HSOCK_IOLEN(n) (n)
-#endif
 
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
@@ -65,16 +40,11 @@ enum {
 };
 
 static inline bool hsock_would_block(int e) {
-#ifdef _WIN32
     return e == WSAEWOULDBLOCK || e == WSAEINPROGRESS;
-#else
-    return e == EAGAIN || e == EWOULDBLOCK || e == EINPROGRESS;
-#endif
 }
 
-// a host errno (errno / WSAGetLastError) -> FreeBSD's number
+// a host errno (WSAGetLastError) -> FreeBSD's number
 static inline uint32_t hsock_bsd_errno(int e) {
-#ifdef _WIN32
     switch (e) {
     case WSAEWOULDBLOCK: return BSD_EAGAIN;
     case WSAEINPROGRESS: return BSD_EINPROGRESS;
@@ -110,22 +80,4 @@ static inline uint32_t hsock_bsd_errno(int e) {
     case WSAEINTR: return BSD_EINTR;
     default: return BSD_EIO;
     }
-#else
-    static const struct { int host; uint32_t bsd; } map[] = {
-        {EPERM, BSD_EPERM}, {ENOENT, BSD_ENOENT}, {EINTR, BSD_EINTR}, {EIO, BSD_EIO}, {EBADF, BSD_EBADF},
-        {ENOMEM, BSD_ENOMEM}, {EACCES, BSD_EACCES}, {EFAULT, BSD_EFAULT}, {EBUSY, BSD_EBUSY}, {EINVAL, BSD_EINVAL},
-        {EMFILE, BSD_EMFILE}, {EPIPE, BSD_EPIPE}, {EAGAIN, BSD_EAGAIN}, {EWOULDBLOCK, BSD_EAGAIN},
-        {EINPROGRESS, BSD_EINPROGRESS}, {EALREADY, BSD_EALREADY}, {ENOTSOCK, BSD_ENOTSOCK},
-        {EDESTADDRREQ, BSD_EDESTADDRREQ}, {EMSGSIZE, BSD_EMSGSIZE}, {EPROTOTYPE, BSD_EPROTOTYPE},
-        {ENOPROTOOPT, BSD_ENOPROTOOPT}, {EPROTONOSUPPORT, BSD_EPROTONOSUPPORT}, {EOPNOTSUPP, BSD_EOPNOTSUPP},
-        {EAFNOSUPPORT, BSD_EAFNOSUPPORT}, {EADDRINUSE, BSD_EADDRINUSE}, {EADDRNOTAVAIL, BSD_EADDRNOTAVAIL},
-        {ENETDOWN, BSD_ENETDOWN}, {ENETUNREACH, BSD_ENETUNREACH}, {ENETRESET, BSD_ENETRESET},
-        {ECONNABORTED, BSD_ECONNABORTED}, {ECONNRESET, BSD_ECONNRESET}, {ENOBUFS, BSD_ENOBUFS},
-        {EISCONN, BSD_EISCONN}, {ENOTCONN, BSD_ENOTCONN}, {ESHUTDOWN, BSD_ESHUTDOWN}, {ETIMEDOUT, BSD_ETIMEDOUT},
-        {ECONNREFUSED, BSD_ECONNREFUSED}, {EHOSTDOWN, BSD_EHOSTDOWN}, {EHOSTUNREACH, BSD_EHOSTUNREACH},
-    };
-    for (unsigned i = 0; i < sizeof map / sizeof *map; i++)
-        if (map[i].host == e) return map[i].bsd;
-    return BSD_EIO;
-#endif
 }

@@ -18,7 +18,7 @@ you install, and the ones on GameBanana. The setup screen asks for the `ocw-conf
 A PC's mouse and keyboard in the Course Maker (GitHub #26), on top of the mouse as a finger: the **right mouse
 button** erases (the Course Maker's own "[L] / [R] Erase": L held, then a finger at the pointer; drag to erase along
 the way), the **middle button** drags the course and the **wheel** scrolls it (the right stick; Shift+wheel: up /
-down), **Ctrl+Z** (Cmd+Z on macOS) is the Undodog (B), and **1 ... 9, 0, -, =** pick the palette's twelve slots (a tap
+down), **Ctrl+Z** is the Undodog (B), and **1 ... 9, 0, -, =** pick the palette's twelve slots (a tap
 on the slot). Only while the Course Maker is up (the play info's kind word, 0 = edit) and only from a PC's keyboard and
 mouse (`runtime/hle/input.c` `game_pc_key` / `game_pc_mouse` / `game_pc_wheel`). There, 1 and 3 pick slots instead of
 ZL / ZR (multigrab). Copy and paste aren't mapped: SMM2 copies through a held part's own menu.
@@ -59,8 +59,7 @@ of a logged line along with the player id.
 **Or by hand**, which is the same thing — the file is where the settings live either way:
 
 1. (as above: domain and token from opencourse.world)
-2. `ocw-config.json` next to `smm2mods.ini` in the data folder (macOS source build:
-   `recomp/private/smm2/ocw-config.json`):
+2. `ocw-config.json` next to `smm2mods.ini` in the data folder:
 
    ```json
    { "domain": "server.opencourse.world", "token": "<22 characters>" }

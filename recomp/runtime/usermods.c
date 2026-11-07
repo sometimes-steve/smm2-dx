@@ -12,7 +12,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "platform.h"     // (Windows: POSIX mkdir; plat_remove_tree)
+#include "platform.h"     // (POSIX mkdir; plat_remove_tree)
 #include "romfs_build.h"  // romfs_copy_tree
 #include "rt.h"
 

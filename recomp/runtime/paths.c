@@ -9,12 +9,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
-#ifdef _WIN32
 #include <windows.h>
-#endif
 
 #include "gamelib.h"
 #include "paths.h"
@@ -22,7 +17,6 @@
 
 static char g_root[1024], g_start[1024], g_exe_dir[1024];
 
-#ifdef _WIN32
 #define SEP "\\"
 static bool is_link(const char *p) {  // symlink or junction
     DWORD a = GetFileAttributesA(p);
@@ -30,20 +24,6 @@ static bool is_link(const char *p) {  // symlink or junction
 }
 static bool resolve(const char *p, char *out, size_t n) { return _fullpath(out, p, n) != NULL; }
 #define path_eq(a, b) (_stricmp(a, b) == 0)
-#else
-#define SEP "/"
-static bool is_link(const char *p) {
-    struct stat st;
-    return lstat(p, &st) == 0 && S_ISLNK(st.st_mode);
-}
-static bool resolve(const char *p, char *out, size_t n) {
-    char buf[PATH_MAX];
-    if (!realpath(p, buf)) return false;
-    snprintf(out, n, "%s", buf);
-    return true;
-}
-#define path_eq(a, b) (strcmp(a, b) == 0)
-#endif
 
 static bool is_dir(const char *p) {
     struct stat st;
@@ -79,23 +59,6 @@ static void fail(const char *msg) {
     exit(1);
 }
 
-#if TARGET_OS_IPHONE
-// A build that carries the game files in the app (tools/make_ios_app.sh RECOMP_IOS_DATA: data/extracted, fonts,
-// sysdata, and metallib: precompiled shaders) links them into Documents at every launch, since the app's own path
-// changes with each install; files the player copied into Documents themselves are left alone.
-static void ios_link_bundle_data(void) {
-    static const char *const names[] = {"extracted", "fonts", "sysdata", "metallib"};
-    for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
-        char target[1100];
-        snprintf(target, sizeof target, "%s/data/%s", g_exe_dir, names[i]);
-        if (!is_dir(target)) continue;
-        if (is_link(names[i])) unlink(names[i]);
-        if (!exists(names[i]) && symlink(target, names[i]) != 0)
-            fprintf(stderr, "[paths] can't link %s -> %s (%s)\n", names[i], target, strerror(errno));
-    }
-}
-#endif
-
 static bool g_dev;  // the data root is the starting folder because it has extracted/ (a source checkout)
 bool rt_dev_mode(void) { return g_dev; }
 
@@ -111,48 +74,17 @@ void rt_paths_init(void) {
     if (env && *env) snprintf(root, sizeof root, "%s", env);
     else if (is_dir("extracted")) snprintf(root, sizeof root, "%s", g_start), g_dev = true;  // dev / portable: as before
     else {
-#ifdef _WIN32
         snprintf(root, sizeof root, "%s", g_exe_dir);
-#elif TARGET_OS_IPHONE
-        // iOS / iPadOS: the app's Documents folder (Files app / Finder file sharing): extracted/, fonts/, sysdata/,
-        // saves, settings and caches
-        const char *home = getenv("HOME");
-        snprintf(root, sizeof root, "%s/Documents", home && *home ? home : "/tmp");
-#elif defined(__ANDROID__)
-        // Android: the app's external files folder, or its internal one when the game files are there
-        // (plat_android_data_dir): extracted/, fonts/, sysdata/, saves, settings, caches and the log
-        const char *dir = plat_android_data_dir();
-        snprintf(root, sizeof root, "%s", dir ? dir : "/tmp");
-#elif defined(__linux__)
-        // (the AppImage is read-only): $XDG_DATA_HOME/lasrecomp, ~/.local/share/lasrecomp by default
-        const char *xdg = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
-        if (xdg && *xdg == '/') snprintf(root, sizeof root, "%s/" GAME_EXE, xdg);
-        else snprintf(root, sizeof root, "%s/.local/share/" GAME_EXE, home && *home ? home : "/tmp");
-#else
-        const char *home = getenv("HOME");
-        snprintf(root, sizeof root, "%s/Library/Application Support/" RT_BUNDLE_ID, home && *home ? home : "/tmp");
-#endif
     }
     mkdirs(root);
     char msg[1400];
     if (!is_dir(root) || !writable(root) || chdir(root) != 0) {
-#ifdef _WIN32
         snprintf(msg, sizeof msg, GAME_TITLE " can't write to its folder:\n%s\n\nIt keeps game files, saves and settings "
                  "next to the program. Move the \"" GAME_TITLE "\" folder somewhere you can write to (e.g. Documents or "
                  "Desktop, not Program Files) and start it again.", root);
-#else
-        if (is_link(root) && !exists(root))  // a link to a folder on a disk that isn't there (an external drive)
-            snprintf(msg, sizeof msg, GAME_TITLE "'s data folder is a link to a folder that isn't there:\n%s\n\n"
-                     "If it is on an external drive, connect the drive and start " GAME_TITLE " again.", root);
-        else
-            snprintf(msg, sizeof msg, GAME_TITLE " can't write to its data folder:\n%s", root);
-#endif
         fail(msg);
     }
     if (!getcwd(g_root, sizeof g_root)) snprintf(g_root, sizeof g_root, "%s", root);
-#if TARGET_OS_IPHONE
-    if (!g_dev) ios_link_bundle_data();
-#endif
     fprintf(stderr, "[paths] data: %s\n", g_root);
 }
 
@@ -244,7 +176,7 @@ unsigned long long rt_game_files_size(const char *game_dir) {
     return n;
 }
 
-// Window / Dock icon: icon.png shipped next to the exe or in the .app (none for a plain source build).
+// Window icon: icon.png shipped next to the exe (none for a plain source build).
 void rt_window_icon(SDL_Window *w) {
     char p[1100];
 #if SDL_VERSION_ATLEAST(3, 4, 0)  // (SDL_LoadPNG: SDL 3.4; distributions ship 3.2: no icon there)

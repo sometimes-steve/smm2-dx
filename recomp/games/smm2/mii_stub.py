@@ -153,7 +153,7 @@ def cube_mesh():
     return pos, nrm, uv, idx
 
 
-# The mini head: the skin of the head of one of Kenney's Mini Characters (CC0), made by scripts/make_mini_head.py into mini_head.json:
+# The mini head: the skin of the head of one of Kenney's Mini Characters (CC0), stored in mini_head.json:
 # a rounded box with small ears, no hair or face. It is scaled up and stands on the neck with its front where the cube's is.
 MINI_SCALE, MINI_FRONT = 144.0, CUBE_FRONT   # the pack is in metres: 0.45 wide becomes 65
 def mini_mesh():

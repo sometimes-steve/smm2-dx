@@ -1,5 +1,5 @@
 # What the game code generator (tools/gen.py) needs besides Python itself, pinned with the hashes of each platform's
-# wheel: tools/fetch_python.sh puts them into the player packages' own Python (python-build-standalone).
+# wheel: tools/build.py puts them into the player packages' own Python.
 capstone==5.0.9 \
     --hash=sha256:fc269c5082e17d7f9f265cd6980e2fdc6ab572df913951d76db0357e06b8001d \
     --hash=sha256:8c4a1d7134d7d5290e5d77066500385f2c7a4bf66835ccbfde5180042d508b3c \

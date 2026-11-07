@@ -13,7 +13,6 @@
 
 #include "../hle.h"
 
-#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 typedef SOCKET sock_t;
@@ -23,17 +22,6 @@ static void net_init(void) {
     static int done;
     if (!done) { WSADATA w; WSAStartup(MAKEWORD(2, 2), &w); done = 1; }
 }
-#else
-#include <netdb.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-typedef int sock_t;
-#define SOCK_BAD (-1)
-#define sock_close close
-static void net_init(void) {}
-#endif
 
 // a game may supply the relay and room instead of the environment (runtime/game_hooks.c, weak: none)
 bool game_lan_config(char *relay, size_t relay_len, char *room, size_t room_len, int *slot);
@@ -92,11 +80,7 @@ static void *keepalive_thread(void *arg) {
     size_t jn = join_msg(j);
     for (;;) {
         sendto(sock, (const char *)j, (int)jn, 0, (struct sockaddr *)&relay_addr, relay_len);
-#ifdef _WIN32
         Sleep(2000);
-#else
-        sleep(2);
-#endif
     }
     return NULL;
 }
@@ -125,13 +109,8 @@ static void start(void) {
     freeaddrinfo(ai);
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock == SOCK_BAD) return;
-#ifdef _WIN32
     DWORD tmo = 1000;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tmo, sizeof tmo);
-#else
-    struct timeval tv = {1, 0};
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-#endif
     snprintf(room, sizeof room, "%s", r);
     slot = s, on = true;
     pthread_t th;

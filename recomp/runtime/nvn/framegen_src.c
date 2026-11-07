@@ -1,7 +1,7 @@
 // Frame generation's passes (framegen.h), one source for both backends: written in a small dialect (float2..4, int2,
 // FG_TEX / FG_LOAD / FG_SAMPLE / FG_SIZE, mix / clamp / abs / min / max / dot, no select or swizzle assignment) that a
-// head turns into MSL (framegen_msl: framegen_metal.m) or GLSL 450 (framegen_glsl: vulkan/shaders.c), with each
-// pass's entry point after it - as SMAA is built (metal.m smaa_msl, vulkan/shaders.c).
+// head turns into GLSL 450 (framegen_glsl: vulkan/shaders.c), with each
+// pass's entry point after it.
 //
 // Per real frame: the colour image -> a luma pyramid (1/4, 1/8, 1/16) -> block motion from the previous frame's
 // pyramid, coarse to fine (4 x 4-texel blocks at each level; candidates: zero, the coarser level's vector, and at the
@@ -19,7 +19,7 @@
 #include <string.h>
 
 static const char framegen_src[] =
-    // tuned against tools/test_framegen.m and real scrolling / running captures (LARECOMP_FRAMEGEN_SHOT)
+    // tuned against real scrolling / running captures (LARECOMP_FRAMEGEN_SHOT)
     "#define FG_ZERO_BIAS 0.003\n"  // the still vector's head start (mean abs luma per texel): a HUD and backgrounds stay put
     "#define FG_MATCH 0.08\n"      // max rgb difference for two samples to count as the same thing
     "#define FG_CUT_COST 0.03\n"   // mean best match cost above which it is a cut: show prev (synthetic: matched 0.002, cut 0.05)

@@ -1,5 +1,5 @@
-// The console's touch screen (nn::hid::GetTouchScreenState<N>): touches on iOS / iPadOS (and any touch screen SDL
-// reports), and the left mouse button on the desktop - SMM2's Course Maker is made for the touch screen. Positions
+// The console's touch screen (nn::hid::GetTouchScreenState<N>): touches on any touch screen SDL
+// reports, and the left mouse button - SMM2's Course Maker is made for the touch screen. Positions
 // are in the game's 1280x720 screen space, through where the game image is drawn in the window (the presenters call
 // input_set_game_rect every frame). RECOMP_NO_MOUSE_TOUCH=1: the mouse doesn't touch.
 #include <SDL3/SDL.h>
@@ -37,8 +37,7 @@ static void to_game(float fx, float fy, int32_t *gx, int32_t *gy) {
     *gy = y < 0 ? 0 : y > 719 ? 719 : (int32_t)y;
 }
 
-// A two-finger tap (both fingers down together, up within 0.4 s): L + R for a few frames. Without a controller (iPad,
-// iPhone) that is what the title screen asks for; the menus after it take touches themselves.
+// A two-finger tap (both fingers down together, up within 0.4 s): L + R for a few frames. Without a controller that is what the title screen asks for; the menus after it take touches themselves.
 static int g_fingers, g_max_fingers;
 static uint64_t g_first_down_ns;
 static _Atomic int g_lr_frames;

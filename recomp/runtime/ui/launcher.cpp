@@ -3,8 +3,8 @@
 // the game. Modelled on melee-pc's launcher (DECISIONS.md, "Releases: a launcher plus recompiler per platform"); the
 // window, render loop and update check follow LAS Recomp's start screen (UPSTREAM.md).
 //
-//   1. Your game: Super Mario Maker 2 with the 3.0.3 update - folders of the decrypted, extracted ExeFS and RomFS
-//      (no NSP / XCI: those need keys). games/smm2/setup.py checks the version (build ids and hashes of the player's
+//   1. Your game: Super Mario Maker 2 with the 3.0.3 update - folders of the decrypted, extracted ExeFS and RomFS,
+//      or NSP / XCI files (decrypted with prod.keys). games/smm2/setup.py checks the version (build ids and hashes of the player's
 //      own files against games/smm2/versions.py) and lays the files out in <data>/extracted.
 //   2. prod.keys and the firmware (the console's system NCAs): games/smm2/sysdata.py copies the button glyph font (the game
 //      crashes without it) into <data>/fonts, and the Mii face-part archive (MiiModel 0802) into
@@ -17,16 +17,13 @@
 // away; `--setup`, or the overlay menu's Quit > Quit to Start Screen, brings this screen back. RECOMP_NO_LAUNCHER=1:
 // never (the game starts, or says what's missing, as before).
 //
-// The update check asks GitHub for the project's latest release (a background curl, which macOS, Windows 10+ and
-// Linux distributions ship) and only says that there is one, with a link to its page: nothing is downloaded.
+// The update check asks GitHub for the project's latest release (a background curl, which Windows 10+ ships)
+// and only says that there is one, with a link to its page: nothing is downloaded.
 //
 // Tests: RECOMP_LAUNCHER_AUTO="game=<path>|game=<path>|keys=<file>|firmware=<dir>" fills the page in and
 // presses Set up after a moment (as the player would); RECOMP_LAUNCHER_SHOTS=<dir> saves the window as PNG whenever
 // the screen changes (and every 30 s while a step runs); RECOMP_NO_UPDATE_CHECK=1; RECOMP_UPDATE_TAGS=<tag>: pretend
 // that release exists (no network).
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -40,24 +37,6 @@ extern "C" {
 #include "paths.h"
 }
 
-#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
-// Mobile builds carry the game code in the app (made on a desktop from the player's files): no setup screen.
-extern "C" bool launcher_needed(const char *, bool) { return false; }
-extern "C" void launcher_run(const char *) {}
-extern "C" void launcher_boot_env(void) {}
-extern "C" void launcher_update_check_start(void) {}
-extern "C" const char *launcher_update_tag(void) { return NULL; }
-extern "C" bool launcher_settings_rows(void) { return false; }
-extern "C" bool launcher_has_settings(void) { return false; }
-#else
-
-#ifdef __APPLE__
-#import <Metal/Metal.h>
-#import <QuartzCore/CAMetalLayer.h>
-#import <ImageIO/ImageIO.h>
-#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#include <sys/xattr.h>
-#endif
 #include <SDL3/SDL.h>
 #include <ctype.h>
 #include <dirent.h>
@@ -73,11 +52,7 @@ extern "C" bool launcher_has_settings(void) { return false; }
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_impl_sdl3.h"
-#ifdef __APPLE__
-#include "imgui_impl_metal.h"
-#else
 #include "imgui_impl_vulkan.h"
-#endif
 #include "launcher_art.h"
 #include "option_rows.h"
 #include "osk.h"
@@ -90,23 +65,14 @@ void rt_log(const char *fmt, ...);  // runtime/rt.h LOG
 void ui_window_init(void);
 SDL_Window *ui_window(void);
 void menu_apply_window_requests(void *sdl_window);
-#ifdef __APPLE__
-void *ui_metal_layer(void);
-void *ui_metal_device(void);
-#else
 bool vk_frame_begin(const float clear[4]);
 void vk_frame_end(const char *shot_path);
 void *vk_frame_cmd(void);
 bool vk_imgui_backend_init(void);
 void vk_imgui_backend_shutdown(void);
-#endif
 }
 
-#ifdef _WIN32
 #define SEP "\\"
-#else
-#define SEP "/"
-#endif
 
 #define LOG(...) rt_log(__VA_ARGS__)
 #ifndef RECOMP_VERSION
@@ -128,11 +94,7 @@ static bool dir_exists(const std::string &p) {
     return stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 static std::string home_dir(void) {
-#ifdef _WIN32
     const char *h = getenv("USERPROFILE");
-#else
-    const char *h = getenv("HOME");
-#endif
     return h ? h : "";
 }
 static std::string lower(std::string s) {
@@ -240,39 +202,18 @@ extern "C" void launcher_boot_env(void) {
 static std::vector<std::string> keys_candidates(void) {
     std::string h = home_dir();
     std::vector<std::string> v;
-#ifdef _WIN32
     const char *ad = getenv("APPDATA");
     std::string a = ad ? ad : h + "\\AppData\\Roaming";
     v = {a + "\\Ryujinx\\system\\prod.keys", a + "\\yuzu\\keys\\prod.keys", a + "\\suyu\\keys\\prod.keys",
          a + "\\eden\\keys\\prod.keys", a + "\\citron\\keys\\prod.keys", h + "\\.switch\\prod.keys"};
-#elif defined(__APPLE__)
-    std::string a = h + "/Library/Application Support";
-    v = {a + "/Ryujinx/system/prod.keys", a + "/yuzu/keys/prod.keys", a + "/eden/keys/prod.keys", h + "/.switch/prod.keys"};
-#else
-    const char *xc = getenv("XDG_CONFIG_HOME"), *xd = getenv("XDG_DATA_HOME");
-    std::string c = xc && *xc ? xc : h + "/.config", d = xd && *xd ? xd : h + "/.local/share";
-    v = {c + "/Ryujinx/system/prod.keys", d + "/yuzu/keys/prod.keys", d + "/suyu/keys/prod.keys",
-         d + "/eden/keys/prod.keys", h + "/.var/app/io.github.ryubing.Ryujinx/config/Ryujinx/system/prod.keys",
-         h + "/.switch/prod.keys"};
-#endif
     return v;
 }
 static std::vector<std::string> firmware_candidates(void) {
     std::string h = home_dir();
-#ifdef _WIN32
     const char *ad = getenv("APPDATA");
     std::string a = ad ? ad : h + "\\AppData\\Roaming";
     return {a + "\\Ryujinx\\bis\\system\\Contents\\registered", a + "\\yuzu\\nand\\system\\Contents\\registered",
             a + "\\eden\\nand\\system\\Contents\\registered"};
-#elif defined(__APPLE__)
-    std::string a = h + "/Library/Application Support";
-    return {a + "/Ryujinx/bis/system/Contents/registered", a + "/yuzu/nand/system/Contents/registered"};
-#else
-    const char *xc = getenv("XDG_CONFIG_HOME"), *xd = getenv("XDG_DATA_HOME");
-    std::string c = xc && *xc ? xc : h + "/.config", d = xd && *xd ? xd : h + "/.local/share";
-    return {c + "/Ryujinx/bis/system/Contents/registered", d + "/yuzu/nand/system/Contents/registered",
-            d + "/eden/nand/system/Contents/registered"};
-#endif
 }
 
 // ------------------------------------------------------------------ checks of what was chosen (cheap, no keys shown)
@@ -287,7 +228,16 @@ struct Check {
 static Check check_game_source(const std::string &p) {
     Check c;
     if (file_exists(p)) {
-        c.text = "a file: add the folder with the decrypted game (exefs and romfs)";
+        std::string lower = p;
+        for (char &ch : lower) ch = (char)tolower((unsigned char)ch);
+        bool container = lower.size() > 4 && (lower.compare(lower.size() - 4, 4, ".nsp") == 0 ||
+                                              lower.compare(lower.size() - 4, 4, ".xci") == 0);
+        if (container) {
+            c.ok = true;
+            c.text = "NSP / XCI - decrypted with prod.keys when set up";
+        } else {
+            c.text = "not an NSP / XCI file: add that, or the folder with the decrypted game (exefs and romfs)";
+        }
         return c;
     }
     if (!dir_exists(p)) { c.text = "not found"; return c; }
@@ -459,7 +409,7 @@ static Step g_steps[3] = {{"Check and lay out your game files", PENDING, ""},
                           {"Recompile the game code", PENDING, ""}};
 static std::atomic<float> g_progress{0};
 static std::atomic<int> g_job{0};  // 0 idle, 1 running, 2 done (play), 3 failed
-static std::atomic<bool> g_built_wait{false};  // the game code was just built on a small Linux machine: Play, not a start
+static std::atomic<bool> g_built_wait{false};  // the game code was just built: Play, not a start
 static std::string g_err_what, g_err_hint, g_err_log;
 static std::vector<std::string> g_found;
 static std::atomic<bool> g_cancel{false};
@@ -668,16 +618,6 @@ static void *job_thread(void *) {
             return NULL;
         }
         set_step(2, DONE, "built");
-#if defined(__linux__) && !defined(__ANDROID__)
-        // A Steam Deck (16 GB) froze starting the game straight after the build in desktop mode (#13): the build and
-        // the first start together are too much for it there. Back to the screen instead: Play (or Gaming Mode)
-        if (ram_gb <= 16) {
-            LOG("[launcher] built on a %d GB machine: the game starts with Play, not straight away\n", ram_gb);
-            g_built_wait = true;
-            g_job = 0;
-            return NULL;
-        }
-#endif
     } else {
         set_step(2, SKIPPED, "already built");
     }
@@ -696,18 +636,14 @@ static long long tag_rank(const std::string &t) {  // v<major>.<minor>.<patch> (
         return ((long long)a << 24) + ((long long)b << 12) + c;
     return -1;  // (dev builds: any release is newer)
 }
-extern "C" void menu_notice(const char *text, double seconds);  // (menu.mm: a notice over the game)
+extern "C" void menu_notice(const char *text, double seconds);  // (menu.cpp: a notice over the game)
 static void *update_thread(void *) {
     std::string body;
     if (const char *t = getenv("RECOMP_UPDATE_TAGS")) {
         body = std::string("\"tag_name\": \"") + t + "\"";
     } else {
-#ifdef _WIN32
         const char *sr = getenv("SystemRoot");
         std::string curl = std::string(sr ? sr : "C:\\Windows") + "\\System32\\curl.exe";
-#else
-        std::string curl = file_exists("/usr/bin/curl") ? "/usr/bin/curl" : "/bin/curl";
-#endif
         std::string dir = std::string(rt_data_root()) + SEP "cache";
         mkdir(dir.c_str(), 0755);
         std::string out = dir + SEP "latest-release.json";
@@ -797,24 +733,6 @@ static std::string dialog_start(const std::string &p) {
 }
 
 // ------------------------------------------------------------------ screenshots (tests: RECOMP_LAUNCHER_SHOTS)
-#ifdef __APPLE__
-static void save_png(id<MTLTexture> tex, const char *path) {
-    size_t w = tex.width, h = tex.height;
-    std::vector<uint8_t> px(w * h * 4);
-    [tex getBytes:px.data() bytesPerRow:w * 4 fromRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0];
-    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    CGContextRef ctx = CGBitmapContextCreate(px.data(), w, h, 8, w * 4, cs, kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
-    CGImageRef img = CGBitmapContextCreateImage(ctx);
-    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)path, strlen(path), false);
-    CGImageDestinationRef dest = CGImageDestinationCreateWithURL(url, (__bridge CFStringRef)UTTypePNG.identifier, 1, NULL);
-    if (dest) {
-        CGImageDestinationAddImage(dest, img, NULL);
-        CGImageDestinationFinalize(dest);
-        CFRelease(dest);
-    }
-    CFRelease(url), CGImageRelease(img), CGContextRelease(ctx), CGColorSpaceRelease(cs);
-}
-#endif
 
 // ------------------------------------------------------------------ drawing
 static ImFont *g_font, *g_font_big, *g_font_title;
@@ -862,20 +780,6 @@ static void style_init(void) {
     c[ImGuiCol_Separator] = MAGENTA;
     c[ImGuiCol_ScrollbarBg] = BLACK;
     c[ImGuiCol_ScrollbarGrab] = DIM;
-}
-
-// A small "?" at the right edge of the line: what it is for, as a tooltip
-static void help_marker(const char *text) {
-    float w = ImGui::CalcTextSize("?").x + 2 * ImGui::GetStyle().FramePadding.x;
-    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - w);
-    ImGui::SmallButton("?");
-    if (ImGui::IsItemHovered()) {
-        ImGui::BeginTooltip();
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30);
-        ImGui::TextUnformatted(text);
-        ImGui::PopTextWrapPos();
-        ImGui::EndTooltip();
-    }
 }
 
 // The Build Helper's bar: [#####---------------]  25%  what it is doing
@@ -1023,12 +927,6 @@ extern "C" void launcher_run(const char *root) {
     ui_window_init();
     SDL_Window *win = ui_window();
     SDL_SetWindowTitle(win, launcher_needed(root, false) ? "smm2-dx - First-Time Setup" : GAME_TITLE);
-#ifdef __APPLE__
-    CAMetalLayer *layer = (__bridge CAMetalLayer *)ui_metal_layer();
-    id<MTLDevice> dev = (__bridge id<MTLDevice>)ui_metal_device();
-    id<MTLCommandQueue> queue = [dev newCommandQueue];
-    if (shots) layer.framebufferOnly = NO;
-#endif
     IMGUI_CHECKVERSION();
     ImGuiContext *prev = ImGui::GetCurrentContext();  // (the overlay menu's, after Quit to Start Screen)
     ImGuiContext *ctx = ImGui::CreateContext();
@@ -1039,7 +937,7 @@ extern "C" void launcher_run(const char *root) {
     {
         int ww, wh;
         SDL_GetWindowSizeInPixels(win, &ww, &wh);
-        float atlas = wh > 1080 ? 2.0f : 1.0f;  // (sharp text on big / Retina windows)
+        float atlas = wh > 1080 ? 2.0f : 1.0f;  // (sharp text on big windows)
         ImFontConfig cfg;
         cfg.OversampleH = 1;
         cfg.PixelSnapH = true;
@@ -1050,13 +948,8 @@ extern "C" void launcher_run(const char *root) {
         io.FontGlobalScale = 1 / atlas;
     }
     style_init();
-#ifdef __APPLE__
-    ImGui_ImplSDL3_InitForMetal(win);
-    ImGui_ImplMetal_Init(dev);
-#else
     ImGui_ImplSDL3_InitForVulkan(win);
     vk_imgui_backend_init();
-#endif
     ImGuiStyle base = ImGui::GetStyle();
     float style_scale = -1;
 
@@ -1066,13 +959,6 @@ extern "C" void launcher_run(const char *root) {
     double last_shot_t = 0;
     g_job = 0;
     std::string add_path;
-#ifdef __APPLE__
-    bool quarantined = false;  // a downloaded app macOS hasn't cleared: its helpers may be refused (README: xattr)
-    {
-        char exe[1100];
-        if (plat_exe_path(exe, sizeof exe)) quarantined = getxattr(exe, "com.apple.quarantine", NULL, 0, 0, 0) > 0;
-    }
-#endif
 
     while (!play) {
         // picks from the file dialogs
@@ -1103,22 +989,6 @@ extern "C" void launcher_run(const char *root) {
         }
         if (g_job == 2) { play = true; break; }
 
-#ifdef __APPLE__
-        int pw, ph;
-        SDL_GetWindowSizeInPixels(win, &pw, &ph);
-        layer.drawableSize = CGSizeMake(pw, ph);
-        @autoreleasepool {
-            id<CAMetalDrawable> drawable = [layer nextDrawable];
-            if (!drawable) { SDL_Delay(16); continue; }
-            MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
-            rp.colorAttachments[0].texture = drawable.texture;
-            rp.colorAttachments[0].loadAction = MTLLoadActionClear;
-            rp.colorAttachments[0].clearColor = MTLClearColorMake(12 / 255.0, 12 / 255.0, 12 / 255.0, 1);
-            rp.colorAttachments[0].storeAction = MTLStoreActionStore;
-            id<MTLCommandBuffer> cb = [queue commandBuffer];
-            id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
-            ImGui_ImplMetal_NewFrame(rp);
-#else
         {
             // one frame per refresh: the swapchain presents without waiting, so this screen alone would spin
             static uint64_t next_frame;
@@ -1130,7 +1000,6 @@ extern "C" void launcher_run(const char *root) {
             static const float clear_col[4] = {12 / 255.0f, 12 / 255.0f, 12 / 255.0f, 1};
             if (!vk_frame_begin(clear_col)) { SDL_Delay(16); continue; }
             ImGui_ImplVulkan_NewFrame();
-#endif
             ImGui_ImplSDL3_NewFrame();
             ImGui::NewFrame();
             ImVec2 ds = io.DisplaySize;
@@ -1180,9 +1049,6 @@ extern "C" void launcher_run(const char *root) {
                 // ---- the game: folders with the decrypted files
                 if (section_begin("##c1", "Game files")) {
                     ImGui::TextDisabled("Super Mario Maker 2 3.0.3");
-                    help_marker("Folders with the decrypted game: the ExeFS and RomFS (e.g. an emulator's \"Extract RomFS / ExeFS\" "
-                                "of the updated game, or the base game's and the 3.0.3 update's folders). NSP and XCI files aren't "
-                                "used. The game version must be 3.0.3.");
                     int remove_at = -1;
                     for (size_t i = 0; i < g_cfg.game.size(); i++) {
                         // one line each: the check's mark, the name (the whole path on hover), what it is, Remove
@@ -1211,6 +1077,12 @@ extern "C" void launcher_run(const char *root) {
                         SDL_ShowOpenFolderDialog(picked, (void *)(intptr_t)PICK_GAME, win, st.c_str(), true);
                     }
                     ImGui::SameLine();
+                    if (ImGui::Button("Add NSP / XCI...")) {
+                        std::string st = g_cfg.game.empty() ? home_dir() : dialog_start(g_cfg.game.back());
+                        static const SDL_DialogFileFilter game_filter[] = {{"Game files", "nsp;xci"}, {"All files", "*"}};
+                        SDL_ShowOpenFileDialog(picked, (void *)(intptr_t)PICK_GAME, win, game_filter, 2, st.c_str(), true);
+                    }
+                    ImGui::SameLine();
                     {
                         char buf[4096];
                         snprintf(buf, sizeof buf, "%s", add_path.c_str());
@@ -1228,10 +1100,6 @@ extern "C" void launcher_run(const char *root) {
 
                 // ---- keys and firmware: for the shared fonts
                 if (section_begin("##c2", "Keys and firmware")) {
-                    ImGui::TextDisabled("Only for the game's fonts%s", fonts_needed ? "" : " (already copied)");
-                    help_marker("Your console's prod.keys and its firmware (the folder of its system .nca files): the game's "
-                                "fonts come from the firmware, and it stops at the title screen without them. They're read "
-                                "where they are and never copied; key values are never shown or written to the logs.");
                     if (path_row("prod.keys", g_cfg.keys, "prod.keys: its path", PICK_KEYS, false, s)) config_save();
                     status_line(keys, 130 * s);
                     if (path_row("Firmware", g_cfg.firmware, "firmware: e.g. Ryujinx's bis/system/Contents/registered", PICK_FIRMWARE, true, s))
@@ -1244,8 +1112,6 @@ extern "C" void launcher_run(const char *root) {
                 // ---- OpenCourse World: Course World and every online feature of the game
                 if (section_begin("##c3", "OpenCourse World")) {
                     ImGui::TextDisabled("The config exported from your opencourse.world account");
-                    help_marker("The ocw-config.json that opencourse.world gives you: your server domain and your personal "
-                                "token. The game's online features all go through OpenCourse World.");
                     if (path_row("Config", g_cfg.ocw, "ocw-config.json: its path", PICK_OCW, false, s)) config_save();
                     status_line(ocwc, 130 * s);
                     ImGui::EndChild();
@@ -1282,8 +1148,8 @@ extern "C" void launcher_run(const char *root) {
             if (job == 0) {
                 ImGui::BeginGroup();
                 if (!can_start && !files_ready)
-                    ImGui::TextColored(WARN, "%s", g_cfg.game.empty() ? "Add the folder with your decrypted game."
-                                                   : !games_ok ? "One of the game folders can't be used."
+                    ImGui::TextColored(WARN, "%s", g_cfg.game.empty() ? "Add your game: its NSP / XCI, or the folder with the decrypted files."
+                                                   : !games_ok ? "One of the game files or folders can't be used."
                                                    : !ocwc.ok ? "Choose your OpenCourse World config (ocw-config.json)."
                                                                : "Choose prod.keys and the firmware: the fonts come from there.");
                 else if (g_built_wait)
@@ -1305,12 +1171,6 @@ extern "C" void launcher_run(const char *root) {
                     ImGui::SameLine();
                     if (ImGui::SmallButton("Open the download page")) SDL_OpenURL(RELEASES_PAGE);
                 }
-#ifdef __APPLE__
-                if (quarantined) {
-                    ImGui::SameLine();
-                    ImGui::TextColored(WARN, "macOS may block the recompiler: see README (xattr).");
-                }
-#endif
                 ImGui::EndGroup();
                 float gh = ImGui::GetItemRectSize().y;
                 ImGui::SameLine(right);
@@ -1375,45 +1235,18 @@ extern "C" void launcher_run(const char *root) {
                     shot = shot_path;
                 }
             }
-#ifdef __APPLE__
-            ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cb, enc);
-            [enc endEncoding];
-            id<MTLTexture> copy = nil;
-            if (shot) {
-                MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:drawable.texture.pixelFormat
-                                             width:drawable.texture.width height:drawable.texture.height mipmapped:NO];
-                td.storageMode = MTLStorageModeShared;
-                copy = [dev newTextureWithDescriptor:td];
-                id<MTLBlitCommandEncoder> bl = [cb blitCommandEncoder];
-                [bl copyFromTexture:drawable.texture toTexture:copy];
-                [bl endEncoding];
-            }
-            [cb presentDrawable:drawable];
-            [cb commit];
-            if (copy) {
-                [cb waitUntilCompleted];
-                save_png(copy, shot);
-                LOG("[launcher] screenshot %s\n", shot);
-            }
-#else
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), (VkCommandBuffer)vk_frame_cmd());
             vk_frame_end(shot);
             if (shot) LOG("[launcher] screenshot %s\n", shot);
-#endif
         }
         frame++;
     }
     LOG("[launcher] ready: starting the game\n");
     config_save();
     launcher_boot_env();
-#ifdef __APPLE__
-    ImGui_ImplMetal_Shutdown();
-#else
     vk_imgui_backend_shutdown();
-#endif
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext(ctx);
     ImGui::SetCurrentContext(prev);
     SDL_SetWindowTitle(win, GAME_TITLE);
 }
-#endif

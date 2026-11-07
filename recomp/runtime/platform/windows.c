@@ -16,7 +16,7 @@
 // ---- guest address space
 // The window is reserved up front and committed per region (plat_commit from the loader / kernel). Anything
 // the guest touches outside a committed region is committed on its first access by the exception handler
-// below, so the window behaves like macOS's all-RW reservation. The OS itself (ReadFile into a guest buffer)
+// below, so the window behaves as an all-RW reservation. The OS itself (ReadFile into a guest buffer)
 // does not fault: such buffers must be inside committed regions.
 static uint64_t g_lo, g_hi;
 #define COMMIT_CHUNK 0x10000ull
@@ -185,7 +185,7 @@ static void log_to_file_without_console(void) {
     _putenv("LASRECOMP_LOG_APPEND=1");
 }
 
-// The recompiled game code is built for x86-64-v2 at least (Makefile GENARCH baseline; gamebuild.c upgrades to
+// The recompiled game code is built for x86-64-v2 at least (the build's baseline; gamebuild.c upgrades to
 // x86-64-v3 where the CPU has AVX2/FMA/BMI2): say so instead of crashing with an illegal instruction on an older CPU.
 static void require_cpu(void) {
     if (x86_cpu_has_v2()) return;

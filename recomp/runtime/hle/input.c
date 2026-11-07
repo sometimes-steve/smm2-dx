@@ -221,19 +221,12 @@ int input_pad_family(void) {
 
 bool input_gamepad_connected(void) { return pad_connected; }
 
-// (Android: the emulator's own keyboard, "qwerty2", has gamepad keys and SDL lists it as a gamepad; it would hide
-// the on-screen controller)
 static bool real_gamepad(SDL_JoystickID id) {
-#ifdef __ANDROID__
-    const char *n = SDL_GetGamepadNameForID(id);
-    if (n && !strcmp(n, "qwerty2")) return false;
-#else
     (void)id;
-#endif
     return true;
 }
 
-// A game's PC controls (runtime/game_hooks.c game_pc_*): keys with Ctrl / Cmd, the middle and right mouse buttons, the
+// A game's PC controls (runtime/game_hooks.c game_pc_*): keys with Ctrl, the middle and right mouse buttons, the
 // wheel. A key taken when pressed is taken when released too, so the game never sees half of it.
 static bool pc_event(const SDL_Event *e) {
     extern bool game_pc_key(int scancode, bool cmd, bool shift, bool down, bool repeat);
@@ -251,11 +244,7 @@ static bool pc_event(const SDL_Event *e) {
             game_pc_key(sc, false, false, false, false);
             return true;
         }
-#ifdef __APPLE__
-        bool cmd = (e->key.mod & SDL_KMOD_GUI) != 0;
-#else
         bool cmd = (e->key.mod & SDL_KMOD_CTRL) != 0;
-#endif
         if (!game_pc_key(sc, cmd, (e->key.mod & SDL_KMOD_SHIFT) != 0, true, e->key.repeat)) return false;
         taken[sc] = true;
         return true;

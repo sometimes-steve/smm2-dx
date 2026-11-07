@@ -236,9 +236,6 @@ static void config_save(void) {
     if (g_ocw.ip[0]) fprintf(f, ",\n  \"ip\": \"%s\"", g_ocw.ip);
     fprintf(f, "\n}\n");
     fclose(f);
-#ifndef _WIN32
-    chmod(path, 0600);  // (the token is in it)
-#endif
     LOG("[ocw] %s written (domain \"%s\"%s%s, token %s)\n", path, g_ocw.domain, g_ocw.ip[0] ? " at " : "", g_ocw.ip,
         g_ocw.token[0] ? "set" : "not set");
 }

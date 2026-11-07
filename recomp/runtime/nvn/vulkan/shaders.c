@@ -330,7 +330,7 @@ static const char *builtin_src(const char *name, int *stage) {
                "  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
                "}\n";
     }
-    // frame generation's passes (runtime/nvn/framegen_src.c: one source with metal's; exec.c vk_framegen_encode)
+    // frame generation's passes (runtime/nvn/framegen_src.c: exec.c vk_framegen_encode)
     if (!strncmp(name, "fg_", 3)) {
         *stage = STAGE_FRAGMENT;
         return framegen_glsl(name);

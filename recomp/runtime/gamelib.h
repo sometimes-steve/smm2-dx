@@ -1,5 +1,5 @@
-// The recompiled game code: a library built from the player's own game files (`make gen` + `make` in a source
-// checkout, the start screen's setup otherwise; runtime/gamebuild.c) and loaded at startup (runtime/gamelib.c).
+// The recompiled game code: a library built from the player's own game files (by the start screen's setup;
+// runtime/gamebuild.c) and loaded at startup (runtime/gamelib.c).
 // Nothing from the game ships with the app.
 #pragma once
 #include "game.h"
@@ -9,21 +9,10 @@
 
 #include "cpu.h"
 
-#if defined(_WIN32)
 #define GAMELIB_NAME GAME_ID "game.dll"
 #define GAMELIB_EXPORT __declspec(dllexport)
-#elif defined(__APPLE__)
-#define GAMELIB_NAME GAME_ID "game.dylib"
-#define GAMELIB_EXPORT __attribute__((visibility("default")))
-#elif defined(__ANDROID__)
-#define GAMELIB_NAME "lib" GAME_ID "game.so"  // (an APK's native libraries are lib*.so; loaded by this name)
-#define GAMELIB_EXPORT __attribute__((visibility("default")))
-#else
-#define GAMELIB_NAME GAME_ID "game.so"
-#define GAMELIB_EXPORT __attribute__((visibility("default")))
-#endif
 
-// GAMELIB_ID (-D, from the Makefile): a hash of the generator and the headers the game code is compiled against. A
+// GAMELIB_ID (-D, set by the build): a hash of the generator and the headers the game code is compiled against. A
 // library built with another one is rebuilt, not loaded.
 #ifndef GAMELIB_ID
 #define GAMELIB_ID "dev"

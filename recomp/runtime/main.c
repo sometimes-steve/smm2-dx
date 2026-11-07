@@ -1,11 +1,5 @@
 // LAS Recomp entry: load modules, set up the kernel, run nn::init::Start on the main thread.
 #include <SDL3/SDL.h>
-#ifdef __APPLE__
-#include <TargetConditionals.h>
-#endif
-#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
-#include <SDL3/SDL_main.h>  // (iOS, Android: SDL starts the app and calls main() inside it - SDL_main in libmain.so)
-#endif
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,14 +37,8 @@ static void rtld_init_main(Cpu *c) { module_init(c, &g_modules[0]); }
 
 // Claim the guest address range before anything else can map there. The host allocator places
 // regions at random addresses in the same window; on a collision, re-exec for a fresh layout.
-// (Android: when libmain.so is loaded, before SDL_main)
-static bool g_guest_unreserved;  // (iOS, Android: no re-exec - main() says why and stops)
 __attribute__((constructor(101))) static void reserve_guest_space(void) {
     if (plat_reserve_guest(GUEST_LO, GUEST_HI)) return;
-#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
-    g_guest_unreserved = true;
-    return;
-#endif
     const char *tries = getenv("LARECOMP_REEXEC");
     int n = tries ? atoi(tries) : 0;
     if (n >= 20) {
@@ -94,16 +82,9 @@ void reboot_test_frame(uint64_t frame) {
     rt_request_reboot(RT_REBOOT_GAME);
 }
 
-#ifdef __APPLE__
-extern const ResetFn __start_resets[] __asm__("section$start$__DATA$__rt_reset");
-extern const ResetFn __stop_resets[] __asm__("section$end$__DATA$__rt_reset");
-#elif defined(__linux__)
-extern const ResetFn __start_resets[], __stop_resets[];  // (ELF: defined by the linker)
-#else
 // PE/COFF: .rst$a < .rst$m (entries, hle.h) < .rst$z (the linker sorts by the text after '$')
 __attribute__((section(".rst$a"), used)) static const ResetFn __start_resets[1];
 __attribute__((section(".rst$z"), used)) static const ResetFn __stop_resets[1];
-#endif
 
 void backend_reset(void);             // renderer: GPU idle, game textures and address-keyed caches dropped
 void backend_guest_memory_reset(void);  // renderer: guest memory was replaced (re-wrap the heap)
@@ -153,9 +134,6 @@ static void teardown(int kind) {
     LOG("[reboot] game torn down in %llums (%d reset hooks)\n", (unsigned long long)((plat_now_ns() - t0) / 1000000), n);
 }
 
-// (iOS and Android: the game code comes with the app, built on the Mac; nothing to build on the device)
-#if !defined(GAMELIB_STATIC) && !defined(__ANDROID__)
-#define RT_FIRST_LAUNCH_BUILD 1
 static void build_progress(double fraction, const char *step) {
     static int last = -100;
     int pct = (int)(fraction * 100);
@@ -175,19 +153,16 @@ static void first_launch_build(const char *root) {
         return;
     }
     LOG("[gamebuild] first launch: building the game code from %s (a few minutes to half an hour)\n", root);
-#ifdef _WIN32
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, GAME_TITLE,
                              "First launch: " GAME_TITLE " now recompiles the game code from your own game files. This "
                              "takes from a few minutes to half an hour; the game starts by itself when it's done (progress in the "
                              "console window).", NULL);
-#endif
     int jobs = SDL_GetNumLogicalCPUCores();
     GameBuildOpts o = {build_progress, jobs > 1 ? jobs : 1};
     char why[512];
     if (!gamebuild_run(root, &o, why, sizeof why)) FATAL("building the game code failed: %s (details above)\n", why);
     LOG("[gamebuild] done\n");
 }
-#endif
 
 static void boot(const char *root) {
     char exefs[1024], romfs[1024], npdm_path[1024];
@@ -197,9 +172,7 @@ static void boot(const char *root) {
     if (!g_romfs_dir) g_romfs_dir = strdup(romfs);
 
     char why[512];
-#ifdef RT_FIRST_LAUNCH_BUILD
     if (!gamelib_present(root)) first_launch_build(root);
-#endif
     if (!gamelib_load(root, why, sizeof why)) FATAL("%s\n", why);
     loader_load(exefs);
     { extern void net_config_reload(void); net_config_reload(); }  // (the network settings read again: before the mods)
@@ -232,35 +205,7 @@ static void boot(const char *root) {
 int main(int argc, char **argv) {
     g_argc = argc, g_argv = argv;
     plat_init();
-    if (g_guest_unreserved) {  // iOS without the extended virtual addressing entitlement (tools/make_ios_app.sh)
-#if (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) || defined(__ANDROID__)
-        extern void plat_guest_report(uint64_t lo, uint64_t hi);  // runtime/platform/macos.c, linux.c
-        plat_guest_report(GUEST_LO, GUEST_HI);
-#endif
-        char msg[400];
-#ifdef __ANDROID__  // (something else already maps there: the Makefile's Android GUEST_ORIGIN would have to move)
-        snprintf(msg, sizeof msg, "This copy of " GAME_TITLE " can't reserve the game's memory window (%#llx-%#llx) on this "
-                 "device: something else is mapped there (details in the log).", GUEST_LO, GUEST_HI);
-        fprintf(stderr, "FATAL: %s\n", msg);
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, GAME_TITLE, msg, NULL);
-        return 1;
-#endif
-        snprintf(msg, sizeof msg, "This copy of " GAME_TITLE " can't reserve the game's memory window (%#llx-%#llx): it "
-                 "must be signed with the Extended Virtual Addressing and Increased Memory Limit entitlements.", GUEST_LO, GUEST_HI);
-        fprintf(stderr, "FATAL: %s\n", msg);
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, GAME_TITLE, msg, NULL);
-        return 1;
-    }
-#ifdef __ANDROID__
-    { extern void plat_guest_report(uint64_t lo, uint64_t hi); plat_guest_report(GUEST_LO, GUEST_HI); }  // (the log: the address space)
-    SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
-    SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");  // (Back opens the overlay menu, as Esc: runtime/ui/menu.cpp)
-#endif
-#ifdef _WIN32
     setvbuf(stderr, NULL, _IONBF, 0);  // the Windows CRT treats _IOLBF as full buffering
-#else
-    setvbuf(stderr, NULL, _IOLBF, 0);
-#endif
     const char *root = "extracted";  // (in the data root)
     static char arg_root[1024];
     bool setup = false;  // --setup: the setup screen even when everything is there
@@ -271,7 +216,7 @@ int main(int argc, char **argv) {
         else if (argv[i][0] != '-') root = arg_root;
     }
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
-    {   // tests on a device without a shell (iOS): recomp-test.env in the data root, KEY=value lines, sets the environment
+    {   // tests: recomp-test.env in the data root, KEY=value lines, sets the environment
         FILE *f = fopen("recomp-test.env", "r");
         char line[1024];
         while (f && fgets(line, sizeof line, f)) {

@@ -56,7 +56,7 @@ WEAK uint64_t g_test_rstick_until;
 
 // ---- a PC's keys, mouse buttons and wheel, before they become the game's input (runtime/hle/input.c): a game can take
 // them for its own PC controls (SMM2: the Course Maker, games/smm2/mods/pc_editor.c). true: taken. Keys: an SDL scancode,
-// cmd = Ctrl (Cmd on macOS); mouse: button 2 middle, 3 right, act 0 down / 1 move / 2 up, x, y in 0..1 of the window.
+// cmd = Ctrl; mouse: button 2 middle, 3 right, act 0 down / 1 move / 2 up, x, y in 0..1 of the window.
 WEAK bool game_pc_key(int scancode, bool cmd, bool shift, bool down, bool repeat) {
     (void)scancode, (void)cmd, (void)shift, (void)down, (void)repeat;
     return false;

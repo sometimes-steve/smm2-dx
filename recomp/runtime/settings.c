@@ -30,7 +30,7 @@ Settings g_settings = {
     .tracker = true,
     .chaos_letters = CHAOS_LETTERS_MAP,
     .diff_damage = 1.0f,
-    .upscaler = UPSCALE_SHARP,  // (MetalFX on macOS, AMD FSR 1 on Windows)
+    .upscaler = UPSCALE_SHARP,  // (AMD FSR 1)
     .frame_gen = FRAMEGEN_OFF,
 };
 
@@ -45,24 +45,8 @@ const char *const g_language_names[N_LANGUAGES] = {"Auto", "Japanese", "English"
                                                    "Italian", "Dutch", "Russian", "Korean", "Chinese (Simplified)",
                                                    "Chinese (Traditional)"};
 
-// LANG_AUTO: the host's own language (LANG=es_ES.UTF-8 -> es), en-US when it is none of the game's. Linux only:
-// macOS / Windows apps get no locale variables from the system, so Auto is English there (pick one in settings).
+// LANG_AUTO: Windows apps get no locale variables from the system, so Auto is English (pick one in settings).
 static const char *host_language(void) {
-#ifndef __linux__
-    return "en-US";
-#endif
-    const char *e = getenv("LC_ALL");
-    if (!e || !*e) e = getenv("LC_MESSAGES");
-    if (!e || !*e) e = getenv("LANG");
-    if (!e || !*e || !strcmp(e, "C") || !strcmp(e, "POSIX")) return "en-US";
-    char l[8] = {0};
-    size_t n = 0;
-    for (const char *p = e; *p && *p != '.' && *p != '@' && *p != '_' && n < sizeof l - 1; p++) l[n++] = *p;
-    static const struct { const char *loc, *code; } map[] = {{"ja", "ja"}, {"ko", "ko"}, {"ru", "ru"}, {"nl", "nl"},
-                                                             {"de", "de"}, {"it", "it"}, {"fr", "fr"}, {"es", "es"}};
-    for (size_t i = 0; i < sizeof map / sizeof *map; i++)
-        if (!strcmp(l, map[i].loc)) return map[i].code;
-    if (!strcmp(l, "zh")) return e[n] == '_' && e[n + 1] == 'T' ? "zh-TW" : "zh-CN";  // (TW / HK: traditional)
     return "en-US";
 }
 
@@ -116,7 +100,7 @@ void settings_load(void) {
                                   !strcmp(val, "50%") ? RES_Q50 : !strcmp(val, "25%") ? RES_Q25 :
                                   (n >= 1 && n <= 4) ? n : n > 4 ? 4 : RES_MATCH;  // (5x-8x were removed)
         }
-        else if (!strcmp(key, "upscaler")) g_settings.upscaler = !strcmp(val, "bilinear") ? UPSCALE_BILINEAR : UPSCALE_SHARP;  // (metalfx / fsr1: this OS's)
+        else if (!strcmp(key, "upscaler")) g_settings.upscaler = !strcmp(val, "bilinear") ? UPSCALE_BILINEAR : UPSCALE_SHARP;
         else if (!strcmp(key, "frame_gen"))
             g_settings.frame_gen = !strcmp(val, "120") ? FRAMEGEN_120 : !strcmp(val, "replay") ? FRAMEGEN_REPLAY : FRAMEGEN_OFF;
         else if (!strcmp(key, "antialias")) g_settings.antialias = !strcmp(val, "off") ? AA_OFF : AA_SMAA;  // ("fxaa": SMAA now)
