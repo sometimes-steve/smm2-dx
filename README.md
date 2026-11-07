@@ -10,7 +10,7 @@
 </table>
 
 <p align="center">
-  <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87%20DOWNLOAD%20FOR%20WINDOWS-2ea44f?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" height="56"></a>
+  <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest"><img src="https://img.shields.io/badge/DOWNLOAD%20FOR%20WINDOWS-2ea44f?style=for-the-badge" alt="Download for Windows" height="56"></a>
   <br>
   <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest"><img src="https://img.shields.io/github/v/release/sometimes-steve/smm2-dx?style=for-the-badge&label=latest%20version&color=blue" alt="Latest version"></a>
   <br>
