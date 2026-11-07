@@ -118,9 +118,9 @@ static void begin_page(const char *id, float scale, bool flat) {
     if (strcmp(page, id)) snprintf(page, sizeof page, "%s", id), g_desc_shown[0] = 0;
     snprintf(g_cur_page, sizeof g_cur_page, "%s", id);
     // the pages pass fontSize / 34, and the NES theme's font (Press Start 2P, 20 px at 1080 p) is about half the default's
-    // (Baloo 2, 39 px: runtime/ui/menu.c): its rows, padding and minimum width came out half the size. The same unit in
-    // both themes: the NES scale is brought up to what the default theme's font would give.
-    g_scale = menu_row_notch() > 0 ? scale * (39.0f / 20.0f) : scale;
+    // (Baloo 2, 39 px: runtime/ui/menu.c), so its minimum width and padding came out about half the size. Brought most of the
+    // way up (1.4: the whole 39 / 20 made the boxes huge around the small pixel text; its rows stay 2.5 text heights tall).
+    g_scale = menu_row_notch() > 0 ? scale * 1.4f : scale;
     g_take_first = g_focus_req;
     g_focus_req = false;
     if (g_take_first) igNavMoveRequestCancel();  // (this frame's Down goes to the first row instead)
@@ -173,9 +173,7 @@ static int row(const char *label, const char *value, bool changed, const char *d
     const bool nes = menu_row_notch() > 0;  // (the NES theme: pixel-art buttons, pointer and arrows)
     ImVec2 availv;
     igGetContentRegionAvail(&availv);
-    // (the row's height in the same unit in every theme: the NES font alone is half the size, its rows were half as tall)
-    float vcol = 0, w = availv.x,
-          h = fmaxf(igGetFontSize() * (g_touch || nes ? 2.5f : 1.9f), g_scale * 34.0f * (g_touch ? 2.5f : 1.9f));
+    float vcol = 0, w = availv.x, h = igGetFontSize() * (g_touch || nes ? 2.5f : 1.9f);
     if (g_flat) {  // (one-pane pages: as wide as the page needs)
         char t0[TXT_CAP], s0[TXT_CAP];
         snprintf(t0, sizeof t0, "%s", label);
