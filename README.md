@@ -45,6 +45,35 @@ This project does **not** include the game, and never will. You bring your own c
 
 That's it. If something goes wrong, the log is in the `smm2-dx_log` folder next to the exe.
 
+## Build it yourself (it's easy)
+
+You don't have to trust a download. You can build the app from the source in this repo, and it takes one line. There is
+nothing to install first: no Visual Studio, no MSYS2, no compiler setup. If you have Windows 10 or 11, you have
+everything you need. Open Command Prompt or PowerShell and paste:
+
+```
+cmd /c "git clone https://github.com/sometimes-steve/smm2-dx smm2-dx && cd smm2-dx && build-helper.cmd"
+```
+
+A little helper called the **Build Helper** fetches the tools it needs, builds the app and puts it in the `dist` folder,
+ready to run. To rebuild later, run `build-helper.cmd` again. No game files are needed to build. You only give those to
+the setup screen when you run the app.
+
+## Where everything comes from
+
+Nothing but our own code lives in this repo: no game, no keys, no downloaded tools. The Build Helper gets each tool
+from its official home:
+
+- the **zig** compiler from ziglang.org
+- **SDL3**, **Vulkan** and **shaderc** from the MSYS2 package repository
+- **Python** from the python-build-standalone project on GitHub
+- **hactool** (unpacks game files) from its GitHub page, built from source
+- a few small **Python packages** from PyPI
+
+Every download is checked against a fixed checksum (sha256) written in the source, so a file that has been swapped or
+damaged is rejected. If you would rather not let the Build Helper download anything, you can fetch each file yourself
+and drop it in the right folder. The exact links, versions and checksums are in the developer section below.
+
 ## Support the project
 
 If you enjoy my work, consider buying me a coffee! https://buymeacoffee.com/sometimes_steve
