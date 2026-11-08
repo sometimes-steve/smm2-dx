@@ -7,7 +7,11 @@ set "ROOT=%~dp0"
 set "WORK=%ROOT%dist\smm2-dx_data\work"
 set "PYDIR=%WORK%\python-windows-x86_64"
 
-if exist "%PYDIR%\README-LICENSES.txt" goto run
+rem (a Python set up before the OpenCourse World account lookup was added has no pip left to add its packages: unpacked again)
+if exist "%PYDIR%\README-LICENSES.txt" (
+    findstr /c:"OpenCourse World account lookup" "%PYDIR%\README-LICENSES.txt" >nul 2>&1
+    if not errorlevel 1 goto run
+)
 
 set "NAME=cpython-3.12.14+20260924-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
 set "URLNAME=cpython-3.12.14%%2B20260924-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"

@@ -12,7 +12,9 @@
 //
 // The player's own Mii: the game's Mii database holds the Mii the player has set on OCW (read from OCW's public maker API)
 // until a local mii.charinfo replaces it (services/mii.c). Whose it is is learned, not configured: the first user record
-// the game fetches in a session is the player's own profile (see "the player's Mii" below).
+// the game fetches in a session is the player's own profile (see "the player's Mii" below). Before the game boots,
+// the setup (ui/launcher.c, games/smm2/ocw_identity.py) asks OCW who the token belongs to and writes ocw-maker.txt, so
+// the Mii the game asks for at boot is already the player's own; the learning below then only covers a failed lookup.
 //
 // Only two of the console mod's ten patches are needed here. Its other eight stub nn::account calls that reach real
 // Nintendo services on a console; in the recomp those reach runtime/services/acc.c, which already reports a network

@@ -265,11 +265,45 @@ static void config_save(void) {
     fclose(f);
 }
 
+// Whose OpenCourse World account the config is, found before the game boots: the game asks for its Mii at boot, before
+// it has asked OCW for the player's profile, so without this the player's own Mii shows only from the second start
+// (games/smm2/mods/ocw.c learns the maker code from the first profile the game fetches). games/smm2/ocw_identity.py asks
+// OCW the way the game does and writes ocw-maker.txt, where ocw.c reads it. It is silent and instant once that file
+// is there for this config (no network), and only a first start waits for the answer: any failure leaves things as they
+// were, and the game still learns the code by itself. RECOMP_NO_OCW_LOOKUP turns it off.
+#define OCW_LOOKUP_WAIT_MS 25000
+static void ocw_identity_lookup(void) {
+    if (getenv("RECOMP_NO_OCW_LOOKUP")) return;
+    const char *cfg = getenv("RECOMP_OCW_CONFIG");
+    if (!cfg || !*cfg) cfg = "ocw-config.json";
+    char py[1100], script[1100], out[1100];
+    if (!file_exists(cfg) || !gamebuild_python(py, sizeof py) ||
+        !rt_resource("tools" SEP "games" SEP "smm2" SEP "ocw_identity.py", "games/smm2/ocw_identity.py", script, sizeof script))
+        return;  // (no config, or a source checkout without the tools: nothing to look up)
+    snprintf(out, sizeof out, "%s" SEP "ocw-maker.txt", rt_data_root());
+    const char *av[] = {py, "-I", script, "--config", cfg, "--out", out, NULL};
+    uint64_t t0 = plat_now_ns();
+    PlatProc p = plat_spawn(av, NULL, false);
+    if (!p) { LOG("[ocw] the account lookup did not start\n"); return; }
+    int rc;
+    while ((rc = plat_proc_wait(p, false)) < 0) {
+        if ((plat_now_ns() - t0) / 1000000ull > OCW_LOOKUP_WAIT_MS) {
+            plat_proc_kill(p);
+            LOG("[ocw] the account lookup took longer than %d s: the game learns the player by itself\n", OCW_LOOKUP_WAIT_MS / 1000);
+            return;
+        }
+        plat_sleep_until_ns(plat_now_ns() + 20ull * 1000000ull);
+    }
+    LOG("[ocw] account lookup: %s (%.1f s)\n", rc == 0 ? "the player is known" : "no answer, the game learns the player by itself",
+        (double)(plat_now_ns() - t0) / 1e9);
+}
+
 // Before every boot (the setup keeps no other paths to hand on): the OpenCourse World config chosen here is the one
 // the game reads, where it is (games/smm2/mods/ocw.c: RECOMP_OCW_CONFIG), so its token is never copied
 void launcher_boot_env(void) {
     config_load();
     if (g_cfg.ocw[0] && !getenv("RECOMP_OCW_CONFIG")) setenv("RECOMP_OCW_CONFIG", g_cfg.ocw, 0);
+    ocw_identity_lookup();
 }
 
 // Where emulators keep the keys and the firmware they were given (suggestions; the player can choose others): the

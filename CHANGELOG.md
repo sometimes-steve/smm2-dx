@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0 - 2026-11-08
+
+### Mii
+
+- **Your OCW Mii shows from the very first start.** Before the game boots, the setup asks OpenCourse World whose account your
+  config belongs to (the token alone is enough: nothing to type) and remembers the maker code in `ocw-maker.txt`, so the Mii the
+  game asks for at boot is already yours. Until now that was only known from the second start. A small lookup tool
+  (`tools/games/smm2/ocw_identity.py`) does it with a few more Python packages in the bundled Python (about 21 MB; hashes in
+  `recomp/tools/requirements-ocw.txt`). It only talks to the domain in your config, is instant once the code is known, and any
+  failure leaves things as they were. `RECOMP_NO_OCW_LOOKUP=1` turns it off.
+- **The game no longer puts the default Mii back on OCW.** It keeps its own copy of the player's Mii (from its save) and uploads
+  that a few seconds after logging in, so a save made while only the default Mii was served overwrote the Mii you set on OCW with
+  the default. The default copies the game holds are now replaced with your Mii (only exact copies of the default Mii are
+  touched; the game then saves the right one). `RECOMP_MII_NO_HEAL=1` turns it off.
+- The Mii database logs what the game asks for (`Get`, `BuildDefault`, `BuildRandom`).
+
+### Build
+
+- **The Build Helper unpacks a fresh Python** when the one it set up earlier lacks the packages the account lookup needs.
+
 ## 0.3.0 - 2026-11-07
 
 ### Mii

@@ -53,7 +53,17 @@ ZIG_SLIM_DIR = WORK / 'zig-x86_64-windows'      # what ships: only what compilin
 DEPS_DIR = WORK / 'deps-windows-x86_64'
 PY_DIR = WORK / 'python-windows-x86_64'
 HACTOOL_DIR = WORK / 'hactool-windows-x86_64'
-PY_IMPORTS = 'import threading, subprocess, json, hashlib, capstone, unicorn, lz4.frame'
+PY_IMPORTS = ('import threading, subprocess, json, hashlib, capstone, unicorn, lz4.frame, '
+              'anyio, anynet, OpenSSL, Crypto, multidict, netifaces, nintendo.nex.datastore_smm2')
+# PyPI source archives (MIT, pure Python) of the OpenCourse World lookup, pinned by hash: (name, version, url, sha256)
+OCW_SDISTS = (
+    ('nintendoclients', '5.1.0',
+     'https://files.pythonhosted.org/packages/a0/72/6c3e028eb6d511ff178c23be2703de2e1b74dc7b3802158a539aeba83886/nintendoclients-5.1.0.tar.gz',
+     '9426ea23ad6b8aae29c2d1ce21292bf0d740c31d68051f1d2d7f395371ff1ef1'),
+    ('anynet', '1.2.2',
+     'https://files.pythonhosted.org/packages/bf/b7/02e8934df2b38e0558e6ed6da2fdf6b988a5215ac272b1206d7342346b16/anynet-1.2.2.tar.gz',
+     '4026faadb5235572d045cd00d75971a52d6cbce888a008aea02d085461bcef47'),
+)
 GEN_FLAGS = ('-O1 -fno-strict-aliasing -Wno-return-type -Wno-unused-label -fvisibility=hidden -Iruntime '
              '-D_FILE_OFFSET_BITS=64 -mcpu=x86_64_v2')
 DLLS = ('SDL3.dll', 'libiconv-2.dll', 'libshaderc_shared.dll')
@@ -663,6 +673,33 @@ def install_python():
     for whl in sorted(wheels.glob('*.whl')):
         with zipfile.ZipFile(whl) as z:
             z.extractall(site)
+    # the OpenCourse World account lookup (games/smm2/ocw_identity.py): its wheels the same way, and two pure-Python
+    # source archives, unpacked as they are (only their package folder and licence)
+    note('installing the packages of the OpenCourse World lookup (pip)')
+    ocw_wheels = DL / 'wheels-ocw-win_amd64'
+    run(interp, ['-m', 'pip', 'download', '-q', '--disable-pip-version-check', '--only-binary=:all:', '--no-deps',
+                 '--platform', 'win_amd64', '--python-version', '3.12', '--implementation', 'cp', '--require-hashes',
+                 '-r', RECOMP / 'tools' / 'requirements-ocw.txt', '-d', ocw_wheels], quiet=True)
+    for whl in sorted(ocw_wheels.glob('*.whl')):
+        with zipfile.ZipFile(whl) as z:
+            z.extractall(site)
+    import tarfile
+    for pkg, ver, url, sha in OCW_SDISTS:
+        sd = DL / f'{pkg}-{ver}.tar.gz'
+        get_verified(url, sd, sha)
+        mod = {'nintendoclients': 'nintendo'}.get(pkg, pkg)
+        top = f'{pkg}-{ver}/'
+        with tarfile.open(sd) as t:
+            for m in t.getmembers():
+                if not (m.isfile() or m.isdir()):
+                    continue
+                if m.name == top + 'LICENSE':
+                    m.name = f'{pkg}-{ver}.dist-info/LICENSE'
+                elif m.name.startswith(top + mod + '/'):
+                    m.name = m.name[len(top):]
+                else:
+                    continue
+                t.extract(m, site, filter='data')
     note('trimming what the scripts do not need')
     # what running the scripts doesn't need: GUI toolkits, tests, the package installer, headers, docs
     lib = PY_DIR / 'Lib'
@@ -688,7 +725,11 @@ def install_python():
                'keep their own licenses (python-build-standalone documents them).\n'
                'Packages for the game code generator: capstone 5.0.9 (BSD-3-Clause), unicorn 2.1.4 (GPL-2.0, unmodified\n'
                'library, run as a separate program\'s module), lz4 4.4.5 (BSD-3-Clause); their licenses are in '
-               'site-packages/*.dist-info.\n')
+               'site-packages/*.dist-info.\n'
+               'Packages for the OpenCourse World account lookup (tools/games/smm2/ocw_identity.py): nintendoclients 5.1.0,\n'
+               'anynet 1.2.2, anyio 4.16.0, idna 3.20, typing_extensions 4.16.0, pyOpenSSL 26.4.0, cryptography 50.0.2,\n'
+               'cffi 2.1.1, pycparser 3.12, multidict 7.2.1, netifaces2 0.0.22, pycryptodome 4.4.0 (permissive licenses:\n'
+               'MIT, BSD, Apache-2.0, PSF); their licenses are in site-packages/*.dist-info.\n')
     if not test_python():
         raise BuildError('the fetched Python does not import capstone, unicorn and lz4')
 
@@ -1140,7 +1181,7 @@ def copy_support(dest, cfg):
     # the recompiler and the setup scripts
     for f in ('gen.py', 'lifter.py', 'analyze.py', 'nso.py', 'passes.py', 'patches.py', 'simd_c.py'):
         shutil.copy(RECOMP / 'tools' / f, dest / 'tools')
-    for f in ('setup.py', 'sysdata.py', 'mii_stub.py', 'mini_head.json', 'BIZUDPGothic-Regular.ttf',
+    for f in ('setup.py', 'sysdata.py', 'ocw_identity.py', 'mii_stub.py', 'mini_head.json', 'BIZUDPGothic-Regular.ttf',
               'BIZUDPGothic-OFL.txt', 'versions.py'):
         shutil.copy(RECOMP / 'games' / g / f, dest / 'tools' / 'games' / g)
     # what the game code is compiled against (the same files the library id hashes)
@@ -1267,7 +1308,7 @@ def main(argv):
     copy_runtime_dlls()
     build_game_lib(cfg, lib_id, imp_lib, game_lib, jobs)
     g = RECOMP / 'games' / 'smm2'
-    update_staging(cfg, version, lib_srcs + [g / f for f in ('setup.py', 'sysdata.py', 'mii_stub.py', 'mini_head.json',
+    update_staging(cfg, version, lib_srcs + [g / f for f in ('setup.py', 'sysdata.py', 'ocw_identity.py', 'mii_stub.py', 'mini_head.json',
                                                             'BIZUDPGothic-Regular.ttf', 'BIZUDPGothic-OFL.txt',
                                                             'versions.py')])
 

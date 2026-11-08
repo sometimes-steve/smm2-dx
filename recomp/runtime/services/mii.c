@@ -16,9 +16,11 @@
 // always has a Mii; between the two, the player's Mii from OCW when the OCW mod has one (mii_set_remote: it reads it
 // from the server by the maker code in ocw-config.json). IsUpdated says so, once to each session that asked before, when what the database holds changed (the
 // file written, replaced or removed), so a game that checks it can refresh what it shows.
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "../platform.h"
 #include "../hle.h"
 #include "../ipc.h"
 #include "../net/netcfg.h"
@@ -86,9 +88,49 @@ static uint64_t current_charinfo(uint8_t out[0x58]) {
     return sig;
 }
 
+// The game keeps its own copy of the player's profile Mii (loaded from its save) and uploads THAT to OpenCourse World a few
+// seconds after it logs in, whatever this database served it: a save made while only the default Mii was served holds the
+// default, and the upload then replaces the player's Mii on OCW with it. So when the Mii served is not the default one, the
+// copies of the default Mii the game holds (found in its writable memory by the create id and the face data) are replaced
+// with the served Mii, early and again from time to time; the game then uploads, and saves, the right one. Only exact copies
+// of the default Mii are touched. RECOMP_MII_NO_HEAL turns it off.
+extern int kernel_data_regions(uint64_t *addr, uint64_t *size, int max);
+static void *mii_heal_thread(void *arg) {
+    (void)arg;
+    static uint64_t ra[1024], rs[1024];
+    uint8_t def[0x58];
+    mii_default_charinfo(def, getenv("RECOMP_USER_NAME"));
+    uint64_t t0 = plat_now_ns();
+    for (;;) {
+        double age = (double)(plat_now_ns() - t0) / 1e9;
+        plat_sleep_until_ns(plat_now_ns() + (age < 90 ? 1500000000ull : 20000000000ull));  // (often at first, then now and then)
+        uint8_t cur[0x58];
+        current_charinfo(cur);
+        if (!memcmp(cur, def, sizeof cur)) continue;  // (the default is what is served: nothing to put right)
+        int nr = kernel_data_regions(ra, rs, 1024), fixed = 0;
+        for (int r = 0; r < nr; r++) {
+            uint8_t *p = (uint8_t *)(uintptr_t)ra[r], *end = p + rs[r];
+            while (p + 0x58 <= end && (p = memchr(p, def[0], (size_t)(end - p - 0x57))) != NULL) {
+                if (!memcmp(p, def, 16) && !memcmp(p + 0x26, def + 0x26, 0x32)) memcpy(p, cur, 0x58), fixed++;
+                p++;
+            }
+        }
+        if (fixed) LOG("[mii] put the player's Mii in %d place%s where the game kept the default one (%.0f s)\n", fixed, fixed == 1 ? "" : "s", age);
+    }
+    return NULL;
+}
+static void mii_heal_start(void) {
+    static bool started;
+    if (started || getenv("RECOMP_MII_NO_HEAL")) return;
+    started = true;
+    pthread_t th;
+    if (pthread_create(&th, NULL, mii_heal_thread, NULL) == 0) pthread_detach(th);
+}
+
 static void database(Service *s, IpcReq *req, IpcResp *resp) {
     switch (req->cmd) {
     case 6: case 7:  // BuildRandom, BuildDefault -> CharInfo: the default Mii
+        LOG("[mii] %s asked for: answering with the default Mii\n", req->cmd == 6 ? "BuildRandom" : "BuildDefault");
         mii_default_charinfo(resp->data, getenv("RECOMP_USER_NAME"));
         resp_size(resp, 0x58);
         break;
@@ -113,6 +155,8 @@ static void database(Service *s, IpcReq *req, IpcResp *resp) {
             uint8_t *p = (uint8_t *)(uintptr_t)b->addr;
             memset(p, 0, want);
             s->state = (void *)(uintptr_t)current_charinfo(p);  // (what this session has seen)
+            LOG("[mii] Get%s served the database's Mii\n", req->cmd == 3 ? "" : "1");
+            mii_heal_start();
             n = 1;
         } else if (b) {
             LOG("[mii] Get%s: the game's buffer is %llu bytes, one entry needs %zu\n", req->cmd == 3 ? "" : "1",

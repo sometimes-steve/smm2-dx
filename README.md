@@ -152,6 +152,7 @@ folder shown). If the file's sha256 matches, the Build Helper uses it and doesn'
 | Vulkan headers, Vulkan loader, Vulkan Memory Allocator (build time only) | 1.4.363, 1.4.363, 3.4.0 | [repo.msys2.org/mingw/ucrt64](https://repo.msys2.org/mingw/ucrt64/) | `msys2\mingw-w64-ucrt-x86_64-vulkan-headers-1~1.4.363.0-1-any.pkg.tar.zst`, `...-vulkan-loader-1~1.4.363.0-1-any.pkg.tar.zst`, `...-vulkan-memory-allocator-3.4.0-1-any.pkg.tar.zst` |
 | Python (runs the recompiler and the setup scripts) | 3.12.14 | [python-build-standalone 20260924](https://github.com/astral-sh/python-build-standalone/releases/tag/20260924) | `cpython-3.12.14+20260924-x86_64-pc-windows-msvc-install_only_stripped.tar.gz` |
 | capstone, unicorn, lz4 (the recompiler's Python packages) | 5.0.9, 2.1.4, 4.4.5 | PyPI, as pinned by hash in `recomp/tools/requirements-gen.txt` | fetched with pip by the Build Helper |
+| nintendoclients, anynet, anyio, idna, typing_extensions, pyOpenSSL, cryptography, cffi, pycparser, multidict, netifaces2, pycryptodome (the OpenCourse World account lookup run at start-up) | 5.1.0, 1.2.2, 4.16.0, 3.20, 4.16.0, 26.4.0, 50.0.2, 2.1.1, 3.12, 7.2.1, 0.0.22, 4.4.0 | PyPI, as pinned by hash in `recomp/tools/requirements-ocw.txt` (the first two are source archives pinned in `recomp/tools/build.py`) | fetched with pip by the Build Helper |
 | hactool (unpacks the firmware; built from source with zig) | 1.4.0 | [github.com/SciresM/hactool](https://github.com/SciresM/hactool/archive/refs/tags/1.4.0.tar.gz) | `hactool-1.4.0.tar.gz` |
 
 #### Pinned sha256
@@ -171,7 +172,7 @@ in `recomp/tools/build.py` (the Python one also in `build-helper.cmd`).
 | `cpython-3.12.14+20260924-x86_64-pc-windows-msvc-install_only_stripped.tar.gz` | `c5bf8edfe858c1df9891be498b5bbc8761d383df5b9790658b088fea4870433a` |
 | `hactool-1.4.0.tar.gz` | `1373c98ef8c58da42cb1e81b361283955caad0e1b8b5ad389b0ee49b7a21da43` |
 
-The Python packages (capstone, unicorn, lz4) are checked by pip against the hashes in `recomp/tools/requirements-gen.txt`.
+The Python packages are checked by pip against the hashes in `recomp/tools/requirements-gen.txt` (capstone, unicorn, lz4) and `recomp/tools/requirements-ocw.txt` (the OpenCourse World account lookup).
 
 Then `recomp/tools/build.py` copies the recompiler scripts, the headers the game code is built against, and the
 licenses into `smm2-dx_data`, so the app finds everything beside itself.
