@@ -10,6 +10,10 @@
 //   ip      optional: the address `domain` resolves to, instead of asking the host resolver. This is how a
 //           self-hosted or local OCW instance is reached, and how an IP-only set-up keeps a real name for SNI.
 //
+// The player's own Mii: the game's Mii database holds the Mii the player has set on OCW (read from OCW's public maker API)
+// until a local mii.charinfo replaces it (services/mii.c). Whose it is is learned, not configured: the first user record
+// the game fetches in a session is the player's own profile (see "the player's Mii" below).
+//
 // Only two of the console mod's ten patches are needed here. Its other eight stub nn::account calls that reach real
 // Nintendo services on a console; in the recomp those reach runtime/services/acc.c, which already reports a network
 // service account and hands out a local ID token whenever the game's own sockets are on.
@@ -20,16 +24,19 @@
 //      (smm2_ocw_header, reached from the one patch in mods/patches.py)
 //
 // Nothing here does anything unless a usable ocw-config.json is present: the game is then unmodified and goes nowhere, exactly as before.
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #include "../../../runtime/game_rows.h"
 #include "../../../runtime/net/json.h"
 #include "../../../runtime/net/netcfg.h"
 #include "../../../runtime/net/http.h"
 #include "../../../runtime/kernel.h"
+#include "../../../runtime/services/mii_charinfo_file.h"
 #include "mod.h"
 #include "ocw.h"
 
@@ -192,8 +199,168 @@ static void get_user_page(Cpu *c) {
     ocw_fill_play_stats(c, self, c->x[0]);
 }
 
+// ---- the player's Mii (the Mii database, runtime/services/mii.c, asks for it when there is no local mii.charinfo):
+//   GET https://<domain>/api/makers/<maker code>  (public: no token is sent)  ->  { ..., "mii": { "mii_data": "<base64>" } }
+// Whose maker code: the player's own, which is learned from the game. Course World loads the player's own profile first
+// (My Info), so the first user record the game fetches in a session is theirs (ocw_fill_play_stats sees every one). It is
+// kept in ocw-maker.txt with a fingerprint of the domain and token (never the token itself): another account's is never
+// used, and a later start has it before the game asks for its Mii at boot. Until it is known there is no Mii from OCW
+// (the default one is served) and the database changes (IsUpdated) the moment it is. To forget it, delete the file.
+// the 88 bytes of the player's CharInfo. Kept for a minute (the Mii is asked for several times in a row, and changes
+// when the player picks another in Change face); a failed request keeps the last Mii that came, and is tried again
+// after two minutes. Asked from the game's own thread, which gives its core up while the request waits.
+#define OCW_MII_TTL_S 60
+#define OCW_MII_RETRY_S 120
+#define OCW_MII_TIMEOUT_MS 5000
+static struct {
+    pthread_mutex_t lock;
+    char maker[12];  // whose Mii is held (a change in the menu starts over)
+    uint8_t mii[0x58];
+    bool have, busy;
+    time_t next;
+} g_mii = {.lock = PTHREAD_MUTEX_INITIALIZER};
+
+#define OCW_SELF_FILE "ocw-maker.txt"
+static struct { bool loaded, have; char maker[12]; } g_self;  // (under g_mii.lock)
+
+// Names the account without keeping its token: 64-bit FNV-1a of the domain and the token.
+static unsigned long long self_fingerprint(void) {
+    unsigned long long h = 0xcbf29ce484222325ull;
+    for (const char *p = g_ocw.domain; *p; p++) h = (h ^ (unsigned char)*p) * 0x100000001b3ull;
+    h *= 0x100000001b3ull;
+    for (const char *p = g_ocw.token; *p; p++) h = (h ^ (unsigned char)*p) * 0x100000001b3ull;
+    return h;
+}
+
+static void self_load_locked(void) {  // the cache file, once; only an entry of this account counts
+    if (g_self.loaded) return;
+    g_self.loaded = true;
+    g_self.have = false;
+    FILE *f = fopen(OCW_SELF_FILE, "rb");
+    if (!f) return;
+    char line[64], code[16];
+    unsigned long long fp;
+    if (fgets(line, sizeof line, f) && sscanf(line, "%llx %11s", &fp, code) == 2 && strlen(code) == 11 &&
+        fp == self_fingerprint()) {
+        snprintf(g_self.maker, sizeof g_self.maker, "%s", code);
+        g_self.have = true;
+        LOG("[ocw] the player's maker code %s (from " OCW_SELF_FILE ")\n", code);
+    }
+    fclose(f);
+}
+
+// The game fetched a user record: the first one of a session is the player's own.
+static void self_learn(const char *maker) {
+    pthread_mutex_lock(&g_mii.lock);
+    self_load_locked();
+    if (!g_self.have) {
+        snprintf(g_self.maker, sizeof g_self.maker, "%s", maker);
+        g_self.have = true;
+        g_mii.next = 0;  // (read the Mii now)
+        FILE *f = fopen(OCW_SELF_FILE, "wb");
+        if (f) fprintf(f, "%016llx %s\n", self_fingerprint(), maker), fclose(f);
+        LOG("[ocw] the player's maker code %s: the first profile the game fetched (kept in " OCW_SELF_FILE ")\n", maker);
+    }
+    pthread_mutex_unlock(&g_mii.lock);
+}
+
+static void self_forget(void) {  // the domain or token changed
+    pthread_mutex_lock(&g_mii.lock);
+    g_self.loaded = g_self.have = false;
+    g_mii.have = false, g_mii.next = 0;
+    pthread_mutex_unlock(&g_mii.lock);
+}
+
+static int b64_val(int c) {
+    return c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 : c >= '0' && c <= '9' ? c - '0' + 52
+           : c == '+' ? 62 : c == '/' ? 63 : -1;
+}
+
+// Decodes base64 into out (cap bytes); the length, or -1 when it is not (all of it) base64 or does not fit.
+static int b64_decode(const char *s, uint8_t *out, size_t cap) {
+    size_t n = 0;
+    uint32_t acc = 0;
+    int bits = 0;
+    for (; *s && *s != '='; s++) {
+        int v = b64_val((unsigned char)*s);
+        if (v < 0) return -1;
+        acc = acc << 6 | (uint32_t)v;
+        if ((bits += 6) >= 8) {
+            bits -= 8;
+            if (n == cap) return -1;
+            out[n++] = (uint8_t)(acc >> bits);
+        }
+    }
+    return (int)n;
+}
+
+static bool fetch_player_mii(const char *domain, const char *maker, uint8_t out[0x58]) {
+    char url[256];
+    snprintf(url, sizeof url, "https://%s/api/makers/%s", domain, maker);
+    HttpResponse r;
+    kernel_host_wait_begin();
+    int st = http_request("GET", url, "Accept: application/json\r\n", NULL, 0, OCW_MII_TIMEOUT_MS, &r);
+    kernel_host_wait_end();
+    if (st != 200) {
+        LOG("[ocw] Mii of %s: %s\n", maker, st ? "HTTP error" : r.error);
+        http_free(&r);
+        return false;
+    }
+    Json *j = json_parse(r.body, r.len);
+    http_free(&r);
+    const char *b64 = j ? json_str(json_get(json_get(j, "mii"), "mii_data"), "") : "";
+    uint8_t data[0x58];
+    int n = b64_decode(b64, data, sizeof data);
+    bool ok = n == 0x58 && mii_charinfo_valid(data);
+    json_free(j);
+    if (!ok) LOG("[ocw] Mii of %s: the answer has no usable 88-byte Mii\n", maker);
+    else memcpy(out, data, sizeof data);
+    return ok;
+}
+
+static bool ocw_player_mii(uint8_t out[0x58]) {
+    if (!g_ocw.active) return false;
+    char maker[12], domain[sizeof g_ocw.domain];
+    snprintf(domain, sizeof domain, "%s", g_ocw.domain);
+    pthread_mutex_lock(&g_mii.lock);
+    self_load_locked();
+    if (!g_self.have) {  // (not known yet: the default Mii)
+        pthread_mutex_unlock(&g_mii.lock);
+        return false;
+    }
+    snprintf(maker, sizeof maker, "%s", g_self.maker);
+    if (strcmp(maker, g_mii.maker)) {  // (another maker than the one held)
+        snprintf(g_mii.maker, sizeof g_mii.maker, "%s", maker);
+        g_mii.have = false, g_mii.next = 0;
+    }
+    time_t now = time(NULL);
+    bool fetch = !g_mii.busy && now >= g_mii.next;
+    if (fetch) g_mii.busy = true;
+    pthread_mutex_unlock(&g_mii.lock);
+    if (fetch) {  // (outside the lock: HTTP)
+        uint8_t got[0x58];
+        bool ok = fetch_player_mii(domain, maker, got);
+        pthread_mutex_lock(&g_mii.lock);
+        g_mii.busy = false;
+        if (!strcmp(maker, g_mii.maker)) {
+            g_mii.next = now + (ok ? OCW_MII_TTL_S : OCW_MII_RETRY_S);
+            if (ok) {
+                if (!g_mii.have || memcmp(g_mii.mii, got, sizeof got)) LOG("[ocw] the Mii of %s read from OCW\n", maker);
+                memcpy(g_mii.mii, got, sizeof got), g_mii.have = true;
+            }
+        }
+        pthread_mutex_unlock(&g_mii.lock);
+    }
+    pthread_mutex_lock(&g_mii.lock);
+    bool have = g_mii.have && !strcmp(maker, g_mii.maker);
+    if (have) memcpy(out, g_mii.mii, 0x58);
+    pthread_mutex_unlock(&g_mii.lock);
+    return have;
+}
+
 // Overrides are registered before the game's first instruction runs.
 __attribute__((constructor)) static void ocw_register(void) {
+    mii_set_remote(ocw_player_mii);
     hle_override(MAIN_ADDR(0x14d2f00), get_user_page, "mod: GetUsers (maker page): OCW's Play History");
 }
 
@@ -208,6 +375,7 @@ void ocw_fill_play_stats(Cpu *c, uint64_t no, uint64_t ret) {
     uint64_t e = g64(no + OCW_USER_RING);
     bool known = e && record_maker_id(e, id);
     netobj_unlock(c);
+    if (known) self_learn(id);  // (the first record of a session is the player's own)
     uint32_t totals[4];
     if (known && fetch_play_totals(id, totals)) {  // (outside the lock: HTTP)
         netobj_lock(c);
@@ -276,6 +444,7 @@ void ocw_rows_changed(void) {
     // (trim what a text field may have collected: the menu caps the length, these catch stray spaces)
     for (char *p = g_ocw.domain + strlen(g_ocw.domain); p > g_ocw.domain && p[-1] == ' ';) *--p = 0;
     for (char *p = g_ocw.ip + strlen(g_ocw.ip); p > g_ocw.ip && p[-1] == ' ';) *--p = 0;
+    self_forget();  // (another account may be meant now: its maker is learned again, or read back from its own cache)
     config_save();
     if (g_ocw.token[0] && strlen(g_ocw.token) != OCW_TOKEN_LEN)
         LOG("[ocw] the token is %zu characters; OCW's are %d - check it\n", strlen(g_ocw.token), OCW_TOKEN_LEN);

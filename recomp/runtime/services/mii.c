@@ -8,12 +8,21 @@
 // the database stays empty, as before (the recomp's own Course World, games/smm2/mods, needs no Mii). Get2 / Get3 want
 // StoreData, the database's own packed record with its checksum, which is not built here: they still answer "none",
 // and say so in the log.
+//
+// The player's own Mii: an 88-byte CharInfo in mii.charinfo in the data root (or where RECOMP_MII_CHARINFO says), which
+// the Mii editor next to this project writes (it replaces the file whole, so it is read again at each request: an edit
+// shows without a restart). It is served in place of the default Mii when it is a valid CharInfo (mii_charinfo_file.h:
+// the exact size, every field in range); a file that is missing or not valid falls back to the default, so the game
+// always has a Mii; between the two, the player's Mii from OCW when the OCW mod has one (mii_set_remote: it reads it
+// from the server by the maker code in ocw-config.json). IsUpdated says so, once to each session that asked before, when what the database holds changed (the
+// file written, replaced or removed), so a game that checks it can refresh what it shows.
 #include <stdlib.h>
 #include <string.h>
 
 #include "../hle.h"
 #include "../ipc.h"
 #include "../net/netcfg.h"
+#include "mii_charinfo_file.h"
 
 // nn::mii::CharInfo (0x58 bytes, layout as in Ryujinx's CharInfo) of the console's first default Mii (Ryujinx's
 // DefaultMii table, entry 2, colours through its Ver3 tables): a valid Mii for games that need one (BuildDefault,
@@ -53,14 +62,47 @@ void mii_default_charinfo(uint8_t out[0x58], const char *nickname) {
 
 static bool one_mii(void) { return true; }
 
+static bool (*g_remote)(uint8_t out[0x58]);
+void mii_set_remote(bool (*fn)(uint8_t out[0x58])) { g_remote = fn; }
+
+// The Mii the database holds: the local file's when it is valid, else the default. Returns a signature of it (changes with
+// the Mii), which IsUpdated compares.
+static uint64_t current_charinfo(uint8_t out[0x58]) {
+    mii_default_charinfo(out, getenv("RECOMP_USER_NAME"));
+    const char *path = getenv("RECOMP_MII_CHARINFO");
+    int result = mii_read_charinfo_file(path && *path ? path : "mii.charinfo", out);
+    int source = result == 1 ? 1 : 0;  // 0 the default, 1 the local file, 2 OCW's
+    uint8_t remote[0x58];
+    if (!source && g_remote && g_remote(remote)) memcpy(out, remote, 0x58), source = 2;
+    static int last_result = 2, last_source = -1;
+    if (result != last_result || source != last_source) {
+        LOG("[mii] the database holds %s%s\n",
+            source == 1 ? "the local mii.charinfo" : source == 2 ? "the player's Mii from OCW" : "the default Mii",
+            result < 0 ? " (mii.charinfo is not a valid CharInfo: skipped)" : "");
+        last_result = result, last_source = source;
+    }
+    uint64_t sig = 0xcbf29ce484222325ull;
+    for (int i = 0; i < 0x58; i++) sig = (sig ^ out[i]) * 0x100000001b3ull;
+    return sig;
+}
+
 static void database(Service *s, IpcReq *req, IpcResp *resp) {
-    (void)s;
     switch (req->cmd) {
     case 6: case 7:  // BuildRandom, BuildDefault -> CharInfo: the default Mii
         mii_default_charinfo(resp->data, getenv("RECOMP_USER_NAME"));
         resp_size(resp, 0x58);
         break;
-    case 0: case 1: case 20: OUT(uint8_t, 0) = 0; resp_size(resp, 1); break;  // IsUpdated, IsFullDatabase, IsBroken..
+    case 0: {  // IsUpdated(flag): the Mii changed since this session last looked (its state: the signature it saw)
+        uint8_t now[0x58];
+        uint64_t sig = current_charinfo(now);
+        bool changed = (uint64_t)(uintptr_t)s->state != sig;
+        s->state = (void *)(uintptr_t)sig;
+        if (changed) LOG("[mii] IsUpdated: the Mii changed since the last look\n");
+        OUT(uint8_t, 0) = changed;
+        resp_size(resp, 1);
+        break;
+    }
+    case 1: case 20: OUT(uint8_t, 0) = 0; resp_size(resp, 1); break;  // IsFullDatabase, IsBroken..
     case 2: OUT(uint32_t, 0) = one_mii(); resp_size(resp, 4); break;           // GetCount(flag): the one Mii
     case 3: case 4: {  // Get -> CharInfoElement[] (CharInfo + source), Get1 -> CharInfo[]; both return the count
         IpcBuf *b = out_buf(req, 0);
@@ -70,7 +112,7 @@ static void database(Service *s, IpcReq *req, IpcResp *resp) {
         if (b && b->addr && b->size >= want) {
             uint8_t *p = (uint8_t *)(uintptr_t)b->addr;
             memset(p, 0, want);
-            mii_default_charinfo(p, getenv("RECOMP_USER_NAME"));
+            s->state = (void *)(uintptr_t)current_charinfo(p);  // (what this session has seen)
             n = 1;
         } else if (b) {
             LOG("[mii] Get%s: the game's buffer is %llu bytes, one entry needs %zu\n", req->cmd == 3 ? "" : "1",
@@ -94,7 +136,11 @@ static void database(Service *s, IpcReq *req, IpcResp *resp) {
 static void static_service(Service *s, IpcReq *req, IpcResp *resp) {
     (void)s;
     switch (req->cmd) {
-    case 0: ipc_return_object(resp, service_new("mii:IDatabaseService", database, NULL)); break;  // GetDatabaseService
+    case 0: {  // GetDatabaseService: a session that has seen the Mii as it is now
+        uint8_t now[0x58];
+        ipc_return_object(resp, service_new("mii:IDatabaseService", database, (void *)(uintptr_t)current_charinfo(now)));
+        break;
+    }
     default: LOG("[mii] IStaticService cmd %u (ok)\n", req->cmd);
     }
 }
