@@ -12,7 +12,9 @@ extern "C" {
 typedef struct {
     // now and then, from the calling thread: how far the whole build is (0..1) and what it's doing
     void (*progress)(double fraction, const char *step);
-    int jobs;  // compiler processes at once (>= 1)
+    int jobs;  // compiler processes at once (>= 1) while the generators run (they use a few GB)
+    int jobs_after_gen;  // and once they are done (0 or less than jobs: the same)
+    bool keep_cache;     // keep the compiled objects (<game dir>/.objcache, ~800 MB) after a build; else it is deleted
 } GameBuildOpts;
 
 // Builds it (a few minutes). false: why says what went wrong (details in the log).

@@ -1,12 +1,17 @@
 """Generate C for a whole NSO module.
 
 Usage: gen.py <name> <nso> <base> <outdir> [--hle hle_symbols.txt] [--patches games/<g>/patches.py] [--chunk N]
-              [--simd asm|c]
+              [--chunk-avg N] [--big-insns N] [--workers N] [--simd asm|c]
+
+Output is split into files at points that depend only on the functions' addresses (never on how much C they came to), so
+a change to one function changes one file and the player's object cache (runtime/gamebuild.c) keeps the rest.
+--workers: processes that scan and emit functions at once (default: a quarter of the cores, 1..6; RECOMP_GEN_WORKERS).
 
 --simd: FP/SIMD/CRC32 as AArch64 inline asm (default on arm64 hosts) or portable C (default elsewhere).
 """
 import argparse
 import bisect
+import multiprocessing as mp
 import os
 import platform
 import re
@@ -47,7 +52,9 @@ class Module:
         n = self.nso
         self.lo = base + n.text[0]
         self.hi = base + n.text[0] + n.text[1]
-        self.words = struct.unpack(f'<{n.text[1] // 4}I', bytes(n.image[n.text[0]:n.text[0] + n.text[1]]))
+        # (a view, not a tuple of ints: 6.5M Python ints are hundreds of MB, once for every worker process)
+        assert sys.byteorder == 'little'
+        self.words = memoryview(bytes(n.image[n.text[0]:n.text[0] + n.text[1]])).cast('I')
         self.lifter = Lifter(base, simd)
         self.cache = {}
         self.stats = Counter()
@@ -470,6 +477,83 @@ def write_if_changed(path, text):
         f.write(text)
 
 
+# ------------------------------------------------------------ workers
+# Scanning a function (finding its labels, calls and jump tables) and emitting its C depend only on the module, so both
+# are done by a pool of processes, each with a Module of its own. With one worker everything runs in this process.
+_W = {}
+
+
+def _winit(name, nso, base, simd, patches_path, hle):
+    patches.load(patches_path, base)
+    _W.update(m=Module(name, nso, base, simd), hle=hle, clear=True)
+
+
+def _scan_task(keys):
+    m = _W['m']
+    m.stats = Counter()
+    res = []
+    for a, end in keys:
+        res.append(((a, end),) + m.scan(a, end))
+    if _W.get('clear'):
+        m.cache.clear()  # (a worker holds no more than the batch it is on)
+    return res, m.stats
+
+
+def _cut(a, avg):
+    """True if a file ends after the function at a: decided by its address alone."""
+    return (((a * 0x9E3779B97F4A7C15) & 0xFFFFFFFFFFFFFFFF) >> 32) % avg == 0
+
+
+def plan_chunks(order, entries, max_fns, avg_fns, big_insns):
+    """The files' functions. A file ends where the address says so (about every avg_fns functions, never more than
+    max_fns), and a big function (big_insns instructions or more) is a file of its own: they compile in parallel."""
+    chunks, cur = [], []
+    for a in order:
+        if (entries[a][0] - a) // 4 >= big_insns:
+            if cur:
+                chunks.append(cur)
+                cur = []
+            chunks.append([a])
+            continue
+        cur.append(a)
+        if len(cur) >= max_fns or _cut(a, avg_fns):
+            chunks.append(cur)
+            cur = []
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
+def _emit_task(spec):
+    outdir, name, idx, fns = spec
+    m, hle = _W['m'], _W['hle']
+    m.stats = Counter()
+    body, refs, addrs = [], set(), []
+    for a, end, labels, tables in fns:
+        body += m.emit_function(a, end, labels, tables, hle)
+        refs |= getattr(m, '_refs', set())
+        m._refs = set()
+        addrs.append(a)
+    text = ['#include "cpu.h"\n' + ('#include "simd.h"\n' if m.lifter.sc else '')]
+    text += [f'void {fname(r)}(Cpu *c);\n' for r in sorted(refs)]
+    text += [f'void {sanitize(hle[a])}(Cpu *c);\n' for a in sorted(set(hle) & set(addrs))]
+    text += ['\n'.join(body), '\n']
+    write_if_changed(os.path.join(outdir, f'{name}_{idx:03d}.c'), ''.join(text))
+    if _W.get('clear'):
+        m.cache.clear()
+    return idx, len(fns), m.stats
+
+
+def default_workers():
+    try:
+        n = int(os.environ.get('RECOMP_GEN_WORKERS', ''))
+        if n > 0:
+            return n
+    except ValueError:
+        pass
+    return max(1, min(6, (os.cpu_count() or 1) // 4))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('name')
@@ -478,9 +562,10 @@ def main():
     ap.add_argument('outdir')
     ap.add_argument('--hle')
     ap.add_argument('--patches')  # a game's patch module (games/<game>/patches.py: PATCHES = {address: fn})
-    ap.add_argument('--chunk', type=int, default=1500)  # functions per file at most
-    ap.add_argument('--chunk-bytes', type=int, default=1500000)  # and about this much C (even compile times)
-    ap.add_argument('--big-fn', type=int, default=100000)  # bytes of C from which a function gets its own file
+    ap.add_argument('--chunk', type=int, default=1000)  # functions per file at most
+    ap.add_argument('--chunk-avg', type=int, default=256)  # functions per file on average (where an address cuts)
+    ap.add_argument('--big-insns', type=int, default=2000)  # instructions from which a function gets its own file
+    ap.add_argument('--workers', type=int, default=0)  # processes (0: default_workers)
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--simd', choices=('asm', 'c'),
                     default='asm' if platform.machine().lower() in ('arm64', 'aarch64') else 'c')
@@ -496,6 +581,18 @@ def main():
         for name, info, shndx, value, size in m.nso.syms:
             if shndx and name in want:
                 hle[args.base + value] = name
+
+    workers = args.workers or default_workers()
+    if workers > 1:
+        pool = mp.get_context('spawn').Pool(workers, _winit, (args.name, args.nso, args.base, args.simd, args.patches, hle))
+    else:  # (everything in this process, with its one Module)
+        pool = None
+        _W.update(m=m, hle=hle, clear=False)
+
+    def run_tasks(fn, tasks, unordered=False):
+        if pool is None:
+            return map(fn, tasks)
+        return (pool.imap_unordered if unordered else pool.imap)(fn, tasks, 1)
 
     # Partition text into functions; any branch/call target outside its function becomes a new
     # boundary (splitting the containing function) until a fixpoint is reached.
@@ -542,16 +639,23 @@ def main():
                 if m.in_text(t):
                     start_set.add(t)
     scanned = {}
+    stats = Counter()
     rounds = 0
     while True:
         rounds += 1
         order = sorted(start_set)
-        new = set()
+        todo = []
         for i, a in enumerate(order):
             end = order[i + 1] if i + 1 < len(order) else m.hi
-            key = (a, end)
-            if key not in scanned:
-                scanned[key] = m.scan(a, end)
+            if (a, end) not in scanned:
+                todo.append((a, end))
+        batches = [todo[i:i + 250] for i in range(0, len(todo), 250)]
+        for res, st in run_tasks(_scan_task, batches, unordered=True):
+            for key, labels, ext, tables in res:
+                scanned[key] = (labels, ext, tables)
+            stats.update(st)
+        new = set()
+        for key in todo:
             new |= scanned[key][1] - start_set
         if not new:
             break
@@ -561,50 +665,29 @@ def main():
         end = order[i + 1] if i + 1 < len(order) else m.hi
         labels, ext, tables = scanned[(a, end)]
         entries[a] = (end, labels, tables)
-    print(f'{args.name}: {len(starts)} boundaries, {len(entries)} functions, {rounds} rounds, {dict(m.stats)}, '
-          f'{time.time() - t0:.0f}s', file=sys.stderr)
+    del scanned
+    print(f'{args.name}: {len(starts)} boundaries, {len(entries)} functions, {rounds} rounds, {dict(stats)}, '
+          f'{workers} workers, {time.time() - t0:.0f}s', file=sys.stderr)
 
     os.makedirs(args.outdir, exist_ok=True)
     order = sorted(entries)
     if args.limit:
         order = order[:args.limit]
-    nchunks = 0
-    ci = 0
-    pending = None  # (address, lines, refs) of a big function that starts the next file
-    while ci < len(order) or pending:
-        body, refs, size, fns = [], set(), 0, []
-        while (pending or ci < len(order)) and len(fns) < args.chunk and size < args.chunk_bytes:
-            if pending:
-                a, lines, r = pending
-                pending = None
-            else:
-                a = order[ci]
-                ci += 1
-                end, labels, tables = entries[a]
-                lines = m.emit_function(a, end, labels, tables, hle)
-                r = getattr(m, '_refs', set())
-                m._refs = set()
-            n = sum(len(l) + 1 for l in lines)
-            if n > args.big_fn and fns:  # (a big function gets a file of its own: they compile in parallel)
-                pending = (a, lines, r)
-                break
-            body += lines
-            size += n
-            fns.append(a)
-            refs |= r
-            if n > args.big_fn:
-                break
-        path = os.path.join(args.outdir, f'{args.name}_{nchunks:03d}.c')
-        text = ['#include "cpu.h"\n' + ('#include "simd.h"\n' if m.lifter.sc else '')]
-        text += [f'void {fname(r)}(Cpu *c);\n' for r in sorted(refs)]
-        text += [f'void {sanitize(hle[a])}(Cpu *c);\n' for a in sorted(set(hle) & set(fns))]
-        text += ['\n'.join(body), '\n']
-        write_if_changed(path, ''.join(text))
+    chunks = plan_chunks(order, entries, args.chunk, args.chunk_avg, args.big_insns)
+    specs = ((args.outdir, args.name, i, [(a,) + entries[a] for a in c]) for i, c in enumerate(chunks))
+    nchunks = ci = 0
+    for idx, nfns, st in run_tasks(_emit_task, specs):  # (in order: the files before this one are all written)
+        stats.update(st)
         nchunks += 1
+        ci += nfns
         # (the start screen's setup reads these for its progress bar: runtime/gamebuild.c)
         print(f'{args.name}: progress {ci}/{len(order)} files {nchunks}', file=sys.stderr, flush=True)
+    if pool is not None:
+        pool.close()
+        pool.join()
+    print(f'{args.name}: {dict(stats)}', file=sys.stderr)
     for fn in os.listdir(args.outdir):  # an earlier run's extra chunks
-        mm = re.fullmatch(re.escape(args.name) + r'_(\d{3})\.c', fn)
+        mm = re.fullmatch(re.escape(args.name) + r'_(\d{3,})\.c', fn)
         if mm and int(mm.group(1)) >= nchunks:
             os.remove(os.path.join(args.outdir, fn))
     import io

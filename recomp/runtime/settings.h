@@ -64,6 +64,8 @@ typedef struct {
     char rando_seed[128];  // active randomizer seed (rando/<name>/), empty = vanilla
     bool show_recomp_version; // the title screen's Ver. box shows the recomp's version, not the game's: services/am.c
     bool skip_intro;     // skip the boot logo presentation animations
+    bool mute;           // no sound at all; Volume keeps its value: Audio > Sound
+    bool keep_obj_cache;  // keep the game code's compiled objects (~800 MB) so a rebuild after an update is quicker: General > Game
     bool skip_mode_select;  // SMM2: press L+R on the title screen and open Course World by itself (games/smm2/mods/skip_intro.c)
     int theme;           // THEME_*: the look of the menu (General tab > Theme)
     bool ahead_fast;     // prepare shaders at full speed (all cores, no waiting for quiet moments): Video > Shaders

@@ -187,9 +187,45 @@ static void log_tail(const char *path, char *out, size_t n) {  // the last line 
 
 // ------------------------------------------------------------------ compiling
 typedef struct {
-    char src[1100], obj[1100], log[1100];
+    char src[1100], obj[1100], objtmp[1100], log[1100];
+    char key[33];            // the object cache's name for it (hash of its C, flags and headers), "" if not cached
     unsigned long long bytes;
+    bool started;            // compiling, done or taken from the cache
+    bool nocache;            // the shipped entry file: always compiled
 } Unit;
+
+// ------------------------------------------------------------------ the object cache
+// Compiled objects are kept in <game dir>\.objcache under a hash of what they were built from: the C, the compiler
+// flags, the headers and the compiler. The generator cuts its files where the functions' addresses say (tools/gen.py),
+// so a new version of the game code that changes some functions changes only their files, and the build compiles
+// those and takes the rest from the cache. After a successful build the cache holds that build's objects only.
+// RECOMP_NO_OBJCACHE=1 turns it off.
+typedef struct { uint64_t a, b; } Hash;
+
+static void hash_init(Hash *h) { h->a = 0xcbf29ce484222325ull, h->b = 0x9E3779B97F4A7C15ull; }
+
+static void hash_add(Hash *h, const void *p, size_t n) {
+    const unsigned char *s = (const unsigned char *)p;
+    uint64_t a = h->a, b = h->b;
+    for (size_t i = 0; i < n; i++) {
+        a = (a ^ s[i]) * 0x100000001b3ull;
+        b = (b + s[i] + 1) * 0xff51afd7ed558ccdull;
+        b ^= b >> 29;
+    }
+    h->a = a, h->b = b;
+}
+
+static bool hash_file(Hash *h, const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    static char buf[1 << 16];
+    size_t k, total = 0;
+    while ((k = fread(buf, 1, sizeof buf, f)) > 0) hash_add(h, buf, k), total += k;
+    bool ok = !ferror(f);
+    fclose(f);
+    hash_add(h, &total, sizeof total);
+    return ok;
+}
 
 typedef struct {
     Unit *u;
@@ -202,8 +238,10 @@ static void add_unit(Units *us, const char *src, const char *work, const char *s
         us->u = (Unit *)realloc(us->u, sizeof *us->u * us->cap);
     }
     Unit *u = &us->u[us->n++];
+    memset(u, 0, sizeof *u);
     snprintf(u->src, sizeof u->src, "%s", src);
     snprintf(u->obj, sizeof u->obj, "%s" SEP "%s.o", work, stem);
+    snprintf(u->objtmp, sizeof u->objtmp, "%s", u->obj);
     snprintf(u->log, sizeof u->log, "%s" SEP "%s.log", work, stem);
     struct stat st;
     u->bytes = stat(src, &st) == 0 ? (unsigned long long)st.st_size : 0;
@@ -253,6 +291,71 @@ static void add_cflags(Args *a) {
             add(a, f);
         }
     }
+    // (for trying a flag without a new build of the app; part of the object cache's key, so objects of other flags aren't reused.
+    // Not -fno-unwind-tables: ExitThread longjmps through the game's frames, which Windows x64 unwinds with them.)
+    const char *extra = getenv("RECOMP_GAMEBUILD_CFLAGS");
+    if (extra && *extra) {
+        snprintf(buf, sizeof buf, "%s", extra);
+        for (char *f = strtok(buf, " "); f; f = strtok(NULL, " ")) add(a, f);
+    }
+}
+
+// What every object's key starts with: the flags, the headers the C includes and the compiler (its size and date).
+static Hash cache_seed(const Tools *t) {
+    Hash h;
+    hash_init(&h);
+    Args a = {0};
+    add_cflags(&a);
+    for (int i = 0; i < a.n; i++) hash_add(&h, a.v[i], strlen(a.v[i]) + 1);
+    args_free(&a);
+    static const char *const hdrs[] = {"cpu.h", "simd.h", "simd_fp.h"};
+    for (int i = 0; i < 3; i++) {
+        char p[1300];
+        snprintf(p, sizeof p, "%s" SEP "%s", t->inc, hdrs[i]);
+        hash_add(&h, hdrs[i], strlen(hdrs[i]));
+        hash_file(&h, p);
+    }
+    struct stat st;
+    if (stat(t->cc, &st) == 0) {
+        long long z[2] = {(long long)st.st_size, (long long)st.st_mtime};
+        hash_add(&h, z, sizeof z);
+    }
+    return h;
+}
+
+// Names the unit's object in the cache (its source is complete). true: it is there already.
+static bool cache_lookup(Unit *u, const Hash *seed, const char *dir) {
+    Hash h = *seed;
+    if (!hash_file(&h, u->src)) return false;
+    snprintf(u->key, sizeof u->key, "%016llx%016llx", (unsigned long long)h.a, (unsigned long long)h.b);
+    snprintf(u->obj, sizeof u->obj, "%s" SEP "%s.o", dir, u->key);
+    snprintf(u->objtmp, sizeof u->objtmp, "%s.tmp", u->obj);
+    struct stat st;
+    return stat(u->obj, &st) == 0 && st.st_size > 0;
+}
+
+// After a successful build: the objects of the build before that this one didn't use are deleted, and this one's are listed.
+static void cache_prune(const char *dir, const Units *us) {
+    char path[1200], line[128];
+    snprintf(path, sizeof path, "%s" SEP "manifest.txt", dir);
+    FILE *f = fopen(path, "rb");
+    while (f && fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (!line[0]) continue;
+        bool used = false;
+        for (int k = 0; k < us->n && !used; k++) used = !strcmp(us->u[k].key, line);
+        if (!used) {
+            char o[1300];
+            snprintf(o, sizeof o, "%s" SEP "%s.o", dir, line);
+            remove(o);
+        }
+    }
+    if (f) fclose(f);
+    if ((f = fopen(path, "wb"))) {
+        for (int k = 0; k < us->n; k++)
+            if (us->u[k].key[0]) fprintf(f, "%s\n", us->u[k].key);
+        fclose(f);
+    }
 }
 
 static PlatProc start_compile(const Tools *t, const Unit *u) {
@@ -266,7 +369,7 @@ static PlatProc start_compile(const Tools *t, const Unit *u) {
     add(&a, "-c");
     add(&a, u->src);
     add(&a, "-o");
-    add(&a, u->obj);
+    add(&a, u->objtmp);
     PlatProc p = spawn(a.v, u->log);
     args_free(&a);
     return p;
@@ -328,7 +431,16 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         _putenv_s("ZIG_GLOBAL_CACHE_DIR", zc);
         _putenv_s("ZIG_LOCAL_CACHE_DIR", zc);
     }
-    LOG("[gamebuild] generator %s %s, compiler %s cc, %d jobs\n", t.gen, t.gen_script, t.cc, o->jobs);
+    char cache[1100] = "";
+    Hash seed = {0, 0};
+    const char *no_cache = getenv("RECOMP_NO_OBJCACHE");
+    if (!(no_cache && *no_cache && *no_cache != '0')) {
+        snprintf(cache, sizeof cache, "%s" SEP ".objcache", game_dir);
+        mkdir(cache, 0755);
+        seed = cache_seed(&t);
+    }
+    LOG("[gamebuild] generator %s %s, compiler %s cc, %d jobs (%d once the generators are done), object cache %s\n", t.gen,
+        t.gen_script, t.cc, o->jobs, o->jobs_after_gen > o->jobs ? o->jobs_after_gen : o->jobs, cache[0] ? "on" : "off");
     {
         const char *forced_arch = getenv("LARECOMP_GENARCH");
         LOG("[gamebuild] x86-64 game code: %s (%s)\n", gamebuild_cpu_has_v3() ? "x86-64-v3 (AVX2/FMA/BMI2)" : "x86-64-v2 baseline",
@@ -363,13 +475,16 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
     Units units = {0};
     int queued[2] = {0, 0};  // chunk files of each module put in units so far
     bool tables[2] = {false, false};
-    int next = 0, jobs = o->jobs < 1 ? 1 : o->jobs > 64 ? 64 : o->jobs;
+    // (the generators' memory is free again once they are done: more compilers then)
+    int nstarted = 0, ncached = 0, jobs = o->jobs < 1 ? 1 : o->jobs > 64 ? 64 : o->jobs;
+    int jobs_after = o->jobs_after_gen > jobs ? (o->jobs_after_gen > 64 ? 64 : o->jobs_after_gen) : jobs;
     struct { PlatProc p; int unit; } run[64];
     int nrun = 0;
     unsigned long long done_bytes = 0;
     double shown = 0;
     {
         add_unit(&units, t.entry, work, "gamelib_entry");
+        units.u[0].nocache = true;
     }
     while (ok) {
         // generator progress, newly finished files
@@ -417,11 +532,25 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         if (!ok) break;
         for (int k = 0; k < units.n; k++) written += units.u[k].bytes;
 
-        // compiles
-        while (nrun < jobs && next < units.n) {
-            PlatProc p = start_compile(&t, &units.u[next]);
+        // compiles: the biggest file waiting first (the last one to start is then a small one, not the long pole); one that
+        // the object cache has needs no compiler
+        while (nrun < (gens_done ? jobs_after : jobs)) {
+            int pick = -1;
+            for (int k = 0; k < units.n; k++)
+                if (!units.u[k].started && (pick < 0 || units.u[k].bytes > units.u[pick].bytes)) pick = k;
+            if (pick < 0) break;
+            Unit *u = &units.u[pick];
+            u->started = true;
+            nstarted++;
+            if (cache[0] && !u->nocache && cache_lookup(u, &seed, cache)) {
+                ncached++;
+                done_bytes += u->bytes;
+                remove(u->src);
+                continue;
+            }
+            PlatProc p = start_compile(&t, u);
             if (!p) { snprintf(why, why_size, "the compiler didn't start"); ok = false; break; }
-            run[nrun].p = p, run[nrun].unit = next++;
+            run[nrun].p = p, run[nrun].unit = pick;
             nrun++;
         }
         for (int k = 0; k < nrun; k++) {
@@ -435,12 +564,19 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
                 snprintf(why, why_size, "the game code didn't compile");
                 ok = false;
             }
+            else if (strcmp(u->obj, u->objtmp)) {  // (named in the cache once it is whole)
+                remove(u->obj);
+                if (rename(u->objtmp, u->obj) != 0) {
+                    snprintf(why, why_size, "the game code couldn't be saved");
+                    ok = false;
+                }
+            }
             done_bytes += u->bytes;
-            if (run[k].unit > 0) remove(u->src);  // (generated C, done with: not kept. Unit 0 is the shipped entry file)
+            if (!u->nocache) remove(u->src);  // (generated C, done with: not kept. The shipped entry file is)
             run[k--] = run[--nrun];
         }
         if (!ok) break;
-        if (gens_done && next == units.n && nrun == 0) break;
+        if (gens_done && nstarted == units.n && nrun == 0) break;
 
         // progress: the generator's share (its functions written), the compiler's (bytes of C compiled, of an
         // estimate of all of it while the generator still writes)
@@ -454,7 +590,10 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         if (o->progress) o->progress(shown, gen_frac < 1 && !gens_done ? "Reading the game code..." : "Recompiling...");
         sleep_ms(50);
     }
-    for (int k = 0; k < nrun; k++) stop(run[k].p);  // (a failure: the rest is of no use - the failure shows at once)
+    for (int k = 0; k < nrun; k++) {  // (a failure: the rest is of no use - the failure shows at once)
+        stop(run[k].p);
+        if (strcmp(units.u[run[k].unit].obj, units.u[run[k].unit].objtmp)) remove(units.u[run[k].unit].objtmp);
+    }
     for (int i = 0; i < 2; i++)
         if (gens[i].p && gens[i].exit < 0) stop(gens[i].p);
 
@@ -508,10 +647,17 @@ bool gamebuild_run(const char *game_dir, const GameBuildOpts *o, char *why, size
         }
         if (f) fclose(f);
     }
+    if (ok && cache[0]) {
+        const char *keep = getenv("RECOMP_KEEP_OBJCACHE");
+        // (a build that failed keeps what it compiled: trying again goes on from there. The next one that works clears it)
+        if (o->keep_cache || (keep && *keep && *keep != '0')) cache_prune(cache, &units);
+        else rt_remove_game_file(game_dir, ".objcache");
+    }
     keep_logs(work, gens, &units, ok);
     free(units.u);
     rt_remove_game_file(game_dir, ".gamebuild");  // the C, the objects, the logs
-    LOG("[gamebuild] %s in %.0fs\n", ok ? "done" : "failed", (double)(plat_now_ns() - t0) / 1e9);
+    LOG("[gamebuild] %s in %.0fs (%d of %d objects from the cache)\n", ok ? "done" : "failed",
+        (double)(plat_now_ns() - t0) / 1e9, ncached, units.n);
     if (ok && o->progress) o->progress(1, "Finishing...");
     return ok;
 }

@@ -754,7 +754,7 @@ volatile int g_audio_muted;  // a mod silences the output for a while (games/smm
 static void apply_gain(SDL_AudioStream *st) {
     static double env = -1;
     if (env < 0) env = getenv("LARECOMP_AUDIO_GAIN") ? atof(getenv("LARECOMP_AUDIO_GAIN")) : 1.0;
-    float g = g_audio_muted ? 0.0f : (float)(env * g_settings.volume);
+    float g = g_audio_muted || g_settings.mute ? 0.0f : (float)(env * g_settings.volume);
     if (st && SDL_GetAudioStreamGain(st) != g) SDL_SetAudioStreamGain(st, g);
 }
 

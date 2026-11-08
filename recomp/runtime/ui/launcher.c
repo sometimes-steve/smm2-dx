@@ -54,6 +54,7 @@
 #include "gamebuild.h"
 #include "gamelib.h"
 #include "platform.h"
+#include "../settings.h"
 void rt_log(const char *fmt, ...);  // runtime/rt.h LOG
 void ui_window_init(void);
 SDL_Window *ui_window(void);
@@ -831,7 +832,9 @@ static void *job_thread(void *arg) {
         // (a compiler takes up to ~1 GB, and the generators, which run meanwhile, ~4 GB together)
         int jobs = cores < ram_gb - 6 ? cores : ram_gb - 6;
         if (getenv("RECOMP_BUILD_JOBS") && atoi(getenv("RECOMP_BUILD_JOBS")) > 0) jobs = atoi(getenv("RECOMP_BUILD_JOBS"));
-        GameBuildOpts o = {build_progress, jobs > 1 ? jobs : 1};
+        // (a compiler takes up to ~1 GB; the generators' memory is free once they are done)
+        int after = cores < ram_gb - 3 ? cores : ram_gb - 3;
+        GameBuildOpts o = {build_progress, jobs > 1 ? jobs : 1, after, g_settings.keep_obj_cache};
         char w[512] = "";
         LOG("[launcher] recompiling the game code (%d jobs)\n", o.jobs);
         if (!gamebuild_run(root, &o, w, sizeof w)) {

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.0 - 2026-11-07
+
+### Mii
+
+- **Your Mii on OCW is the default.** Without a `mii.charinfo` file, the game's Mii list holds the Mii you set on OpenCourse World, not a
+  built-in one. Whose it is is learned from the game: the first profile it fetches in a session is yours, remembered in
+  `ocw-maker.txt` (with a fingerprint of your account, never the token; delete the file to forget it). Until it is known, the
+  default Mii is shown.
+- **A `mii.charinfo`** in the data folder (or where `RECOMP_MII_CHARINFO` says) replaces it; one that is not a valid CharInfo is
+  skipped. The game is told when the Mii changes.
+- **A Mute toggle** on the Audio tab.
+
+### Faster first-time setup
+
+- **The generator uses several processes** (a quarter of the cores, 1 to 6 per module; `RECOMP_GEN_WORKERS` sets it), and holds less
+  memory per process.
+- **Keep Build Cache** (General > Game, off by default). The compiled game code is deleted once it is built. With this on, about
+  800 MB is kept next to the game files, by a hash of what it was built from, and a new version that changes only some of the game
+  code recompiles just those parts. Turning it off deletes it. `RECOMP_NO_OBJCACHE=1` skips the cache entirely and
+  `RECOMP_KEEP_OBJCACHE=1` keeps it without the setting.
+- **The biggest files compile first,** so the build no longer ends on one long compile, and **more compilers run once the
+  generators are done** (their memory is free then).
+- `RECOMP_GAMEBUILD_CFLAGS` adds compiler flags for trying them out.
+
 ## 0.2.0 - 2026-11-07
 
 The in-game menu is redesigned, installed mods now work, and a lot of small things around starting, restarting and updating are

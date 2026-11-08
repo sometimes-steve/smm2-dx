@@ -719,6 +719,14 @@ static void tab_general(void) {
                    "Skip intro, Skip intro is unavailable while this is on.")) {
         settings_save();
     }
+    if (opt_toggle("Keep build cache", &g_settings.keep_obj_cache, false,
+                   "Off: the compiled game code is thrown away once it is built, so it takes no extra space. On: about "
+                   "800 MB is kept next to the game files, and a new version of " GAME_TITLE " that changes only some of the "
+                   "game code recompiles just those parts the first time you start it, instead of all of it. Turning it "
+                   "off deletes what is kept.")) {
+        if (!g_settings.keep_obj_cache) rt_remove_game_file("extracted", ".objcache");
+        settings_save();
+    }
     if (opt_toggle("Show recomp version", &g_settings.show_recomp_version, false,
                    "Off: the title screen's Ver. box shows the game's own version (3.0.3). On: it shows this "
                    "recomp's version instead. With Skip intro or Skip mode select on, the same box also shows in the "
@@ -732,7 +740,13 @@ static void tab_general(void) {
 static void tab_audio(void) {
     opt_flat_begin("##audio", igGetFontSize() / 34);
     opt_section("Sound");
+    if (opt_toggle("Mute", &g_settings.mute, false,
+                   "Silences all the game's sound. Volume is greyed out while this is on and keeps its value for when you "
+                   "turn it back off. Applies at once.")) {
+        settings_save();
+    }
     float pct = roundf(g_settings.volume * 100);
+    if (g_settings.mute) opt_disable_next();  // (greyed out: it isn't used while muted)
     if (opt_slider("Volume", &pct, 0, 200, 5, 100, "%g%%",
                    "The game's volume. 100% is the game's own level; above it, louder."))
         g_settings.volume = pct / 100.0f;

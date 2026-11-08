@@ -25,6 +25,8 @@ Settings g_settings = {
     .skip_intro = false,
     .show_recomp_version = false,
     .skip_mode_select = false,
+    .keep_obj_cache = false,
+    .mute = false,
     .show_fps = false,
     .menu_scale = 1.0f,
     .show_memory = false,
@@ -89,6 +91,8 @@ void settings_load(void) {
         else if (!strcmp(key, "skip_intro")) g_settings.skip_intro = atoi(val) != 0;
         else if (!strcmp(key, "show_recomp_version")) g_settings.show_recomp_version = atoi(val) != 0;
         else if (!strcmp(key, "skip_mode_select")) g_settings.skip_mode_select = atoi(val) != 0;
+        else if (!strcmp(key, "keep_obj_cache")) g_settings.keep_obj_cache = atoi(val) != 0;
+        else if (!strcmp(key, "mute")) g_settings.mute = atoi(val) != 0;
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "menu_scale")) g_settings.menu_scale = (float)atof(val);
         else if (!strcmp(key, "show_memory")) g_settings.show_memory = atoi(val) != 0;
@@ -160,11 +164,13 @@ void settings_save(void) {
     fprintf(f, "aspect = %s\n", g_settings.aspect == ASPECT_ORIGINAL ? "original" : "unlocked");
     fprintf(f, "fullscreen = %d\n", g_settings.fullscreen);
     fprintf(f, "volume = %.2f\n", g_settings.volume);
+    fprintf(f, "mute = %d\n", g_settings.mute);
     fprintf(f, "reverb = %d\n", g_settings.reverb);
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
     fprintf(f, "skip_intro = %d\n", g_settings.skip_intro);
     fprintf(f, "show_recomp_version = %d\n", g_settings.show_recomp_version);
     fprintf(f, "skip_mode_select = %d\n", g_settings.skip_mode_select);
+    fprintf(f, "keep_obj_cache = %d\n", g_settings.keep_obj_cache);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "menu_scale = %.2f\n", g_settings.menu_scale);
     fprintf(f, "show_memory = %d\n", g_settings.show_memory);

@@ -158,7 +158,7 @@ static void first_launch_build(const char *root) {
                              "takes from a few minutes to half an hour; the game starts by itself when it's done (progress in the "
                              "console window).", NULL);
     int jobs = SDL_GetNumLogicalCPUCores();
-    GameBuildOpts o = {build_progress, jobs > 1 ? jobs : 1};
+    GameBuildOpts o = {build_progress, jobs > 1 ? jobs : 1, 0, g_settings.keep_obj_cache};
     char why[512];
     if (!gamebuild_run(root, &o, why, sizeof why)) FATAL("building the game code failed: %s (details above)\n", why);
     LOG("[gamebuild] done\n");
