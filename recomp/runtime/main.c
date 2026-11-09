@@ -1,6 +1,7 @@
 // LAS Recomp entry: load modules, set up the kernel, run nn::init::Start on the main thread.
 #include <SDL3/SDL.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -66,6 +67,31 @@ void rt_request_reboot(int kind) {
 }
 int rt_reboot_requested(void) { return g_reboot; }
 
+// Rebuild Game Code (General > Game): the compiled game library is loaded by this process, so it can't be deleted from
+// here. A flag file says so, and the program starts again (the same way a stuck in-place reboot does); the new process
+// deletes the library and the build cache before anything loads, and the setup screen builds it again from the ExeFS.
+#define CLEAN_REBUILD_FLAG "clean-rebuild.flag"
+static bool g_force_restart;
+void rt_request_clean_rebuild(void) {
+    FILE *f = fopen(CLEAN_REBUILD_FLAG, "wb");
+    if (!f) { LOG("[rebuild] cannot write " CLEAN_REBUILD_FLAG ": nothing changed\n"); return; }
+    fclose(f);
+    LOG("[rebuild] clean rebuild of the game code requested: restarting\n");
+    g_force_restart = true;
+    rt_request_reboot(RT_REBOOT_TITLE);
+}
+static void clean_rebuild_apply(const char *root) {  // (start-up, nothing loaded yet)
+    FILE *f = fopen(CLEAN_REBUILD_FLAG, "rb");
+    if (!f) return;
+    fclose(f);
+    remove(CLEAN_REBUILD_FLAG);  // (first: a failure below must not repeat on every start)
+    bool ok = rt_remove_game_file(root, GAMELIB_NAME ".id");
+    ok &= rt_remove_game_file(root, GAMELIB_NAME);
+    ok &= rt_remove_game_file(root, ".objcache");
+    ok &= rt_remove_game_file(root, ".gamebuild");
+    LOG("[rebuild] the compiled game code and its build cache %s: the setup screen builds it again\n", ok ? "were deleted" : "could not all be deleted");
+}
+
 // LARECOMP_REBOOT_AT=<frame>:<seed | vanilla | title>[,...] (test): at that presented frame, switch to the seed /
 // vanilla in place, or go back to the start screen (with LARECOMP_LAUNCHER_AUTOPLAY it plays the saved choice).
 // Frames count on across reboots. Called by the presenter every frame.
@@ -118,7 +144,7 @@ static void restart_process(bool setup) {
 
 static void teardown(int kind) {
     uint64_t t0 = plat_now_ns();
-    if (kernel_stop_threads(reboot_idle) != 0) restart_process(kind == RT_REBOOT_TITLE);
+    if (kernel_stop_threads(reboot_idle) != 0 || g_force_restart) restart_process(false);  // (or a forced one: the game library goes)
     backend_clear_window();
     backend_reset();
     const ResetFn *start = __start_resets, *stop = __stop_resets;
@@ -235,6 +261,7 @@ int main(int argc, char **argv) {
     extern void launcher_run(const char *root);
     extern void launcher_boot_env(void);
     extern void launcher_update_check_start(void);
+    clean_rebuild_apply(root);  // (Rebuild Game Code, asked for in the last run)
     launcher_update_check_start();  // (notifies only: the setup screen and the overlay menu's Mods tab)
     for (;;) {
         if (launcher_needed(root, setup)) launcher_run(root);

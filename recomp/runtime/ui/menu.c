@@ -25,6 +25,8 @@ void controls_bindings_draw(float scale);  // controls_ui.mm
 #include "../nvn/shader_ahead.h"
 const char *menu_clipboard(void);  // (below: the system clipboard's text)
 #include "../paths.h"
+void rt_request_clean_rebuild(void);  // runtime/main.c (Rebuild Game Code: General > Game)
+bool gamebuild_available(void);       // runtime/gamebuild.c (the recompiler is part of this copy)
 #include "../platform.h"
 #include "../nvn/framegen.h"
 #include "system_font.h"
@@ -727,7 +729,32 @@ static void tab_general(void) {
         if (!g_settings.keep_obj_cache) rt_remove_game_file("extracted", ".objcache");
         settings_save();
     }
-    if (opt_toggle("Show recomp version", &g_settings.show_recomp_version, false,
+    {  // Rebuild Game Code: delete the compiled game code and its cache, restart, and the setup screen builds it again
+        static int ask_rebuild;
+        if (ask_rebuild && (igIsKeyPressed_Bool(ImGuiKey_GamepadFaceRight, false) || igIsKeyPressed_Bool(ImGuiKey_Escape, false)))
+            ask_rebuild = 0;
+        const char *what = "Deletes the compiled game code and the build cache, closes the game and starts the app again, "
+                           "and the setup screen compiles it all from scratch. It takes several minutes and needs about 4 GB "
+                           "of free memory and disk. Your saves and settings are not touched. Use it if the game code "
+                           "seems out of date or broken after an update. Progress since your last save is lost.";
+        const char *d = what;
+        if (!gamebuild_available()) {  // (without the recompiler there would be no way back)
+            opt_disable_next();
+            opt_action("Rebuild Game Code", "Unavailable", "The recompiler is not part of this copy of " GAME_TITLE
+                       ", so the game code could not be built again.", true);
+        } else if (!ask_rebuild) {
+            if (opt_action("Rebuild Game Code", "", d, true)) ask_rebuild = 1;
+        } else {
+            if (opt_action("Yes, rebuild from scratch", "", d, true)) {
+                settings_save();
+                rt_request_clean_rebuild();
+                set_open(false);
+                ask_rebuild = 0;
+            }
+            if (opt_action("Cancel", "", "Stays where you are.", true)) ask_rebuild = 0;
+        }
+    }
+    if (opt_toggle("Show recomp version", &g_settings.show_recomp_version, true,
                    "Off: the title screen's Ver. box shows the game's own version (3.0.3). On: it shows this "
                    "recomp's version instead. With Skip intro or Skip mode select on, the same box also shows in the "
                    "bottom right corner while the game starts, then goes away. The title screen's box changes the "

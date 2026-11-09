@@ -686,6 +686,33 @@ void kernel_dump_threads(void) {
     }
 }
 
+// A diagnostic switch: the environment variable, or a file of that name (+ ".txt") in the data folder - the launcher does
+// not hand its environment on to the game.
+bool kernel_diag(const char *name) {
+    if (getenv(name)) return true;
+    char f[96];
+    snprintf(f, sizeof f, "%s.txt", name);
+    FILE *fp = fopen(f, "rb");
+    if (fp) fclose(fp);
+    return fp != NULL;
+}
+
+// Diagnostics (RECOMP_TRACE_UPLOAD, services/ssl.c): the calling guest thread's call chain, as main+offset where it is in main.
+void kernel_log_backtrace(const char *tag) {
+    if (!t_cur) return;
+    char line[512];
+    size_t o = (size_t)snprintf(line, sizeof line, "[trace] %s: t%llu lr %llx frames", tag, (unsigned long long)t_cur->id,
+                                (unsigned long long)t_cur->cpu.x[30]);
+    uint64_t fp = t_cur->cpu.x[29];
+    for (int i = 0; i < 16 && fp >= GUEST_LO && fp < GUEST_HI && !(fp & 7) && o + 24 < sizeof line; i++) {
+        uint64_t next = *(uint64_t *)(uintptr_t)fp, ra = *(uint64_t *)(uintptr_t)(fp + 8);
+        o += (size_t)snprintf(line + o, sizeof line - o, " %llx", (unsigned long long)ra);
+        if (next <= fp) break;
+        fp = next;
+    }
+    LOG("%s (main is at %llx)\n", line, (unsigned long long)GUEST_ORIGIN);
+}
+
 static void svc_entry(Cpu *c, uint32_t imm, uint64_t pc) {
     if (prof_svc < 0) prof_svc = ENV("LARECOMP_PROF_SVC") != NULL;
     if (prof_svc && imm < 0x80) {

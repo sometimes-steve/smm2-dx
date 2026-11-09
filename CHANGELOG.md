@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.1 - 2026-11-09
+
+### Mii
+
+- **A fresh save no longer wipes your Mii on OpenCourse World.** The game keeps the player's profile in its own save, and a few
+  seconds after logging in it sends that profile to OCW. A new save has no profile Mii yet (it is blank), so the very first
+  start replaced the Mii you set on OCW with a blank one, and the Maker panel on the first Course World screen was empty. Now,
+  just before the game sends its profile (`RegisterUser` and `SyncUserProfile`), a blank profile Mii, or one that is the default
+  Mii, is replaced with your Mii from OCW. A Mii you chose in the game is never touched.
+
+### Menu
+
+- **Changed settings are marked, and can be reset.** A setting that differs from its default shows a small dot before its name.
+  Right-click it (X on a controller) to put just that one back, or use **Reset Page to Defaults** at the bottom of each settings
+  page (it asks once more before it does anything).
+- **Rebuild Game Code** (General > Game): deletes the compiled game code and its build cache, restarts, and the setup screen
+  compiles it all again from scratch. It takes several minutes; saves and settings are not touched. It is greyed out when this
+  copy has no recompiler.
+- **Show recomp version is on by default** for new installs (the title screen's Ver. box shows this recomp's version). If you
+  already have a `smm2.ini`, your own choice stays.
+
+### Build
+
+- `rebuild-confirm.ps1` does a clean build and checks it: every file compiled again, both exes rewritten, and the text your
+  uncommitted changes added is in the runtime. `-Version` sets the version string, `-Install` copies the runtime into another
+  copy's data folder.
+- Two diagnostics for the Mii and the online connection, off unless asked for with an environment variable or an empty file of
+  that name in the data folder: `RECOMP_TRACE_UPLOAD` (a call chain for each write to a TLS connection) and `RECOMP_MII_TRACE`
+  (where in memory the game holds the Mii it was served; `RECOMP_MII_PROBE.txt` looks for a given pattern around it).
+
 ## 0.4.0 - 2026-11-08
 
 ### Mii

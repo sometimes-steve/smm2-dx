@@ -360,10 +360,54 @@ static bool ocw_player_mii(uint8_t out[0x58]) {
     return have;
 }
 
+// ---- the Mii the game uploads. The game keeps the player's profile in its network-session object, and sends it to OCW a few
+// seconds after logging in (NEX DataStoreSMM2 RegisterUser, method 47, and SyncUserProfile, 49): the request wrappers copy
+// 88 bytes of the object into the request, from self+0x73878 (RegisterUser, main+0x14ce500) and self+0x73910 (SyncUserProfile,
+// main+0x14cef40). A fresh save has no profile Mii there (all zeros), and what it sent replaced the player's Mii on OCW with a
+// blank one. So just before either wrapper builds its request, a blank slot, or one that holds the default Mii, gets the
+// player's Mii from OCW (the one the Mii database serves). A Mii the player picked in the game is never touched.
+#define OCW_REGISTER_USER MAIN_ADDR(0x14ce500)
+#define OCW_SYNC_PROFILE MAIN_ADDR(0x14cef40)
+#define OCW_MII_REGISTER_OFF 0x73878
+#define OCW_MII_SYNC_OFF 0x73910
+extern void mii_default_charinfo(uint8_t out[0x58], const char *nickname);  // (runtime/services/mii.c)
+
+static void put_player_mii(uint64_t self, uint64_t off, const char *which) {
+    if (!g_ocw.active || !self) return;
+    uint8_t mine[0x58], def[0x58];
+    if (!ocw_player_mii(mine)) {
+        LOG("[ocw] profile upload (%s): no Mii from OCW to put in\n", which);
+        return;
+    }
+    mii_default_charinfo(def, getenv("RECOMP_USER_NAME"));
+    if (!memcmp(mine, def, sizeof def)) return;  // (OCW has the default one too: nothing better to put in)
+    uint8_t *p = (uint8_t *)(uintptr_t)(self + off);
+    bool blank = true;
+    for (int i = 0; i < 16; i++) blank &= p[i] == 0;
+    bool is_default = !memcmp(p, def, 16) && !memcmp(p + 0x26, def + 0x26, 0x32);
+    if (blank || is_default) {
+        memcpy(p, mine, 0x58);
+        LOG("[ocw] profile upload (%s): the game's Mii was %s: the player's Mii from OCW goes up instead\n", which,
+            blank ? "blank" : "the default one");
+    } else {
+        LOG("[ocw] profile upload (%s): the game's own Mii goes up as it is\n", which);
+    }
+}
+static void register_user(Cpu *c) {
+    put_player_mii(c->x[0], OCW_MII_REGISTER_OFF, "registration");
+    guest_call_orig(c, c->pc);
+}
+static void sync_user_profile(Cpu *c) {
+    put_player_mii(c->x[0], OCW_MII_SYNC_OFF, "profile sync");
+    guest_call_orig(c, c->pc);
+}
+
 // Overrides are registered before the game's first instruction runs.
 __attribute__((constructor)) static void ocw_register(void) {
     mii_set_remote(ocw_player_mii);
     hle_override(MAIN_ADDR(0x14d2f00), get_user_page, "mod: GetUsers (maker page): OCW's Play History");
+    hle_override(OCW_REGISTER_USER, register_user, "mod: RegisterUser: the player's Mii from OCW when the game's is blank");
+    hle_override(OCW_SYNC_PROFILE, sync_user_profile, "mod: SyncUserProfile: the player's Mii from OCW when the game's is blank");
 }
 
 // After a GetUsers wrapper of the game ran (no = the network-session object, ret = what the wrapper returned): the

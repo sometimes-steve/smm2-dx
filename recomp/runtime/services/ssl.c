@@ -33,6 +33,7 @@
 
 #include "../hle.h"
 #include "../ipc.h"
+#include "../kernel.h"
 #include "../net/netcfg.h"
 #include "../net/roots.h"
 #include "bsd.h"
@@ -368,6 +369,11 @@ static void conn_write(SslConn *c, IpcReq *req, IpcResp *resp) {
     if (!c->done) { resp->result = R_INTERNAL; return; }
     if (!b || !b->size) return;
     log_data("game->", c, (const uint8_t *)(uintptr_t)b->addr, (size_t)b->size);
+    if (kernel_diag("RECOMP_TRACE_UPLOAD")) {  // (diagnostics: who sends what, to find the game's profile / Mii upload)
+        char tag[64];
+        snprintf(tag, sizeof tag, "ssl write %llu bytes", (unsigned long long)b->size);
+        kernel_log_backtrace(tag);
+    }
     uint32_t res;
     int r = run(c, op_write, (void *)(uintptr_t)b->addr, (size_t)b->size, &res);
     if (r < 0) { resp->result = res; return; }

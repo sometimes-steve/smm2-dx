@@ -68,3 +68,5 @@ KThread *kernel_current_thread(void);
 void kernel_host_wait_begin(void);
 void kernel_host_wait_end(void);
 uint64_t kernel_heap_size(void);  // bytes from HEAP_BASE set by SetHeapSize
+void kernel_log_backtrace(const char *tag);  // (diagnostics, RECOMP_TRACE_UPLOAD: this guest thread's call chain)
+bool kernel_diag(const char *name);  // (diagnostics: the env variable, or <name>.txt in the data folder)

@@ -39,6 +39,14 @@ static bool g_touch;
 void opt_touch(bool on) { g_touch = on; }
 void opt_indent(int step) { g_indent = g_indent + step < 0 ? 0 : g_indent + step; }
 
+// Defaults (issue #8): a row that differs from its default gets a dot; right-click (X on a controller) on it resets that row;
+// the page's last row resets them all (asks once). g_page_rows / g_page_changed: this page's rows that have a default / differ.
+static int g_page_rows, g_page_changed;
+static bool g_reset_row;     // this frame: the row just drawn was asked to reset
+static bool g_reset_page;    // this frame: every row with a default goes back to it
+static bool g_reset_ask;     // the reset button was clicked once (waiting for the second click)
+static char g_reset_ask_page[64];
+
 static void set_desc(char *dst, const char *src) { snprintf(dst, DESC_CAP, "%s", src); }
 
 static char g_cur_page[64];
@@ -125,6 +133,9 @@ static void begin_page(const char *id, float scale, bool flat) {
     g_focus_req = false;
     if (g_take_first) igNavMoveRequestCancel();  // (this frame's Down goes to the first row instead)
     g_indent = 0;
+    g_page_rows = g_page_changed = 0;
+    if (strcmp(g_reset_ask_page, id)) g_reset_ask = false;  // (another page: the question is dropped)
+    g_reset_row = false;
     g_desc_hover[0] = 0, g_desc_focus[0] = 0;
     g_img_hover = g_img_focus = (DescImage){0, 0, 0};
     ImVec2 avail;
@@ -165,7 +176,11 @@ void opt_section(const char *title) {
 // One row: draws it, handles A / click and left / right while selected. Returns 2 (A / click), -1 / +1 (left / right) or 0.
 // arrows: ◀ value ▶ (a choice of several, or a stepper): left / right step it, and the arrows click too
 // (callers pass upper = true, arrows = false unless they need otherwise)
+static bool g_row_has_def;  // (set by the opt_* that take a default, just before row())
 static int row(const char *label, const char *value, bool changed, const char *desc, bool upper, bool arrows) {
+    const bool has_def = g_row_has_def;
+    g_row_has_def = false;
+    g_reset_row = false;
     igPushID_Str(label);
     if (g_indent) igSetCursorPosX(igGetCursorPosX() + g_indent * 28 * g_scale);  // (an option of the row above)
     ImVec2 p;
@@ -199,6 +214,13 @@ static int row(const char *label, const char *value, bool changed, const char *d
     g_next_disabled = false;
     bool hov = igIsItemHovered(0), foc = igIsItemFocused() && igGetCurrentContext()->NavCursorVisible;
     int step = clicked && !off ? 2 : 0;
+    if (has_def) {
+        g_page_rows++;
+        if (changed) g_page_changed++;
+        if (changed && !off && ((hov && igIsMouseClicked_Bool(ImGuiMouseButton_Right, false)) ||
+                                (foc && igIsKeyPressed_Bool(ImGuiKey_GamepadFaceLeft, false))))
+            g_reset_row = true;
+    }
     g_held = false;
     if (foc && !off) {
         if (igIsKeyPressed_Bool(ImGuiKey_GamepadDpadLeft, true) || igIsKeyPressed_Bool(ImGuiKey_GamepadLStickLeft, true) ||
@@ -255,6 +277,11 @@ static int row(const char *label, const char *value, bool changed, const char *d
         if (room > fs && text_w(t) > room) ellipsize(t, room);
     }
     ImDrawList_AddText_Vec2(dl, IM_VEC2(p.x + pad + lead, ty), label_col, t, NULL);
+    if (has_def && changed && !off) {  // differs from its default: a small accent dot before the label
+        float dr = fmaxf(2.5f * g_scale, fs * 0.13f), dx = p.x + pad * 0.5f + (nes ? dr : 0), dy = p.y + h * 0.5f;
+        if (nes) ImDrawList_AddRectFilled(dl, IM_VEC2(dx - dr, dy - dr), IM_VEC2(dx + dr, dy + dr), NES_WHITE, 0, 0);
+        else ImDrawList_AddCircleFilled(dl, IM_VEC2(dx, dy), dr, kGold, 0);
+    }
     float right = p.x + w - pad;  // (the value's right edge)
     if (arrows && value[0]) {  // ◀ value ▶, drawn (the fonts have no arrow glyphs); a click on one steps
         float aw = nes ? 5 * ap : fs * 0.42f, gap = fs * 0.55f, cy = ty + fs * 0.52f;
@@ -286,18 +313,24 @@ static int row(const char *label, const char *value, bool changed, const char *d
                                     : changed ? IM_COL32(255, 255, 255, 255) : IM_COL32(205, 205, 195, 255), shown, NULL);
     }
     igPopID();
+    if (g_reset_row) step = 0;  // (the wrappers reset it instead of stepping)
     return step;
 }
 
 bool opt_toggle(const char *label, bool *v, bool def, const char *desc) {
-    if (!row(label, *v ? "On" : "Off", *v != def, desc, true, false)) return false;  // (any step flips it)
+    g_row_has_def = true;
+    int st = row(label, *v ? "On" : "Off", *v != def, desc, true, false);
+    if ((g_reset_row || g_reset_page) && *v != def) return *v = def, true;
+    if (!st) return false;  // (any step flips it)
     *v = !*v;
     return true;
 }
 
 bool opt_choice(const char *label, int *v, const char *const *names, int n, int def, const char *desc, bool wrap) {
     int cur = *v >= 0 && *v < n ? *v : 0;
+    g_row_has_def = true;
     int step = row(label, names[cur], cur != def, desc, true, true);
+    if ((g_reset_row || g_reset_page) && cur != def) return *v = def, true;
     if (!step) return false;
     int nv = cur + (step == 2 ? 1 : step);
     nv = wrap ? (nv + n) % n : nv < 0 ? 0 : nv >= n ? n - 1 : nv;
@@ -309,7 +342,9 @@ bool opt_choice(const char *label, int *v, const char *const *names, int n, int 
 bool opt_slider(const char *label, float *v, float lo, float hi, float step, float def, const char *fmt, const char *desc) {
     char buf[32];
     snprintf(buf, sizeof buf, fmt, *v);
+    g_row_has_def = true;
     int s = row(label, buf, fabsf(*v - def) > step * 0.01f, desc, true, true);
+    if ((g_reset_row || g_reset_page) && fabsf(*v - def) > step * 0.01f) return *v = def, true;
     if (!s) return false;
     float eps = step * 0.01f, n = roundf(*v / step) * step + (s == 2 ? step : s * step);
     if (s == 2 && n > hi + eps) n = lo;  // (A / click past the top wraps to the bottom; left / right stop at the ends)
@@ -322,7 +357,9 @@ bool opt_int(const char *label, int *v, int lo, int hi, int step, int def, const
     char buf[48];
     if (lo_name && *v == lo) snprintf(buf, sizeof buf, "%s", lo_name);
     else snprintf(buf, sizeof buf, fmt, *v);
+    g_row_has_def = true;
     int s = row(label, buf, *v != def, desc, true, true);
+    if ((g_reset_row || g_reset_page) && *v != def) return *v = def, true;
     if (!s) return false;
     int d = s == 2 ? step : s * step * (g_held && hi - lo > 40 * step ? 10 : 1);
     int n = *v + d;
@@ -409,6 +446,18 @@ bool opt_text(const char *label, char *buf, size_t cap, const char *hint, const 
 }
 
 void opt_end(void) {
+    g_reset_page = false;  // (this frame's rows have gone back to their defaults)
+    if (g_page_rows > 0) {  // the page's last row: everything back to default, asked once
+        igDummy(IM_VEC2(0, 10 * g_scale));
+        if (!g_page_changed) g_next_disabled = true, g_reset_ask = false;
+        bool ask = g_reset_ask && g_page_changed;
+        if (opt_button(ask ? "Click Again to Confirm" : "Reset Page to Defaults",
+                       "Puts every setting on this page back to its default. Click twice to confirm. Right-click a changed "
+                       "setting (X on a controller) to reset just that one.")) {
+            if (ask) g_reset_page = true, g_reset_ask = false;  // (the rows apply it on the next frame)
+            else g_reset_ask = true, snprintf(g_reset_ask_page, sizeof g_reset_ask_page, "%s", g_cur_page);
+        }
+    }
     igPopStyleVar(1);
     const char *scroll = getenv("LARECOMP_OPT_SCROLL");
     if (scroll) igSetScrollY_Float(igGetScrollMaxY() * (float)atof(scroll));  // (test)

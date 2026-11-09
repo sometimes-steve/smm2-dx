@@ -17,10 +17,13 @@
 // from the server by the maker code in ocw-config.json). IsUpdated says so, once to each session that asked before, when what the database holds changed (the
 // file written, replaced or removed), so a game that checks it can refresh what it shows.
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../platform.h"
+#include "../rt.h"
+#include "../kernel.h"
 #include "../hle.h"
 #include "../ipc.h"
 #include "../net/netcfg.h"
@@ -95,6 +98,101 @@ static uint64_t current_charinfo(uint8_t out[0x58]) {
 // with the served Mii, early and again from time to time; the game then uploads, and saves, the right one. Only exact copies
 // of the default Mii are touched. RECOMP_MII_NO_HEAL turns it off.
 extern int kernel_data_regions(uint64_t *addr, uint64_t *size, int max);
+// Diagnostics (RECOMP_MII_TRACE): where the game holds the Mii served (cur) and the default one (def): every 88-byte copy of
+// either, and every place holding the served Mii's create id (16 bytes) alone, with its address (main+offset when in main).
+// Also: the 40 bytes before and after each full copy, the first time it is seen (what the object around a copy looks like: a
+// way to tell the game's own profile Mii from the buffers it was handed), and a probe: RECOMP_MII_PROBE.txt holds one line
+// "pre=<hex> post=<hex>" (up to 40 bytes each); every place with those pre bytes, then 88 bytes, then those post bytes is
+// logged with what the 88 bytes are (zeros, the served Mii, the default, other).
+#define CTX 40
+static void hexs(char *out, const uint8_t *p, size_t n) {
+    for (size_t i = 0; i < n; i++) snprintf(out + 2 * i, 3, "%02x", p[i]);
+}
+static size_t unhex(const char *s, uint8_t *out, size_t cap) {
+    size_t n = 0;
+    while (s[0] && s[1] && n < cap) {
+        unsigned v;
+        if (sscanf((char[3]){s[0], s[1], 0}, "%2x", &v) != 1) break;
+        out[n++] = (uint8_t)v, s += 2;
+    }
+    return n;
+}
+static void mii_probe(const uint8_t cur[0x58], const uint8_t def[0x58], const uint64_t *ra, const uint64_t *rs, int nr) {
+    FILE *f = fopen("RECOMP_MII_PROBE.txt", "rb");
+    if (!f) return;
+    char line[512];
+    uint8_t pre[CTX], post[CTX];
+    size_t npre = 0, npost = 0;
+    if (fgets(line, sizeof line, f)) {
+        const char *a = strstr(line, "pre="), *b = strstr(line, "post=");
+        if (a) npre = unhex(a + 4, pre, CTX);
+        if (b) npost = unhex(b + 5, post, CTX);
+    }
+    fclose(f);
+    if (!npre) return;  // (the pre bytes anchor the search)
+    static uint64_t seen[256];
+    static int nseen;
+    int hits = 0;
+    for (int r = 0; r < nr; r++) {
+        uint8_t *p = (uint8_t *)(uintptr_t)ra[r], *end = p + rs[r];
+        for (uint8_t *q = p; q + npre + 0x58 + npost <= end;) {
+            if (npre) {
+                q = memchr(q, pre[0], (size_t)(end - q - (npre + 0x58 + npost) + 1));
+                if (!q) break;
+            }
+            if ((!npre || !memcmp(q, pre, npre)) && (!npost || !memcmp(q + npre + 0x58, post, npost))) {
+                const uint8_t *m = q + npre;
+                bool zero = true;
+                for (int i = 0; i < 0x58 && zero; i++) zero = m[i] == 0;
+                const char *what = zero ? "zeros" : !memcmp(m, cur, 0x58) ? "the served Mii" : !memcmp(m, def, 0x58) ? "the default Mii" : "other";
+                uint64_t key = (uint64_t)(uintptr_t)m ^ (uint64_t)what[0] << 56;
+                bool known = false;
+                for (int i = 0; i < nseen; i++) known |= seen[i] == key;
+                hits++;
+                if (!known && nseen < 256) {
+                    seen[nseen++] = key;
+                    char h[33];
+                    hexs(h, m, 16);
+                    LOG("[mii-probe]   match at %llx: %s (starts %s)\n", (unsigned long long)(uintptr_t)m, what, h);
+                }
+            }
+            q++;
+        }
+    }
+    LOG("[mii-probe] %d match%s\n", hits, hits == 1 ? "" : "es");
+}
+static void mii_census(const uint8_t cur[0x58], const uint8_t def[0x58], double age) {
+    static uint64_t ra[1024], rs[1024];
+    static uint64_t ctx_seen[128];
+    static int nctx;
+    int nr = kernel_data_regions(ra, rs, 1024), n_cur = 0, n_def = 0, n_id = 0;
+    LOG("[mii-trace] %.0f s: scanning %d regions (main is at %llx)\n", age, nr, (unsigned long long)MAIN_BASE);
+    for (int r = 0; r < nr; r++) {
+        uint8_t *p = (uint8_t *)(uintptr_t)ra[r], *end = p + rs[r];
+        for (int k = 0; k < 2; k++) {
+            const uint8_t *pat = k ? def : cur;
+            for (uint8_t *q = p; q + 16 <= end && (q = memchr(q, pat[0], (size_t)(end - q - 15))) != NULL; q++) {
+                if (memcmp(q, pat, 16)) continue;
+                bool full = q + 0x58 <= end && !memcmp(q + 0x26, pat + 0x26, 0x32);
+                int *cnt = full ? (k ? &n_def : &n_cur) : &n_id;
+                if (++*cnt <= 24)
+                    LOG("[mii-trace]   %s %s at %llx (region %llx+%llx)\n", k ? "default" : "served", full ? "Mii" : "create id only",
+                        (unsigned long long)(uintptr_t)q, (unsigned long long)ra[r], (unsigned long long)rs[r]);
+                bool known = false;
+                for (int i = 0; i < nctx; i++) known |= ctx_seen[i] == (uint64_t)(uintptr_t)q;
+                if (full && !known && nctx < 128 && q >= p + CTX && q + 0x58 + CTX <= end) {
+                    ctx_seen[nctx++] = (uint64_t)(uintptr_t)q;
+                    char before[2 * CTX + 1], after[2 * CTX + 1];
+                    hexs(before, q - CTX, CTX), hexs(after, q + 0x58, CTX);
+                    LOG("[mii-trace]   context of %llx: pre=%s post=%s\n", (unsigned long long)(uintptr_t)q, before, after);
+                }
+            }
+        }
+    }
+    LOG("[mii-trace] %.0f s: %d copies of the served Mii, %d of the default, %d create ids alone\n", age, n_cur, n_def, n_id);
+    mii_probe(cur, def, ra, rs, nr);
+}
+
 static void *mii_heal_thread(void *arg) {
     (void)arg;
     static uint64_t ra[1024], rs[1024];
@@ -106,6 +204,7 @@ static void *mii_heal_thread(void *arg) {
         plat_sleep_until_ns(plat_now_ns() + (age < 90 ? 1500000000ull : 20000000000ull));  // (often at first, then now and then)
         uint8_t cur[0x58];
         current_charinfo(cur);
+        if (kernel_diag("RECOMP_MII_TRACE")) mii_census(cur, def, age);
         if (!memcmp(cur, def, sizeof cur)) continue;  // (the default is what is served: nothing to put right)
         int nr = kernel_data_regions(ra, rs, 1024), fixed = 0;
         for (int r = 0; r < nr; r++) {
