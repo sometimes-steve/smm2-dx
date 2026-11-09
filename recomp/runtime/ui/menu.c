@@ -63,6 +63,7 @@ static void push(const QEvent *e) {
 
 bool menu_is_open(void) { return atomic_load(&g_open); }
 static void set_open(bool open);
+static void restart_notice_flush(void);  // (below the notice)
 void menu_test_open(void) {
     set_open(true);
     if (getenv("LARECOMP_MENU_TAB")) { extern int g_tab_request_ext; g_tab_request_ext = atoi(getenv("LARECOMP_MENU_TAB")); }
@@ -80,7 +81,7 @@ static void set_open(bool open) {
         opened = true;
     }
     // (game_mod_rows_hide: a game's secret settings rows go back to "set" / "not set")
-    else { settings_save(), osk_cancel(), game_mod_rows_hide(); g_text_busy = false; }
+    else { settings_save(), osk_cancel(), game_mod_rows_hide(); g_text_busy = false; restart_notice_flush(); }
 }
 
 static ImGuiKey key_from_scancode(SDL_Scancode sc) {
@@ -166,6 +167,26 @@ void menu_notice(const char *text, double seconds) {
     LOG("[notice] queued for %.0f s at %.1f s: %s\n", seconds, SDL_GetTicks() / 1000.0, text);
 }
 static bool notice_active(void) { return SDL_GetTicks() / 1000.0 < notice_until; }
+
+// Settings that only take effect when the game starts again are marked "(restart)" in their label. The notice isn't
+// drawn while the menu is open, so a change to one is remembered and announced as the menu closes.
+enum { RESTART_SKIP_INTRO, RESTART_SKIP_MODE_SELECT, RESTART_LANGUAGE, RESTART_SHADER_FAST, N_RESTART };
+static const char *const restart_names[N_RESTART] = {"Skip intro", "Skip mode select", "Language", "Prepare at full speed"};
+static bool restart_changed[N_RESTART];
+static bool quit_prompt_req;  // the "Quit to Desktop?" window is asked for (Quit > Quit to Desktop)
+static bool restart_prompt_req;  // the "Restart the game?" window is asked for (a restart row changed, or Quit > Restart)
+static void restart_changed_mark(int which) { restart_changed[which] = true, restart_prompt_req = true; }
+static void restart_notice_flush(void) {
+    char t[256] = "Applies after restart: ";
+    size_t n = strlen(t);
+    int count = 0;
+    for (int i = 0; i < N_RESTART; i++) {
+        if (!restart_changed[i]) continue;
+        restart_changed[i] = false;
+        n += snprintf(t + n, sizeof t - n, "%s%s", count++ ? ", " : "", restart_names[i]);
+    }
+    if (count) menu_notice(t, 5);
+}
 bool touchpad_visible(void);
 void touchpad_draw(float w, float h);
 // The game gets no input while this is true (runtime/hle/input.c): menu or name entry up.
@@ -672,10 +693,10 @@ static void tab_display(void) {
                    "The game's shaders are prepared in the background while you play, so effects don't hitch the first "
                    "time they appear. It takes a few minutes the first time, and again after an update; until it's "
                    "done, the first time something appears it may hitch briefly. Once prepared, they're kept.", true);
-        opt_toggle("Prepare at full speed", &g_settings.ahead_fast, false,
+        if (opt_toggle("Prepare at full speed (restart)", &g_settings.ahead_fast, false,
                    "Prepares the shaders with every CPU core and without pausing for the game. It finishes much sooner "
                    "but can make the game stutter meanwhile: turn it on, wait at the title screen until Shader "
-                   "preparation says Prepared, then turn it off if you like. From the next start.");
+                   "preparation says Prepared, then turn it off if you like. From the next start.")) restart_changed_mark(RESTART_SHADER_FAST);
     }
     opt_end();
 }
@@ -705,21 +726,23 @@ static void tab_general(void) {
     const bool intro_locked = is_smm2 && g_settings.skip_mode_select;  // (Skip mode select takes over from launch)
     if (intro_locked) {  // (greyed out, with no On / Off: the setting isn't used while Skip mode select is on)
         opt_disable_next();
-        opt_action("Skip intro", "Unavailable",
+        opt_action("Skip intro (restart)", "Unavailable",
                    "Not available while Skip mode select is on: it replaces Skip intro. Skip mode select is a combo "
                    "of no intro video and no mode select, so it already skips the logos itself. Turn Skip mode "
                    "select off to use this on its own.", true);
-    } else if (opt_toggle("Skip intro", &g_settings.skip_intro, false,
+    } else if (opt_toggle("Skip intro (restart)", &g_settings.skip_intro, false,
                           "Skips the opening logos and goes straight to the title screen when the game starts. Applies the next time the game starts.")) {
         settings_save();
+        restart_changed_mark(RESTART_SKIP_INTRO);
     }
     if (is_smm2 &&  // (Super Mario Maker 2's: mods/skip_intro.c)
-        opt_toggle("Skip mode select", &g_settings.skip_mode_select, false,
+        opt_toggle("Skip mode select (restart)", &g_settings.skip_mode_select, false,
                    "Replaces Skip intro: a combo of no intro video and no mode select. Goes from launch straight into "
                    "Course World, with no logos, no L+R and no choosing a mode, all hidden behind a loading screen. "
                    "Applies the next time the game starts (Quit > Restart the Game does it too). Because it includes "
                    "Skip intro, Skip intro is unavailable while this is on.")) {
         settings_save();
+        restart_changed_mark(RESTART_SKIP_MODE_SELECT);
     }
     if (opt_toggle("Keep build cache", &g_settings.keep_obj_cache, false,
                    "Off: the compiled game code is thrown away once it is built, so it takes no extra space. On: about "
@@ -819,38 +842,42 @@ static const char *app_version(void) {
     return v;
 }
 static void tab_quit(float scale, bool in_game) {
-    static int ask;  // 0: the choices; 2: desktop?; 3: restart?
-    if (ask && (igIsKeyPressed_Bool(ImGuiKey_GamepadFaceRight, false) || igIsKeyPressed_Bool(ImGuiKey_Escape, false)))
-        ask = 0;
+    // (both ask in their own window: restart_popup)
     const char *lost = in_game ? "\n\nProgress since your last save is lost." : "";
     char d0[200], d2[200];
     snprintf(d0, sizeof d0, "Starts the game again right away, without closing the app. Settings that apply at the next start take effect.%s", lost);
     snprintf(d2, sizeof d2, "Closes " GAME_TITLE ".%s", lost);
     opt_flat_begin("##quit", scale);
     opt_section("Quit");
-    if (!ask) {
-        if (!in_game) opt_disable_next();  // (nothing running to restart)
-        if (opt_action("Restart the Game", "", in_game ? d0 : "No game is running.", true)) ask = 3;
-        if (opt_action("Quit to Desktop", "", d2, true)) ask = 2;
-    } else {
-        if (opt_action(ask == 3 ? "Yes, restart the game" : "Yes, quit to Desktop", "", ask == 3 ? d0 : d2, true)) {
-            settings_save();
-            if (ask == 3) {
-                rt_request_reboot(1 /* RT_REBOOT_GAME */);
-                set_open(false);
-            } else {
-                SDL_Event q = {};
-                q.type = SDL_EVENT_QUIT;
-                SDL_PushEvent(&q);
-            }
-            ask = 0;
-        }
-        if (opt_action("Cancel", "", "Stays where you are.", true)) ask = 0;
-    }
+    if (!in_game) opt_disable_next();  // (nothing running to restart)
+    if (opt_action("Restart the Game", "", in_game ? d0 : "No game is running.", true)) restart_prompt_req = true;
+    if (opt_action("Quit to Desktop", "", d2, true)) quit_prompt_req = true;
     opt_section("About");
     opt_action("Version", app_version(), "This program's version. Please include it in bug reports.", false);
     launcher_settings_rows();  // (Check for updates, New version available)
     opt_end();
+}
+
+// "Restart the game?" (asked for by a row that needs a restart, restart_changed_mark, and by Quit > Restart the Game;
+// Not now leaves the settings noted: a notice reminds as the menu closes) and "Quit to Desktop?".
+static void restart_popup(float scale, bool in_game) {
+    if (in_game) {
+        if (opt_confirm_window("Restart the game?##restart", &restart_prompt_req, "Restart the game now?", true, "Restart now", "Not now", scale) == 1) {
+            memset(restart_changed, 0, sizeof restart_changed);
+            settings_save();
+            rt_request_reboot(1 /* RT_REBOOT_GAME */);
+            set_open(false);
+        }
+    } else {
+        restart_prompt_req = false, memset(restart_changed, 0, sizeof restart_changed);  // (the start screen: nothing to restart)
+    }
+    if (opt_confirm_window("Quit to Desktop?##quit", &quit_prompt_req, "Quit " GAME_TITLE " and go to the desktop?", in_game,
+                       "Quit now", "Cancel", scale) == 1) {
+        settings_save();
+        SDL_Event q = {};
+        q.type = SDL_EVENT_QUIT;
+        SDL_PushEvent(&q);
+    }
 }
 
 void controls_bindings_rows(void);  // runtime/ui/controls_ui.c: the remapping editor as option rows
@@ -874,10 +901,12 @@ static void tab_about(void) {  // (the Controls tab)
         const char *names[N_LANGUAGES];
         names[0] = autol;
         for (int i = 1; i < N_LANGUAGES; i++) names[i] = g_language_names[i];
-        if (opt_choice("Language", &g_settings.language, names, N_LANGUAGES, 0,
+        if (opt_choice("Language (restart)", &g_settings.language, names, N_LANGUAGES, 0,
                        "The game's text language, as its own system setting. Applies when the game restarts "
-                       "(Quit > Restart the Game).", true))
+                       "(Quit > Restart the Game).", true)) {
             settings_save();
+            restart_changed_mark(RESTART_LANGUAGE);
+        }
     }
     opt_section("Controllers");
     if (opt_toggle("Controllers Start at Player 2", &g_settings.pads_from_p2, false,
@@ -1117,6 +1146,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
         opt_focus_first(false);  // (a page without option rows: nothing took it)
         igEndTabBar();
     }
+    restart_popup(scale, in_game);
     if (touch) igPopStyleVar(1);
 }
 

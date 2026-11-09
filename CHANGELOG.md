@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.2 - 2026-11-09
+
+### Menu
+
+- Settings that only apply after the game restarts (Skip intro, Skip mode select, Language, Prepare at full speed) now say
+  "(restart)" in their name, and changing one opens a "Restart the game?" window (Restart now / Not now); after Not now,
+  a notice reminds you as the menu closes. Quit > Restart the Game, Quit to Desktop and Reset Page to Defaults ask
+  in the same kind of window (#9).
+
+### Build
+
+- The helper scripts are Python now and live in `recomp/tools/`: `rebuild_confirm.py` (was `rebuild-confirm.ps1`) and
+  `package_release.py` (was `package-release.ps1`).
+
 ## 0.4.1 - 2026-11-09
 
 ### Mii
@@ -23,8 +37,8 @@
 
 ### Build
 
-- `rebuild-confirm.ps1` does a clean build and checks it: every file compiled again, both exes rewritten, and the text your
-  uncommitted changes added is in the runtime. `-Version` sets the version string, `-Install` copies the runtime into another
+- `recomp/tools/rebuild_confirm.py` does a clean build and checks it: every file compiled again, both exes rewritten, and the text your
+  uncommitted changes added is in the runtime. `--version` sets the version string, `--install` copies the runtime into another
   copy's data folder.
 - Two diagnostics for the Mii and the online connection, off unless asked for with an environment variable or an empty file of
   that name in the data folder: `RECOMP_TRACE_UPLOAD` (a call chain for each write to a TLS connection) and `RECOMP_MII_TRACE`

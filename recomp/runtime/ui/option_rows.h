@@ -50,3 +50,8 @@ void opt_end(void);
 void opt_focus_first(bool on);
 // touch (a finger last): taller rows, the ◀ ▶ arrows easier to hit
 void opt_touch(bool on);
+// A question in its own window over the page (a modal popup): 1 = yes, -1 = no (B / Esc too), 0 = still open or not
+// asked. *asked: set to ask it (cleared once the window is up). The safe button has the focus. in_game adds "Progress
+// since your last save is lost." Call it where the question was asked (the same ID stack).
+int opt_confirm_window(const char *id, bool *asked, const char *msg, bool in_game, const char *yes_label,
+                       const char *no_label, float scale);

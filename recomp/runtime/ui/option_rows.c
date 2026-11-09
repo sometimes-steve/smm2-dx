@@ -44,8 +44,7 @@ void opt_indent(int step) { g_indent = g_indent + step < 0 ? 0 : g_indent + step
 static int g_page_rows, g_page_changed;
 static bool g_reset_row;     // this frame: the row just drawn was asked to reset
 static bool g_reset_page;    // this frame: every row with a default goes back to it
-static bool g_reset_ask;     // the reset button was clicked once (waiting for the second click)
-static char g_reset_ask_page[64];
+static bool g_reset_ask;     // the reset button was clicked: its question is asked (opt_confirm_window)
 
 static void set_desc(char *dst, const char *src) { snprintf(dst, DESC_CAP, "%s", src); }
 
@@ -134,7 +133,6 @@ static void begin_page(const char *id, float scale, bool flat) {
     if (g_take_first) igNavMoveRequestCancel();  // (this frame's Down goes to the first row instead)
     g_indent = 0;
     g_page_rows = g_page_changed = 0;
-    if (strcmp(g_reset_ask_page, id)) g_reset_ask = false;  // (another page: the question is dropped)
     g_reset_row = false;
     g_desc_hover[0] = 0, g_desc_focus[0] = 0;
     g_img_hover = g_img_focus = (DescImage){0, 0, 0};
@@ -445,18 +443,45 @@ bool opt_text(const char *label, char *buf, size_t cap, const char *hint, const 
     return done;
 }
 
+int opt_confirm_window(const char *id, bool *asked, const char *msg, bool in_game, const char *yes_label,
+                       const char *no_label, float scale) {
+    ImGuiIO *io = igGetIO();
+    if (*asked) {
+        *asked = false;
+        if (!igIsPopupOpen_Str(id, 0)) igOpenPopup_Str(id, 0);
+    }
+    igSetNextWindowPos(IM_VEC2(io->DisplaySize.x * 0.5f, io->DisplaySize.y * 0.5f), ImGuiCond_Always, IM_VEC2(0.5f, 0.5f));
+    if (!igBeginPopupModal(id, NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize))
+        return 0;
+    igPushTextWrapPos(640 * scale);
+    igTextUnformatted(msg, NULL);
+    if (in_game) igTextDisabled("Progress since your last save is lost.");
+    igPopTextWrapPos();
+    igSpacing();
+    bool yes = igButton(yes_label, IM_VEC2(0, 0));
+    igSameLine(0, -1);
+    bool no = igButton(no_label, IM_VEC2(0, 0));
+    igSetItemDefaultFocus();
+    if (igIsKeyPressed_Bool(ImGuiKey_GamepadFaceRight, false) || igIsKeyPressed_Bool(ImGuiKey_Escape, false)) no = true;
+    if (yes || no) igCloseCurrentPopup();
+    igEndPopup();
+    return yes ? 1 : no ? -1 : 0;
+}
+
 void opt_end(void) {
     g_reset_page = false;  // (this frame's rows have gone back to their defaults)
     if (g_page_rows > 0) {  // the page's last row: everything back to default, asked once
         igDummy(IM_VEC2(0, 10 * g_scale));
         if (!g_page_changed) g_next_disabled = true, g_reset_ask = false;
-        bool ask = g_reset_ask && g_page_changed;
-        if (opt_button(ask ? "Click Again to Confirm" : "Reset Page to Defaults",
-                       "Puts every setting on this page back to its default. Click twice to confirm. Right-click a changed "
-                       "setting (X on a controller) to reset just that one.")) {
-            if (ask) g_reset_page = true, g_reset_ask = false;  // (the rows apply it on the next frame)
-            else g_reset_ask = true, snprintf(g_reset_ask_page, sizeof g_reset_ask_page, "%s", g_cur_page);
-        }
+        if (opt_button("Reset Page to Defaults",
+                       "Puts every setting on this page back to its default. Right-click a changed setting (X on a "
+                       "controller) to reset just that one."))
+            g_reset_ask = true;
+        if (opt_confirm_window("Reset this page?##reset", &g_reset_ask,
+                               "Put every setting on this page back to its default?", false, "Reset page", "Cancel",
+                               g_scale) == 1)
+            g_reset_page = true;  // (the rows apply it on the next frame)
     }
     igPopStyleVar(1);
     const char *scroll = getenv("LARECOMP_OPT_SCROLL");
