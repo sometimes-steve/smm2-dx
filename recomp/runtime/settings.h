@@ -11,7 +11,6 @@ enum { AA_OFF = 0, AA_SMAA = 1 };
 enum { FRAMEGEN_OFF = 0, FRAMEGEN_120 = 1, FRAMEGEN_REPLAY = 2 };  // runtime/nvn/framegen.h; REPLAY: the same as 120
 // Menu colour themes (runtime/ui/menu.cpp kThemes: the palettes, in this order; names are the ini values)
 enum { THEME_DEFAULT = 0, THEME_NES = 1, N_THEMES = 2 };
-enum { NAMEFONT_GAME = 0, NAMEFONT_SIMPLIFIED = 1, NAMEFONT_TRADITIONAL = 2, NAMEFONT_KOREAN = 3, N_NAMEFONTS = 4 };
 extern const char *const g_theme_names[N_THEMES];  // the ini's value and the menu's label: "Default", "NES"
 enum { PROMPTS_AUTO = 0, PROMPTS_NINTENDO = 1, PROMPTS_XBOX = 2, PROMPTS_PLAYSTATION = 3 };
 enum { CHAOS_LETTERS_OFF = 0, CHAOS_LETTERS_EXPLORED = 1, CHAOS_LETTERS_MAP = 2 /* explored, all with the Map */ };
@@ -63,7 +62,6 @@ typedef struct {
     int tunic;           // index into g_tunic_colours (0 = Default: the game's / the seed's own)
     int hearts;          // index into g_heart_colours (0 = Default red)
     char rando_seed[128];  // active randomizer seed (rando/<name>/), empty = vanilla
-    int name_font;            // NAMEFONT_*: the script names and titles fall back to when the first fonts lack a character: games/smm2/mods/usermods_overlay.c
     bool replace_bad_mii;     // another maker's blank / broken Mii from OCW is replaced by a generated one: games/smm2/mods/ocw.c
     bool show_recomp_version; // the title screen's Ver. box shows the recomp's version, not the game's: services/am.c
     bool skip_intro;     // skip the boot logo presentation animations

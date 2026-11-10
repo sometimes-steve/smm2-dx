@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.4 - 2026-11-09
+
+### Names in other scripts
+
+- **Chinese, Taiwanese and Korean characters in names show in every language, with nothing to set.** 0.5.3 swapped the game's
+  name font chain for its Chinese one, which also drew Japanese kanji with the Chinese font and needed a setting to pick the
+  script. Now the game's own chain is left exactly as it is and the three fonts the game has for those scripts (simplified
+  Chinese, traditional Chinese, Korean) are added on the end, so only what was a "?" box changes. The **Name Fallback Font**
+  setting is gone. The chain is made at start-up from your own `Font/Fcpx.szs` (never edited in place, never shipped) and only
+  if that file is the 3.0.3 one; `RECOMP_NO_FONT_FALLBACK=1` turns it off.
+
+### Menu
+
+- The Mods and Online tabs no longer end with "Reset Page to Defaults" (nothing on them is a page of settings to reset).
+
 ## 0.5.3 - 2026-11-09
 
 ### Course ID / Maker ID search (#17)

@@ -238,22 +238,26 @@ static bool merge_user_archives(void) {
 }
 
 // ---------------------------------------------------------------- the name font's fallback
-// A maker named in simplified Chinese showed one of its characters as a "?" box. The game draws names and titles with the
-// font chain MessageFont (Font/Fcpx.szs): its own two Japanese gothics, with nothing for simplified-only characters; only its
-// Chinese variant, MessageFont_CNzh, goes on to the simplified Chinese font (DFHEI5A). The Chinese chain is the same fonts
-// first and that font last, so using it for every language changes no character that shows today and adds the ones that
-// were "?". Made from the player's own Fcpx.szs into mods-generated/romfs-fixes (laid under the mods in the overlay, so a mod
-// that has its own Fcpx.szs still wins), never edited in place (the extracted files can be hard links to the dump) and never
-// shipped. RECOMP_NO_FONT_FALLBACK=1 leaves the game's own.
-// The game has such a chain for each of its Asian languages, and each adds one more font (simplified Chinese DFHEI5A,
-// traditional Chinese DFPT_3, Korean AsiaKDREAM4-R). A chain with all of them is not made: the file is a linked binary
-// format that is not understood well enough to add to, and a wrong edit would break every line of text. So the setting
-// "Name Fallback Font" (General > Appearance) picks which of the game's own chains every language uses.
+// A maker named in Chinese or Korean showed the characters of those scripts as "?" boxes. The game draws names and titles
+// with the font chain MessageFont (Font/Fcpx.szs): its own two Japanese gothics. Only the chain it uses for its Chinese and
+// Korean languages goes on to a font with those characters, and it also takes the kanji away from the Japanese gothic (a
+// Chinese-language chain draws every character outside kana with the Chinese font). So instead of swapping chains, the
+// game's own chain is kept exactly as it is and the three fonts the game has for those scripts are put on the end, simplified
+// Chinese (DFHEI5A), traditional Chinese (DFPT_3) and Korean (AsiaKDREAM4-R), each for every character: what shows today is
+// untouched, and what was a "?" box can come from them.
+// The chain is a linked binary format (little endian, offsets from byte 0x18). Four fonts, each a record of nine words (a size
+// of 1.0, 0, the offset of its name, a flag word whose upper half numbers the font, 1.0, 0, 0, a count of the ranges it is
+// limited to, the offset of that list) with a zero between records, then the lists of ranges (pairs of code points), then
+// the names. Read off the game's own chains for the Chinese, Taiwanese and Korean languages, which each have one record more
+// than this one. A record with no range is for everything; its offset is the end of the lists. Everything is checked against
+// what this file is in game version 3.0.3 before anything is built, and any difference leaves the game's own file in use.
+// Made from the player's own Fcpx.szs into mods-generated/romfs-fixes (laid under the mods in the overlay, so a mod that has
+// its own Fcpx.szs still wins), never edited in place (the extracted files can be hard links to the dump) and never shipped.
+// RECOMP_NO_FONT_FALLBACK=1 leaves the game's own.
 #define FIX_DIR "mods-generated/romfs-fixes"
 #define FIX_ID FIX_DIR ".id"
 #define FIX_FILE FIX_DIR "/Font/Fcpx.szs"
-#define FIX_VERSION "fcpx-2"
-#include "../../../runtime/settings.h"
+#define FIX_VERSION "fcpx-3"
 
 static uint8_t *yaz0_decode(const uint8_t *s, size_t n, size_t *out_n) {  // NULL when it isn't a Yaz0 file
     if (n < 16 || memcmp(s, "Yaz0", 4)) return NULL;
@@ -306,9 +310,50 @@ static uint8_t *yaz0_store(const uint8_t *d, size_t n, size_t *out_n) {
     return o;
 }
 
-static const char *chain_for(int name_font) {  // the game's chain whose last font is the one wanted
-    return name_font == NAMEFONT_TRADITIONAL ? "MessageFont_TWzh.bfcpx" : name_font == NAMEFONT_KOREAN ? "MessageFont_KRko.bfcpx"
-                                                                                                        : "MessageFont_CNzh.bfcpx";
+// MessageFont.bfcpx of 3.0.3 (336 bytes, four fonts) -> the same with three fonts more at the end; NULL if it is not that file
+enum { CH_SIZE = 336, CH_COUNT = 9, CH_NAMES = 0x18, CH_INSERT = 54 * 4, CH_END_OF_LISTS = 0xf0 };
+static uint8_t *chain_with_fallbacks(const uint8_t *in, size_t n, size_t *out_n) {
+    static const struct { const char *name; uint32_t font_no; } extra[3] = {
+        {"DFHEI5A.bfttf", 3}, {"DFPT_3.bfttf", 6}, {"AsiaKDREAM4-R.bfttf", 5}};  // (the numbers the game's own chains give them)
+    // what the game's file is: its size, the four fonts, each record's name offset (to MARIOMAKERext, nintendo_ext, ninP, DFP-UDGothic)
+    // and its range-list offset, and the names themselves
+    static const uint32_t name_at[4] = {17, 27, 37, 47}, name_val[4] = {0xd8, 0xec, 0x104, 0x120};
+    static const uint32_t list_at[4] = {23, 33, 43, 53}, list_val[4] = {0xc0, 0xc8, 0xc8, 0xd8};
+    static const char *const names[4] = {"MARIOMAKERext.bfotf", "nintendo_ext_003.bfttf", "ninP_UDKakugoSmall-DB.bfotf",
+                                         "DFP-UDGothic-W6.bfttf"};
+    if (n != CH_SIZE || memcmp(in, "FCPX", 4) || u32(in + 12) != CH_SIZE || u32(in + CH_COUNT * 4) != 4) return NULL;
+    for (int i = 0; i < 4; i++) {
+        if (u32(in + name_at[i] * 4) != name_val[i] || u32(in + list_at[i] * 4) != list_val[i]) return NULL;
+        uint32_t at = CH_NAMES + name_val[i];
+        if (at + strlen(names[i]) + 1 > n || memcmp(in + at, names[i], strlen(names[i]) + 1)) return NULL;
+    }
+    // (the range lists end where the names begin, and the last font has none: its offset is that end)
+    if (CH_NAMES + list_val[3] != CH_END_OF_LISTS || u32(in + 52 * 4) != 0 || u32(in + 54 * 4 - 0) != 0x207a) return NULL;
+    const uint32_t ins = 30 * 4;  // (three records of nine words, each after a zero word)
+    size_t name_bytes = 0, name_off[3];
+    for (int i = 0; i < 3; i++) name_off[i] = name_bytes, name_bytes += (strlen(extra[i].name) + 1 + 3) & ~(size_t)3;
+    size_t total = n + ins + name_bytes;
+    uint8_t *o = calloc(total, 1);
+    memcpy(o, in, CH_INSERT);                      // (header, the four records)
+    memcpy(o + CH_INSERT + ins, in + CH_INSERT, n - CH_INSERT);  // (the range lists and the names, moved down)
+    put32(o + 12, (uint32_t)total);
+    put32(o + CH_COUNT * 4, 7);
+    for (int i = 0; i < 4; i++)                    // (every offset that points past the new records)
+        put32(o + name_at[i] * 4, name_val[i] + ins), put32(o + list_at[i] * 4, list_val[i] + ins);
+    const uint32_t list_end = CH_END_OF_LISTS + ins - CH_NAMES;      // (offset of the end of the lists: no ranges)
+    const uint32_t names_start = (uint32_t)n + ins;                   // (where the new names go: after the old ones)
+    for (int i = 0; i < 3; i++) {
+        uint8_t *r = o + CH_INSERT + (size_t)i * 40;   // a zero word, then the nine words of the record
+        put32(r, 0);
+        put32(r + 4, 0x3f800000), put32(r + 8, 0);
+        put32(r + 12, names_start + (uint32_t)name_off[i] - CH_NAMES);
+        put32(r + 16, (extra[i].font_no << 16) | 4);
+        put32(r + 20, 0x3f800000), put32(r + 24, 0), put32(r + 28, 0), put32(r + 32, 0);
+        put32(r + 36, list_end);
+        memcpy(o + names_start + name_off[i], extra[i].name, strlen(extra[i].name));
+    }
+    *out_n = total;
+    return o;
 }
 
 static bool font_fix_make(void) {
@@ -323,18 +368,17 @@ static bool font_fix_make(void) {
     Sarc a;
     bool ok = false;
     if (sarc_parse(raw, raw_n, &a)) {
-        int plain = -1, cn = -1;
         for (int i = 0; i < a.n; i++) {
-            if (!strcmp(a.m[i].name, "MessageFont.bfcpx")) plain = i;
-            if (!strcmp(a.m[i].name, chain_for(g_settings.name_font))) cn = i;
-        }
-        if (plain >= 0 && cn >= 0) {
-            a.m[plain].d = a.m[cn].d, a.m[plain].n = a.m[cn].n;
-            size_t out_n = 0, st_n = 0;
+            if (strcmp(a.m[i].name, "MessageFont.bfcpx")) continue;
+            size_t chain_n = 0, out_n = 0, st_n = 0;
+            uint8_t *chain = chain_with_fallbacks(a.m[i].d, a.m[i].n, &chain_n);
+            if (!chain) break;  // (not the file this was made for)
+            a.m[i].d = chain, a.m[i].n = (uint32_t)chain_n;
             uint8_t *out = sarc_write(a.m, a.n, &out_n);
             uint8_t *packed = out ? yaz0_store(out, out_n, &st_n) : NULL;
             if (packed) ok = write_file(FIX_FILE, packed, st_n);
-            free(out), free(packed);
+            free(out), free(packed), free(chain);
+            break;
         }
         sarc_free(&a);
     }
@@ -345,9 +389,9 @@ static bool font_fix_make(void) {
 // The folder to lay under the mods, or false (not wanted, or the game's file is not as expected: the game's own is used)
 static bool font_fix(void) {
     const char *off = getenv("RECOMP_NO_FONT_FALLBACK");
-    if ((off && atoi(off)) || !g_romfs_dir || g_settings.name_font == NAMEFONT_GAME) return false;
+    if ((off && atoi(off)) || !g_romfs_dir) return false;
     char ident[1300], saved[1300] = "";
-    snprintf(ident, sizeof ident, "%s|" FIX_VERSION "|%d", g_romfs_dir, g_settings.name_font);
+    snprintf(ident, sizeof ident, "%s|" FIX_VERSION, g_romfs_dir);
     Blob b = {0};
     if (read_file(FIX_ID, &b)) {
         size_t n = b.n < sizeof saved - 1 ? b.n : sizeof saved - 1;
@@ -358,11 +402,11 @@ static bool font_fix(void) {
     if (!strcmp(saved, ident) && !stat(FIX_FILE, &st)) return true;  // (as made before)
     plat_remove_tree(FIX_DIR);
     if (!font_fix_make()) {
-        LOG("[romfs-fixes] Font/Fcpx.szs: not as expected, the game's own is used\n");
+        LOG("[romfs-fixes] Font/Fcpx.szs: not the file this was made for, the game's own is used\n");
         return false;
     }
     write_file(FIX_ID, ident, strlen(ident));
-    LOG("[romfs-fixes] Font/Fcpx.szs: names use the game's %s font chain in every language\n", chain_for(g_settings.name_font));
+    LOG("[romfs-fixes] Font/Fcpx.szs: the name font chain goes on to Chinese and Korean fonts\n");
     return true;
 }
 

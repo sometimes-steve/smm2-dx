@@ -172,8 +172,8 @@ static bool notice_active(void) { return SDL_GetTicks() / 1000.0 < notice_until;
 
 // Settings that only take effect when the game starts again are marked "(restart)" in their label. The notice isn't
 // drawn while the menu is open, so a change to one is remembered and announced as the menu closes.
-enum { RESTART_SKIP_INTRO, RESTART_SKIP_MODE_SELECT, RESTART_LANGUAGE, RESTART_SHADER_FAST, RESTART_NAME_FONT, N_RESTART };
-static const char *const restart_names[N_RESTART] = {"Skip intro", "Skip mode select", "Language", "Prepare at full speed", "Name Fallback Font"};
+enum { RESTART_SKIP_INTRO, RESTART_SKIP_MODE_SELECT, RESTART_LANGUAGE, RESTART_SHADER_FAST, N_RESTART };
+static const char *const restart_names[N_RESTART] = {"Skip intro", "Skip mode select", "Language", "Prepare at full speed"};
 static bool restart_changed[N_RESTART];
 static bool quit_prompt_req;  // the "Quit to Desktop?" window is asked for (Quit > Quit to Desktop)
 static bool restart_prompt_req;  // the "Restart the game?" window is asked for (a restart row changed, or Quit > Restart)
@@ -725,19 +725,6 @@ static void tab_general(void) {
                    "B puts the old one back."))
         g_settings.menu_scale = size_scale[si];
 
-    {   // (issue: a name in simplified Chinese showed a "?" box; games/smm2/mods/usermods_overlay.c)
-        static const char *const nf[N_NAMEFONTS] = {"Game's Own", "Simplified Chinese", "Traditional Chinese", "Korean"};
-        if (opt_choice("Name Fallback Font (restart)", &g_settings.name_font, nf, N_NAMEFONTS, NAMEFONT_SIMPLIFIED,
-                       "Names and titles in the game are drawn with Japanese fonts, which lack many Chinese and Korean "
-                       "characters (they show as a ? box). This picks the font those characters come from, for every "
-                       "language: the game's own text is not changed, only what was a ? box. One at a time: a name "
-                       "with characters from two of these scripts shows the rest as ? still. Game's Own: no change from "
-                       "the game, which only does this when its language is Chinese or Korean. Applies when the game "
-                       "restarts.", true)) {
-            settings_save();
-            restart_changed_mark(RESTART_NAME_FONT);
-        }
-    }
     opt_section("Game");
     const bool is_smm2 = !strcmp(GAME_ID, "smm2");
     const bool intro_locked = is_smm2 && g_settings.skip_mode_select;  // (Skip mode select takes over from launch)
@@ -833,6 +820,7 @@ void menu_close(void) { set_open(false); }
 static void tab_mods(void) {
     opt_begin("##mods", igGetFontSize() / 34);
     mods_page();
+    opt_no_reset();  // (mods and their lists: nothing here to put back to defaults)
     opt_end();
 }
 
@@ -840,6 +828,7 @@ void online_page(void);  // runtime/ui/mods_page.cpp: the backend, its accounts,
 static void tab_online(void) {
     opt_flat_begin("##online", igGetFontSize() / 34);
     online_page();
+    opt_no_reset();  // (the account and the Miis switch: no page of settings to reset)
     opt_end();
 }
 
