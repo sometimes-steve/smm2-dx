@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.3 - 2026-11-09
+
+### Course ID / Maker ID search (#17)
+
+- **Esc (and B) now cancel the box** instead of searching for nothing. A cancel is reported to the game as a cancel, not as
+  empty text with success.
+- **The box follows what an ID is:** capital letters, and only the characters an ID holds (digits and B C D F G H J K L M N P Q R
+  S T V W X Y: checked against 570 IDs from OpenCourse World). The dashes show as you type, `AAA-BBB-CCC`; a typed or pasted
+  dash goes in place. The controller's on-screen keys grey out what an ID can't hold. Other prompts (names, comments) are
+  not changed.
+- **Keycap hints under the field**, as the menu's footer: Enter Confirm and Esc Cancel with the count, or the controller's
+  buttons (Type, Delete, OK) named for your Button Icons setting. The menu's other text fields get the same row.
+
+### Names in other scripts
+
+- **A maker named in simplified Chinese no longer shows a "?" box.** The game draws names with Japanese fonts, which lack
+  many Chinese and Korean characters, and it only falls back to a Chinese font when its language is Chinese. The game's name
+  font chain now ends in a Chinese font for every language (a patched copy of `Font/Fcpx.szs` is made from your own file;
+  your game files are never changed or shipped). **General > Appearance > Name Fallback Font** picks which one: Simplified
+  Chinese (default), Traditional Chinese, Korean, or the game's own. One script at a time.
+- Setup now also copies the Chinese and Korean shared fonts from your firmware when it has them. An install set up before this
+  runs the font step once more to look for them. `RECOMP_NO_FONT_FALLBACK=1` turns the name fallback off.
+
 ## 0.5.2 - 2026-11-09
 
 ### Fixes

@@ -28,8 +28,12 @@ FONT_TITLES = {
     '0100000000000810',  # NintendoExtension (button glyphs): the game stops with a crash if it has none (see pl.c)
 }
 DATA_TITLES = {'0100000000000802'}  # MiiModel: the console's Mii face parts (nn::mii renders the players' Miis)
-# Not taken from the firmware: 0811 Standard (Latin + Japanese: BIZ UDPGothic, bundled, stands in), 0812 Korean, 0813 / 0814
-# Chinese (the game falls back to the Standard font for what they would draw).
+# The shared fonts the game falls back to for characters the Standard stand-in lacks (a maker named with simplified
+# Chinese characters showed one of them as a "?" box): 0812 Korean, 0813 Chinese (Traditional), 0814 Chinese (Simplified). Taken when
+# the firmware has them; the game runs without (runtime/hle/pl.c loads each the first time the game asks for it). 0811 Standard
+# (Latin + Japanese) is not taken: BIZ UDPGothic, bundled, stands in for it.
+OPTIONAL_FONT_TITLES = {'0100000000000812', '0100000000000813', '0100000000000814'}
+CJK_MARKER = 'fonts/.cjk-checked'  # written once the firmware has been looked through for them (found or not), so setup asks once
 FONT_FILE = 'nintendo_ext_003.bfttf'   # what has to be in <data>/fonts afterwards
 
 
@@ -117,7 +121,7 @@ def main():
     if not os.path.isdir(a.firmware):
         fail('NO_FIRMWARE', 'The firmware folder was not found',
              'Choose the folder of your console\'s system NCAs, e.g. Ryujinx\'s bis/system/Contents/registered.')
-    want = FONT_TITLES | (set() if a.stub_mii else DATA_TITLES)
+    want = FONT_TITLES | OPTIONAL_FONT_TITLES | (set() if a.stub_mii else DATA_TITLES)
     found = {}
     ncas = sorted(n for n in os.listdir(a.firmware) if n.endswith('.nca'))
     if not ncas:
@@ -156,6 +160,8 @@ def main():
                     shutil.copy(os.path.join(tmp, f), os.path.join(fonts, f))
                     nf += 1
     missing = sorted(want - set(found))
+    with open(os.path.join(a.data, CJK_MARKER), 'w') as marker:
+        marker.write('the Chinese and Korean shared fonts were looked for in the firmware'+'\n')
     print(f'sysdata: {nf} font files'
           + (f' (not in this firmware: {", ".join(missing)})' if missing else ''))
     print('@progress 1', flush=True)

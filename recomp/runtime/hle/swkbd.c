@@ -7,6 +7,9 @@
 
 #include "../hle.h"
 
+// (module 2, description 1: no real code is known for the keyboard applet's cancel; any failure should read as one)
+#define SWKBD_RESULT_CANCELED MAKE_RESULT(2, 1)
+
 // name entries so far (a mod tells a Course Maker Save As, which asks for a name, from a Load, which doesn't)
 unsigned g_swkbd_entries;
 
@@ -78,5 +81,8 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
             } else o[k++] = (uint16_t)ch;
         }
     }
-    c->x[0] = 0;
+    // A cancel is reported as a failure, not as the empty / initial text with success: the game carried on with a search for
+    // nothing (issue #17). Any failure is what a player's Cancel looks like to it (the keyboard applet's own result is not
+    // known here); the text above is left alone either way.
+    c->x[0] = ok ? 0 : SWKBD_RESULT_CANCELED;
 }

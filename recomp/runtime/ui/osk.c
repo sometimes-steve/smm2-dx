@@ -13,6 +13,12 @@
 #include <string.h>
 
 #include "osk.h"
+#include "../settings.h"
+
+uint32_t menu_accent(int a);  // runtime/ui/menu.c: the theme's accent / caption colours
+uint32_t menu_muted(void);
+float menu_row_notch(void);   // > 0: the NES theme (square keycaps)
+int input_pad_family(void);   // runtime/hle/input.c: 0 Nintendo, 1 Xbox, 2 PlayStation
 
 static struct {
     int open;                        // a field's keyboard is up
@@ -92,6 +98,66 @@ bool ui_input_text(const char *label, char *buf, size_t size, ImGuiInputTextFlag
     return r;
 }
 
+// ---- keycap hints (osk.h)
+void ui_hint_names(bool pad, const char **confirm, const char **back, const char **start) {
+    int fam = g_settings.prompts ? (g_settings.prompts - 1) % 3 : input_pad_family() % 3;  // 0 Nintendo, 1 Xbox, 2 PlayStation
+    *confirm = pad ? (fam == 2 ? "Cross" : "A") : "Enter";
+    *back = pad ? (fam == 2 ? "Circle" : "B") : "Esc";
+    *start = pad ? (fam == 0 ? "+" : fam == 1 ? "Menu" : "Options") : "Enter";
+}
+
+void ui_hint_row(const char *const *keys, const char *const *what, int n, const char *right) {
+    ImVec2 p, avail;
+    igGetCursorScreenPos(&p);
+    igGetContentRegionAvail(&avail);
+    ImDrawList *dl = igGetWindowDrawList();
+    const bool square = menu_row_notch() > 0;
+    float fs = igGetFontSize(), ch = fs * 1.45f, cy = p.y + ch * 0.5f + fs * 0.15f, x = p.x + fs * 0.1f;
+    for (int i = 0; i < n; i++) {
+        ImVec2 kw, ww;
+        igCalcTextSize(&kw, keys[i], NULL, false, -1.0f);
+        igCalcTextSize(&ww, what[i], NULL, false, -1.0f);
+        float cw = kw.x + fs * 0.9f;
+        ImVec2 a = IM_VEC2(x, cy - ch * 0.5f), b = IM_VEC2(x + cw, cy + ch * 0.5f);
+        ImDrawList_AddRectFilled(dl, a, b, IM_COL32(255, 255, 255, 24), square ? 0 : ch * 0.3f, 0);
+        ImDrawList_AddRect(dl, a, b, menu_accent(200), square ? 0 : ch * 0.3f, 0, square ? 2.0f : 1.5f);
+        ImDrawList_AddText_Vec2(dl, IM_VEC2(x + fs * 0.45f, cy - kw.y * 0.5f), menu_accent(255), keys[i], NULL);
+        x += cw + fs * 0.4f;
+        ImDrawList_AddText_Vec2(dl, IM_VEC2(x, cy - ww.y * 0.5f), menu_muted(), what[i], NULL);
+        x += ww.x + fs * 1.4f;
+    }
+    if (right && right[0]) {
+        ImVec2 rw;
+        igCalcTextSize(&rw, right, NULL, false, -1.0f);
+        ImDrawList_AddText_Vec2(dl, IM_VEC2(p.x + avail.x - rw.x - fs * 0.1f, cy - rw.y * 0.5f), menu_muted(), right, NULL);
+    }
+    igDummy(IM_VEC2(1, ch + fs * 0.4f));
+}
+
+// ---- the Course ID / Maker ID rules (osk.h)
+static bool g_id_mode;
+void osk_set_id_mode(bool on) { g_id_mode = on; }
+bool osk_id_char(int c) {
+    if (c >= 'a' && c <= 'z') c -= 32;
+    return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z' && strchr("BCDFGHJKLMNPQRSTVWXY", c));
+}
+void osk_id_compact(const char *in, char out[10]) {
+    int n = 0;
+    for (; *in && n < 9; in++)
+        if (osk_id_char((unsigned char)*in)) out[n++] = (char)toupper((unsigned char)*in);
+    out[n] = 0;
+}
+void osk_id_dashed(const char *raw, char out[16]) {
+    char c[10];
+    osk_id_compact(raw, c);
+    int o = 0;
+    for (int i = 0; c[i]; i++) {
+        if (i == 3 || i == 6) out[o++] = '-';  // (only when a character follows: the last group's dash is not left hanging)
+        out[o++] = c[i];
+    }
+    out[o] = 0;
+}
+
 // the text being edited by osk_keys (what the lambdas of the C++ version captured)
 typedef struct {
     char *text;
@@ -128,7 +194,8 @@ int osk_keys(char *text, size_t cap, int max_chars, bool appearing, float scale,
     // typed on a keyboard while it's up: straight into the text
     for (int i = 0; i < io->InputQueueCharacters.Size; i++) {
         ImWchar c = io->InputQueueCharacters.Data[i];
-        if (c >= 0x20 && c < 0x7f) osk_add(&o, (char)c);
+        if (g_id_mode) { if (osk_id_char(c)) osk_add(&o, (char)toupper(c)); }  // (capital, and only what an ID can hold)
+        else if (c >= 0x20 && c < 0x7f) osk_add(&o, (char)c);
     }
     io->InputQueueCharacters.Size = 0;
     if (igIsKeyPressed_Bool(ImGuiKey_Backspace, true)) osk_del(&o);
@@ -138,7 +205,13 @@ int osk_keys(char *text, size_t cap, int max_chars, bool appearing, float scale,
     if (igIsKeyPressed_InputFlags(ImGuiKey_GamepadFaceRight, ImGuiInputFlags_Repeat, own)) osk_del(&o);
 
     igPushFont(big);
-    igText("%s_", text);
+    if (g_id_mode) {
+        char shown[16];
+        osk_id_dashed(text, shown);
+        igText("%s_", shown);
+    } else {
+        igText("%s_", text);
+    }
     igPopFont();
     static const char *rows_u[] = {"ABCDEFGHIJ", "KLMNOPQRST", "UVWXYZ-.'!", "0123456789"};
     static const char *rows_l[] = {"abcdefghij", "klmnopqrst", "uvwxyz-.'!", "0123456789"};
@@ -152,19 +225,32 @@ int osk_keys(char *text, size_t cap, int max_chars, bool appearing, float scale,
                 igSetKeyboardFocusHere(0);
                 igSetNavCursorVisible(true);
             }
+            bool off = g_id_mode && !osk_id_char((unsigned char)rows[row][i]);  // (an ID has no vowels, no Z, no punctuation)
+            igBeginDisabled(off);
             if (igButton(lbl, IM_VEC2(k, k))) osk_add(&o, rows[row][i]);
+            igEndDisabled();
         }
     }
+    if (g_id_mode) upper = true;  // (capitals only)
+    igBeginDisabled(g_id_mode);
     if (igButton(upper ? "abc" : "ABC", IM_VEC2(k * 2, k))) upper = !upper;
     igSameLine(0, -1);
     if (igButton("Space", IM_VEC2(k * 3, k)) && o.len > 0) osk_add(&o, ' ');
+    igEndDisabled();
     igSameLine(0, -1);
     if (igButton("Delete", IM_VEC2(k * 2, k))) osk_del(&o);
     igSameLine(0, -1);
     if (igButton("Cancel", IM_VEC2(k * 2, k))) r = -1;
     igSameLine(0, -1);
     if (igButton("OK", IM_VEC2(k * 2, k))) r = 1;
-    igTextDisabled("A  type      B  delete      Start / +  OK      (%d / %d)", osk_chars(&o), max_chars);
+    {
+        const char *ok, *back, *start;
+        ui_hint_names(true, &ok, &back, &start);
+        const char *keys[] = {ok, back, start}, *what[] = {"Type", "Delete", "OK"};
+        char count[32];
+        snprintf(count, sizeof count, "%d / %d", osk_chars(&o), max_chars);
+        ui_hint_row(keys, what, 3, count);
+    }
     return r;
 }
 

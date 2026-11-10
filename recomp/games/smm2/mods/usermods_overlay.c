@@ -237,6 +237,135 @@ static bool merge_user_archives(void) {
     return !stat(UM_DIR, &st);
 }
 
+// ---------------------------------------------------------------- the name font's fallback
+// A maker named in simplified Chinese showed one of its characters as a "?" box. The game draws names and titles with the
+// font chain MessageFont (Font/Fcpx.szs): its own two Japanese gothics, with nothing for simplified-only characters; only its
+// Chinese variant, MessageFont_CNzh, goes on to the simplified Chinese font (DFHEI5A). The Chinese chain is the same fonts
+// first and that font last, so using it for every language changes no character that shows today and adds the ones that
+// were "?". Made from the player's own Fcpx.szs into mods-generated/romfs-fixes (laid under the mods in the overlay, so a mod
+// that has its own Fcpx.szs still wins), never edited in place (the extracted files can be hard links to the dump) and never
+// shipped. RECOMP_NO_FONT_FALLBACK=1 leaves the game's own.
+// The game has such a chain for each of its Asian languages, and each adds one more font (simplified Chinese DFHEI5A,
+// traditional Chinese DFPT_3, Korean AsiaKDREAM4-R). A chain with all of them is not made: the file is a linked binary
+// format that is not understood well enough to add to, and a wrong edit would break every line of text. So the setting
+// "Name Fallback Font" (General > Appearance) picks which of the game's own chains every language uses.
+#define FIX_DIR "mods-generated/romfs-fixes"
+#define FIX_ID FIX_DIR ".id"
+#define FIX_FILE FIX_DIR "/Font/Fcpx.szs"
+#define FIX_VERSION "fcpx-2"
+#include "../../../runtime/settings.h"
+
+static uint8_t *yaz0_decode(const uint8_t *s, size_t n, size_t *out_n) {  // NULL when it isn't a Yaz0 file
+    if (n < 16 || memcmp(s, "Yaz0", 4)) return NULL;
+    size_t size = (size_t)s[4] << 24 | (size_t)s[5] << 16 | (size_t)s[6] << 8 | s[7];
+    if (size > (64u << 20)) return NULL;
+    uint8_t *o = malloc(size ? size : 1);
+    size_t i = 16, k = 0;
+    while (k < size && i < n) {
+        uint8_t code = s[i++];
+        for (int b = 0; b < 8 && k < size; b++) {
+            if (code & (0x80 >> b)) {
+                if (i >= n) goto bad;
+                o[k++] = s[i++];
+            } else {
+                if (i + 1 >= n) goto bad;
+                uint8_t b1 = s[i], b2 = s[i + 1];
+                i += 2;
+                size_t dist = ((size_t)(b1 & 0xF) << 8 | b2) + 1, len = b1 >> 4;
+                if (len == 0) {
+                    if (i >= n) goto bad;
+                    len = (size_t)s[i++] + 0x12;
+                } else len += 2;
+                if (dist > k) goto bad;
+                for (size_t c = 0; c < len && k < size; c++, k++) o[k] = o[k - dist];
+            }
+        }
+    }
+    if (k != size) goto bad;
+    *out_n = size;
+    return o;
+bad:
+    free(o);
+    return NULL;
+}
+
+// Yaz0 without compression: every group is eight literal bytes (the game's decoder reads it as any other)
+static uint8_t *yaz0_store(const uint8_t *d, size_t n, size_t *out_n) {
+    size_t groups = (n + 7) / 8, total = 16 + n + groups;
+    uint8_t *o = calloc(total, 1);
+    memcpy(o, "Yaz0", 4);
+    o[4] = (uint8_t)(n >> 24), o[5] = (uint8_t)(n >> 16), o[6] = (uint8_t)(n >> 8), o[7] = (uint8_t)n;
+    size_t w = 16;
+    for (size_t i = 0; i < n; i += 8) {
+        o[w++] = 0xFF;
+        size_t c = n - i < 8 ? n - i : 8;
+        memcpy(o + w, d + i, c);
+        w += c;
+    }
+    *out_n = w;
+    return o;
+}
+
+static const char *chain_for(int name_font) {  // the game's chain whose last font is the one wanted
+    return name_font == NAMEFONT_TRADITIONAL ? "MessageFont_TWzh.bfcpx" : name_font == NAMEFONT_KOREAN ? "MessageFont_KRko.bfcpx"
+                                                                                                        : "MessageFont_CNzh.bfcpx";
+}
+
+static bool font_fix_make(void) {
+    char base[1200];
+    snprintf(base, sizeof base, "%s/Font/Fcpx.szs", g_romfs_dir);
+    Blob src = {0};
+    if (!read_file(base, &src)) { free(src.d); return false; }
+    size_t raw_n = 0;
+    uint8_t *raw = yaz0_decode(src.d, src.n, &raw_n);
+    free(src.d);
+    if (!raw) return false;
+    Sarc a;
+    bool ok = false;
+    if (sarc_parse(raw, raw_n, &a)) {
+        int plain = -1, cn = -1;
+        for (int i = 0; i < a.n; i++) {
+            if (!strcmp(a.m[i].name, "MessageFont.bfcpx")) plain = i;
+            if (!strcmp(a.m[i].name, chain_for(g_settings.name_font))) cn = i;
+        }
+        if (plain >= 0 && cn >= 0) {
+            a.m[plain].d = a.m[cn].d, a.m[plain].n = a.m[cn].n;
+            size_t out_n = 0, st_n = 0;
+            uint8_t *out = sarc_write(a.m, a.n, &out_n);
+            uint8_t *packed = out ? yaz0_store(out, out_n, &st_n) : NULL;
+            if (packed) ok = write_file(FIX_FILE, packed, st_n);
+            free(out), free(packed);
+        }
+        sarc_free(&a);
+    }
+    free(raw);
+    return ok;
+}
+
+// The folder to lay under the mods, or false (not wanted, or the game's file is not as expected: the game's own is used)
+static bool font_fix(void) {
+    const char *off = getenv("RECOMP_NO_FONT_FALLBACK");
+    if ((off && atoi(off)) || !g_romfs_dir || g_settings.name_font == NAMEFONT_GAME) return false;
+    char ident[1300], saved[1300] = "";
+    snprintf(ident, sizeof ident, "%s|" FIX_VERSION "|%d", g_romfs_dir, g_settings.name_font);
+    Blob b = {0};
+    if (read_file(FIX_ID, &b)) {
+        size_t n = b.n < sizeof saved - 1 ? b.n : sizeof saved - 1;
+        memcpy(saved, b.d, n), saved[n] = 0;
+        free(b.d);
+    }
+    struct stat st;
+    if (!strcmp(saved, ident) && !stat(FIX_FILE, &st)) return true;  // (as made before)
+    plat_remove_tree(FIX_DIR);
+    if (!font_fix_make()) {
+        LOG("[romfs-fixes] Font/Fcpx.szs: not as expected, the game's own is used\n");
+        return false;
+    }
+    write_file(FIX_ID, ident, strlen(ident));
+    LOG("[romfs-fixes] Font/Fcpx.szs: names use the game's %s font chain in every language\n", chain_for(g_settings.name_font));
+    return true;
+}
+
 // ---------------------------------------------------------------- the overlay
 static char g_overlay[8192];
 static bool g_built;
@@ -246,8 +375,11 @@ RT_ON_RESET(usermods_overlay_reset) { g_built = false; }
 
 const char *game_romfs_overlay(void) {
     if (!g_built) {
-        size_t l = usermods_overlay(g_overlay, sizeof g_overlay);
-        if (l && merge_user_archives() && l + sizeof UM_DIR + 2 < sizeof g_overlay)
+        size_t l = 0;
+        if (font_fix()) l += (size_t)snprintf(g_overlay, sizeof g_overlay, FIX_DIR "\n");  // (first: the mods win over it)
+        size_t lm = usermods_overlay(g_overlay + l, sizeof g_overlay - l);
+        l += lm;
+        if (lm && merge_user_archives() && l + sizeof UM_DIR + 2 < sizeof g_overlay)
             l += (size_t)snprintf(g_overlay + l, sizeof g_overlay - l, UM_DIR "\n");  // (last: it wins)
         g_built = true;
     }

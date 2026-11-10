@@ -215,6 +215,7 @@ static bool game_files_ok(const char *root) {
 static bool fonts_ok(void) { return file_exists(FONT_STD); }  // (relative: the data root is the working directory)
 
 static bool ocw_config_ready(void);  // (below: a usable OpenCourse World config is chosen or in the data folder)
+static bool fonts_cjk_pending(void);  // (below)
 
 bool launcher_needed(const char *root, bool asked) {
     if (getenv("RECOMP_NO_LAUNCHER") && atoi(getenv("RECOMP_NO_LAUNCHER"))) return false;
@@ -222,7 +223,7 @@ bool launcher_needed(const char *root, bool asked) {
     if (asked || getenv("RECOMP_LAUNCHER_AUTO")) return true;
     // (a source checkout started in its data folder: its own fonts or none, as before)
     return !game_files_ok(root) || !gamelib_present(root) || (!fonts_ok() && !rt_dev_mode()) ||
-           (!ocw_config_ready() && !rt_dev_mode());
+           (fonts_cjk_pending() && !rt_dev_mode()) || (!ocw_config_ready() && !rt_dev_mode());
 }
 
 // ------------------------------------------------------------------ launcher.ini (paths only, never key contents)
@@ -543,6 +544,16 @@ static bool ocw_config_ready(void) {
     return ocw_ok("ocw-config.json");
 }
 
+// The Chinese and Korean shared fonts (games/smm2/sysdata.py takes them from the firmware when it has them: a maker named in
+// simplified Chinese showed a "?" box for the characters the Standard stand-in lacks). An install set up before they were taken
+// has none and has never looked, so the font step runs once more; sysdata.py leaves a marker once it has looked through the
+// firmware (found or not), so this is asked once. Only with a firmware folder and keys still there to look in.
+static bool fonts_cjk_pending(void) {
+    config_load();
+    return g_cfg.firmware[0] && g_cfg.keys[0] && dir_exists(g_cfg.firmware) && file_exists(g_cfg.keys) &&
+           !file_exists("fonts/.cjk-checked");
+}
+
 // The checks of what's chosen, at most every 2 s per path (the screen draws 60 times a second; files can appear).
 // out: a copy the caller frees with check_free
 typedef struct {
@@ -812,7 +823,7 @@ static void *job_thread(void *arg) {
     g_nlog = 0;
     g_job_t0 = (unsigned)SDL_GetTicks();
     pthread_mutex_unlock(&g_lock);
-    bool need_files = !game_files_ok(root), need_fonts = !fonts_ok();
+    bool need_files = !game_files_ok(root), need_fonts = !fonts_ok() || fonts_cjk_pending();
     // chosen files other than those the game was set up from: set it up again
     if (!need_files) {
         char sp[PATHLEN];

@@ -151,6 +151,7 @@ static _Atomic int g_kbd;  // 1 open, 2 confirmed, 3 cancelled
 static _Atomic bool g_last_pad;
 static char g_kbd_text[400];  // (a comment: 75 characters of up to 4 bytes)
 static char g_kbd_title[200];  // the game's header or guide text, if it gives one
+static bool g_kbd_id;  // this prompt asks for a Course ID or a Maker ID (nine characters: runtime/ui/osk.h's rules)
 static int g_kbd_max = 8;
 static bool capturing(void) { return atomic_load(&g_open) || atomic_load(&g_kbd) == 1; }
 // The on-screen controller's menu button (runtime/ui/touchpad.cpp)
@@ -171,8 +172,8 @@ static bool notice_active(void) { return SDL_GetTicks() / 1000.0 < notice_until;
 
 // Settings that only take effect when the game starts again are marked "(restart)" in their label. The notice isn't
 // drawn while the menu is open, so a change to one is remembered and announced as the menu closes.
-enum { RESTART_SKIP_INTRO, RESTART_SKIP_MODE_SELECT, RESTART_LANGUAGE, RESTART_SHADER_FAST, N_RESTART };
-static const char *const restart_names[N_RESTART] = {"Skip intro", "Skip mode select", "Language", "Prepare at full speed"};
+enum { RESTART_SKIP_INTRO, RESTART_SKIP_MODE_SELECT, RESTART_LANGUAGE, RESTART_SHADER_FAST, RESTART_NAME_FONT, N_RESTART };
+static const char *const restart_names[N_RESTART] = {"Skip intro", "Skip mode select", "Language", "Prepare at full speed", "Name Fallback Font"};
 static bool restart_changed[N_RESTART];
 static bool quit_prompt_req;  // the "Quit to Desktop?" window is asked for (Quit > Quit to Desktop)
 static bool restart_prompt_req;  // the "Restart the game?" window is asked for (a restart row changed, or Quit > Restart)
@@ -724,6 +725,19 @@ static void tab_general(void) {
                    "B puts the old one back."))
         g_settings.menu_scale = size_scale[si];
 
+    {   // (issue: a name in simplified Chinese showed a "?" box; games/smm2/mods/usermods_overlay.c)
+        static const char *const nf[N_NAMEFONTS] = {"Game's Own", "Simplified Chinese", "Traditional Chinese", "Korean"};
+        if (opt_choice("Name Fallback Font (restart)", &g_settings.name_font, nf, N_NAMEFONTS, NAMEFONT_SIMPLIFIED,
+                       "Names and titles in the game are drawn with Japanese fonts, which lack many Chinese and Korean "
+                       "characters (they show as a ? box). This picks the font those characters come from, for every "
+                       "language: the game's own text is not changed, only what was a ? box. One at a time: a name "
+                       "with characters from two of these scripts shows the rest as ? still. Game's Own: no change from "
+                       "the game, which only does this when its language is Chinese or Korean. Applies when the game "
+                       "restarts.", true)) {
+            settings_save();
+            restart_changed_mark(RESTART_NAME_FONT);
+        }
+    }
     opt_section("Game");
     const bool is_smm2 = !strcmp(GAME_ID, "smm2");
     const bool intro_locked = is_smm2 && g_settings.skip_mode_select;  // (Skip mode select takes over from launch)
@@ -943,6 +957,37 @@ RT_ON_RESET(menu_reset) {
 // (the name field's character filter: no control characters)
 static int kbd_char_filter(ImGuiInputTextCallbackData *d) { return d->EventChar < 0x20 ? 1 : 0; }
 
+// The Course ID / Maker ID box (issue #17): capital letters, only what an ID holds, the dashes put in for you. A typed or
+// pasted dash is dropped (the box has put it there already, so it lands in place). Edits rebuild the text from its ID
+// characters, which also trims a paste to nine.
+static int kbd_id_callback(ImGuiInputTextCallbackData *d) {
+    if (d->EventFlag == ImGuiInputTextFlags_CallbackCharFilter) {
+        int c = (int)d->EventChar;
+        if (c >= 'a' && c <= 'z') d->EventChar = (ImWchar)(c - 32);
+        return osk_id_char(c) ? 0 : 1;
+    }
+    if (d->EventFlag == ImGuiInputTextFlags_CallbackEdit) {
+        char dashed[16];
+        osk_id_dashed(d->Buf, dashed);
+        if (strcmp(dashed, d->Buf)) {
+            ImGuiInputTextCallbackData_DeleteChars(d, 0, d->BufTextLen);
+            ImGuiInputTextCallbackData_InsertChars(d, 0, dashed, NULL);
+        }
+        d->CursorPos = d->SelectionStart = d->SelectionEnd = d->BufTextLen;
+    }
+    return 0;
+}
+
+// The keyboard box's hints under the field: keycaps as the menu's footer (Enter / Esc, or the controller's names) and the count
+static void kbd_hints(int chars) {
+    const char *ok, *back, *start;
+    ui_hint_names(false, &ok, &back, &start);
+    const char *keys[] = {ok, back}, *what[] = {"Confirm", "Cancel"};
+    char count[32];
+    snprintf(count, sizeof count, "%d / %d", chars, g_kbd_max);
+    ui_hint_row(keys, what, 2, count);
+}
+
 static void keyboard_draw(ImGuiIO *io, float scale) {
     ImDrawList_AddRectFilled(igGetBackgroundDrawList_Nil(), IM_VEC2(0, 0), io->DisplaySize, IM_COL32(0, 0, 0, 120), 0, 0);
     float w = fminf(io->DisplaySize.x * 0.9f, 1100 * scale);
@@ -959,7 +1004,18 @@ static void keyboard_draw(ImGuiIO *io, float scale) {
     static bool was_open, was_pad;
     bool pad = atomic_load(&g_last_pad), appearing = !was_open || pad != was_pad;  // (switching device: focus the new one)
     was_open = true, was_pad = pad;
-    if (!pad) {  // keyboard: type straight into the field
+    if (!pad && g_kbd_id) {  // an ID: capitals, its characters only, dashes shown (the text itself is the plain nine)
+        static char view[16];
+        if (appearing) osk_id_dashed(g_kbd_text, view);
+        if (appearing) igSetKeyboardFocusHere(0);
+        igSetNextItemWidth(-1);
+        igPushFont(g_font_big);
+        igInputText("##name", view, sizeof view, ImGuiInputTextFlags_CallbackCharFilter | ImGuiInputTextFlags_CallbackEdit,
+                    kbd_id_callback, NULL);
+        igPopFont();
+        osk_id_compact(view, g_kbd_text);
+        kbd_hints((int)strlen(g_kbd_text));
+    } else if (!pad) {  // keyboard: type straight into the field
         if (appearing) igSetKeyboardFocusHere(0);
         igSetNextItemWidth(-1);
         igPushFont(g_font_big);
@@ -972,9 +1028,11 @@ static void keyboard_draw(ImGuiIO *io, float scale) {
             if (((unsigned char)*p & 0xc0) == 0x80) continue;
             if (chars++ == g_kbd_max) { *p = 0; chars--; break; }
         }
-        igTextDisabled("Enter  confirm      Esc  cancel      (%d / %d)", chars, g_kbd_max);
+        kbd_hints(chars);
     } else {  // controller: on-screen keyboard (osk.mm, shared with our menus' text fields)
+        osk_set_id_mode(g_kbd_id);  // (an ID: the keys an ID can't hold are greyed out)
         int r = osk_keys(g_kbd_text, sizeof g_kbd_text, g_kbd_max, appearing, scale, g_font_big, true);
+        osk_set_id_mode(false);
         if (r) g_kbd = r > 0 ? 2 : 3;  // (Start / + confirms in menu_handle_event too)
     }
     igEnd();
@@ -997,6 +1055,8 @@ int menu_keyboard_run(const char *initial, int max_len, char *out, int cap) {
     extern void nvn_represent(void);  // runtime/nvn/objects.c
     snprintf(g_kbd_text, sizeof g_kbd_text, "%s", initial ? initial : "");
     g_kbd_max = max_len > 0 && max_len < (int)sizeof g_kbd_text / 4 ? max_len : 8;
+    g_kbd_id = g_kbd_max == 9;  // (the Course ID / Maker ID search: the one prompt of nine characters)
+    if (g_kbd_id) { char c[10]; osk_id_compact(g_kbd_text, c); snprintf(g_kbd_text, sizeof g_kbd_text, "%s", c); }
     input_reset();
     g_kbd = 1;
     // (test) LARECOMP_KBD_AUTO=<text>: answer at once
