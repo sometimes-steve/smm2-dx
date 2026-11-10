@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -44,7 +45,30 @@ void opt_indent(int step) { g_indent = g_indent + step < 0 ? 0 : g_indent + step
 static int g_page_rows, g_page_changed;
 static bool g_reset_row;     // this frame: the row just drawn was asked to reset
 static bool g_reset_page;    // this frame: every row with a default goes back to it
+static bool g_no_reset;     // this page has no "Reset Page to Defaults" row (opt_no_reset)
+void opt_no_reset(void) { g_no_reset = true; }
 static bool g_reset_ask;     // the reset button was clicked: its question is asked (opt_confirm_window)
+
+// What the menu remembers across closes (issue #11): per page its scroll position and the row the controller's cursor was
+// on. opt_remember_arm (the menu opening) marks every page as waiting; a page's first frame after that puts them back.
+typedef struct { ImGuiID page, row; float scroll; bool vis, pending; } PageMem;
+static PageMem g_mem[32];
+static PageMem *g_cur_mem;
+static _Atomic bool g_arm;       // (set when the menu opens; the render thread acts on it)
+static ImGuiID g_restore_row;    // the row to hand the cursor to this frame
+static bool g_cursor_restored;
+void opt_remember_arm(void) { atomic_store(&g_arm, true); }
+bool opt_cursor_restored(void) { bool r = g_cursor_restored; g_cursor_restored = false; return r; }
+static PageMem *mem_for(ImGuiID page) {
+    int free_slot = -1;
+    for (int i = 0; i < 32; i++) {
+        if (g_mem[i].page == page) return &g_mem[i];
+        if (!g_mem[i].page && free_slot < 0) free_slot = i;
+    }
+    if (free_slot < 0) return NULL;
+    g_mem[free_slot] = (PageMem){page, 0, 0, false, false};
+    return &g_mem[free_slot];
+}
 
 static void set_desc(char *dst, const char *src) { snprintf(dst, DESC_CAP, "%s", src); }
 
@@ -147,8 +171,17 @@ static void begin_page(const char *id, float scale, bool flat) {
         g_labw_use = k < 24 ? g_flat_cache[k].labw : 0, g_valw_use = k < 24 ? g_flat_cache[k].valw : 0;
         g_labw_cur = g_valw_cur = 0;
     }
+    if (atomic_exchange(&g_arm, false))
+        for (int i = 0; i < 32; i++) g_mem[i].pending = g_mem[i].page != 0;
+    g_cur_mem = mem_for(igGetID_Str(id));
+    g_restore_row = 0;
     igPushID_Str(id);
     igBeginChild_Str("##rows", IM_VEC2(flat ? avail.x : avail.x * 0.48f, avail.y), ImGuiChildFlags_NavFlattened, 0);  // (was the obsolete ImGuiWindowFlags_NavFlattened)
+    if (g_cur_mem && g_cur_mem->pending) {  // the menu was closed and opened again: scroll and cursor as they were
+        g_cur_mem->pending = false;
+        igSetScrollY_Float(g_cur_mem->scroll);
+        if (g_cur_mem->vis) g_restore_row = g_cur_mem->row;
+    }
     igPushStyleVar_Vec2(ImGuiStyleVar_ItemSpacing, IM_VEC2(igGetStyle()->ItemSpacing.x, (g_touch ? 8 : 4) * scale));  // (rows close)
     g_desc_first[0] = 0;
 }
@@ -202,6 +235,12 @@ static int row(const char *label, const char *value, bool changed, const char *d
     igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));  // (the row's own border shows the selection)
     bool clicked = igInvisibleButton("##row", IM_VEC2(w, h), ImGuiButtonFlags_EnableNav);
     igPopStyleColor(1);
+    if (g_restore_row && igGetItemID() == g_restore_row) {  // (the menu opened again: the row the cursor was on)
+        g_restore_row = 0, g_cursor_restored = true;
+        igSetFocusID(igGetItemID(), igGetCurrentWindow());
+        igSetNavCursorVisible(true);
+    }
+    if (g_cur_mem && igIsItemFocused()) g_cur_mem->row = igGetItemID(), g_cur_mem->vis = igGetCurrentContext()->NavCursorVisible;
     if (g_take_first) {  // (opt_focus_first)
         g_take_first = false;
         igSetFocusID(igGetItemID(), igGetCurrentWindow());
@@ -313,6 +352,105 @@ static int row(const char *label, const char *value, bool changed, const char *d
     igPopID();
     if (g_reset_row) step = 0;  // (the wrappers reset it instead of stepping)
     return step;
+}
+
+// A section that folds (issue #11: long tabs, at the Compact size especially): the heading is a row of its own, A / click
+// opens or closes it. Returns whether the rows below it are shown (a folded section's rows are not drawn, so Reset Page to
+// Defaults leaves them alone). Open by default; remembered until the app closes.
+static struct { ImGuiID id; bool closed; } g_fold[48];
+bool opt_section_fold(const char *title) {
+    char t[TXT_CAP];
+    snprintf(t, sizeof t, "%s", title);
+    title_case(t);
+    ImGuiID key = igGetID_Str(title);
+    int k = 0;
+    for (; k < 48 && g_fold[k].id && g_fold[k].id != key; k++) {}
+    if (k == 48) k = 47;
+    g_fold[k].id = key;
+    if (igGetCursorPosY() > igGetStyle()->WindowPadding.y + 1) igDummy(IM_VEC2(0, 10 * g_scale));
+    ImVec2 p, avail;
+    igGetCursorScreenPos(&p);
+    igGetContentRegionAvail(&avail);
+    float fs = igGetFontSize(), w = g_flat ? flat_layout(avail.x, NULL) : avail.x, h = fs * (g_touch ? 2.0f : 1.5f);
+    igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));
+    igPushID_Str(title);
+    bool clicked = igInvisibleButton("##fold", IM_VEC2(w, h), ImGuiButtonFlags_EnableNav);
+    igPopID();
+    igPopStyleColor(1);
+    if (g_cur_mem && igIsItemFocused()) g_cur_mem->row = igGetItemID(), g_cur_mem->vis = igGetCurrentContext()->NavCursorVisible;
+    if (g_restore_row && igGetItemID() == g_restore_row) {
+        g_restore_row = 0, g_cursor_restored = true;
+        igSetFocusID(igGetItemID(), igGetCurrentWindow());
+        igSetNavCursorVisible(true);
+    }
+    if (clicked) g_fold[k].closed = !g_fold[k].closed;
+    bool hot = igIsItemHovered(0) || (igIsItemFocused() && igGetCurrentContext()->NavCursorVisible);
+    ImDrawList *dl = igGetWindowDrawList();
+    if (hot) {
+        ImDrawList_AddRectFilled(dl, p, IM_VEC2(p.x + w, p.y + h), IM_COL32(255, 255, 255, 22), 0, 0);
+        ImDrawList_AddRect(dl, p, IM_VEC2(p.x + w, p.y + h), kGold, 0, 0, 2.0f);
+    }
+    float a = fs * 0.32f, cx = p.x + fs * 0.7f, cy = p.y + h * 0.5f;
+    ImU32 col = hot ? kGold : menu_muted();
+    if (g_fold[k].closed) ImDrawList_AddTriangleFilled(dl, IM_VEC2(cx - a * 0.6f, cy - a), IM_VEC2(cx - a * 0.6f, cy + a), IM_VEC2(cx + a, cy), col);
+    else ImDrawList_AddTriangleFilled(dl, IM_VEC2(cx - a, cy - a * 0.6f), IM_VEC2(cx + a, cy - a * 0.6f), IM_VEC2(cx, cy + a), col);
+    ImDrawList_AddText_Vec2(dl, IM_VEC2(p.x + fs * 1.5f, p.y + (h - fs) * 0.5f), col, t, NULL);
+    ImDrawList_AddLine(dl, IM_VEC2(p.x, p.y + h), IM_VEC2(p.x + w, p.y + h), menu_accent(70), 1.0f);
+    igDummy(IM_VEC2(0, 4 * g_scale));
+    return !g_fold[k].closed;
+}
+
+// A choice whose list opens on A / click and shows each entry live while it is highlighted (mouse moved over it, or the
+// cursor on it); A / click keeps it, B / Esc / a click elsewhere puts the old value back. Left / right still step it
+// at once, as opt_choice. Returns true whenever *v changed this frame (the preview and the revert too).
+static ImGuiID g_live_id;
+static int g_live_orig;
+static bool g_live_kept;
+bool opt_choice_live(const char *label, int *v, const char *const *names, int n, int def, const char *desc) {
+    int cur = *v >= 0 && *v < n ? *v : 0;
+    ImGuiID id = igGetID_Str(label);
+    bool open = g_live_id == id;
+    int before = *v;
+    g_row_has_def = true;
+    int step = row(label, names[cur], (open ? g_live_orig : cur) != def, desc, true, true);
+    ImVec2 a, b;  // (the row)
+    igGetItemRectMin(&a);
+    igGetItemRectMax(&b);
+    if ((g_reset_row || g_reset_page) && cur != def) return *v = def, true;
+    if (step == 2 && !open) {
+        igPushID_Str(label);
+        igOpenPopup_Str("##live", 0);
+        igPopID();
+        g_live_id = id, g_live_orig = cur, g_live_kept = false, open = true;
+    } else if (step && !open) {
+        int nv = (cur + step + n) % n;
+        *v = nv;
+        return nv != before;
+    }
+    if (open) {
+        ImGuiIO *io = igGetIO();
+        bool below = a.y < io->DisplaySize.y * 0.5f;
+        igSetNextWindowPos(below ? IM_VEC2(a.x, b.y) : IM_VEC2(a.x, a.y), ImGuiCond_Always, IM_VEC2(0, below ? 0 : 1));
+        igPushID_Str(label);
+        if (igBeginPopup("##live", ImGuiWindowFlags_NoMove)) {
+            bool moved = io->MouseDelta.x != 0 || io->MouseDelta.y != 0;
+            int hot = -1;
+            for (int i = 0; i < n; i++) {
+                if (igSelectable_Bool(names[i], i == g_live_orig, 0, IM_VEC2(0, 0))) *v = i, g_live_kept = true;
+                if (i == g_live_orig) igSetItemDefaultFocus();
+                if ((igIsItemFocused() && igGetCurrentContext()->NavCursorVisible) || (moved && igIsItemHovered(0))) hot = i;
+            }
+            if (!g_live_kept && hot >= 0) *v = hot;
+            if (igIsKeyPressed_Bool(ImGuiKey_GamepadFaceRight, false) || igIsKeyPressed_Bool(ImGuiKey_Escape, false))
+                igCloseCurrentPopup();
+            igEndPopup();
+        } else {  // closed (kept, cancelled, clicked away)
+            if (!g_live_kept) *v = g_live_orig;
+            g_live_id = 0;
+        }
+        igPopID();
+    }
+    return *v != before;
 }
 
 bool opt_toggle(const char *label, bool *v, bool def, const char *desc) {
@@ -471,7 +609,7 @@ int opt_confirm_window(const char *id, bool *asked, const char *msg, bool in_gam
 
 void opt_end(void) {
     g_reset_page = false;  // (this frame's rows have gone back to their defaults)
-    if (g_page_rows > 0) {  // the page's last row: everything back to default, asked once
+    if (g_page_rows > 0 && !g_no_reset) {  // the page's last row: everything back to default, asked once
         igDummy(IM_VEC2(0, 10 * g_scale));
         if (!g_page_changed) g_next_disabled = true, g_reset_ask = false;
         if (opt_button("Reset Page to Defaults",
@@ -484,6 +622,9 @@ void opt_end(void) {
             g_reset_page = true;  // (the rows apply it on the next frame)
     }
     igPopStyleVar(1);
+    g_no_reset = false;
+    if (g_cur_mem) g_cur_mem->scroll = igGetScrollY();
+    g_restore_row = 0;
     const char *scroll = getenv("LARECOMP_OPT_SCROLL");
     if (scroll) igSetScrollY_Float(igGetScrollMaxY() * (float)atof(scroll));  // (test)
     igEndChild();

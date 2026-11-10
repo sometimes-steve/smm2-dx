@@ -551,6 +551,7 @@ static void host_test_frame(uint64_t frame) {
     }
 }
 
+uint64_t g_ms_test_seen;  // (Skip mode select's diagnostics: games/smm2/mods/skip_intro.c)
 static uint64_t g_pad_obj;
 volatile int g_inject_plus;  // frames to hold Plus for the game (movie.c: A/B skip the opening on rando seeds)
 RT_ON_RESET(input_reboot_reset) { g_pad_obj = 0; g_inject_plus = 0; }  // (reboot: the controller object was guest memory)
@@ -742,6 +743,11 @@ static void fill_state(Cpu *c, uint8_t *s, uint32_t id, bool single) {
     int32_t touch_lx = 0, touch_ly = 0;
     if (!menu) touchpad_state(&touch_b, &touch_lx, &touch_ly);
     uint64_t b = menu ? script_buttons : ((key_buttons | pad_buttons | touch_b) & game_input_mask()) | script_buttons;
+    {   // (a mod's injected presses taken by the game's poll: Skip mode select's diagnostics count them)
+        extern uint64_t g_test_buttons, g_test_buttons_until, renderer_present_count(void);
+        extern uint64_t g_ms_test_seen;
+        if (renderer_present_count() < g_test_buttons_until && g_test_buttons && (script_buttons & g_test_buttons)) g_ms_test_seen++;
+    }
     {   // injected Plus: held for ~10 presented frames (the game polls several times per frame)
         extern uint64_t renderer_present_count(void);
         static uint64_t until;

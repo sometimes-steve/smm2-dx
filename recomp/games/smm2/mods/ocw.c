@@ -32,6 +32,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "../../../runtime/game_rows.h"
 #include "../../../runtime/net/json.h"
@@ -40,6 +41,7 @@
 #include "../../../runtime/kernel.h"
 #include "../../../runtime/services/mii_charinfo_file.h"
 #include "mod.h"
+#include "../../../runtime/settings.h"
 #include "ocw.h"
 
 // The game's own host string (v3.0.3). The console mod writes the same 29 bytes at main+0x22cc307.
@@ -56,6 +58,8 @@ static struct {
     char ip[64];
 } g_ocw;
 
+static char g_live_domain[OCW_DOMAIN_MAX + 1], g_live_token[OCW_TOKEN_LEN + 1], g_live_ip[64];  // what the game started with
+
 static const char *config_path(void) {
     const char *e = getenv("RECOMP_OCW_CONFIG");
     return e && *e ? e : "ocw-config.json";
@@ -63,8 +67,7 @@ static const char *config_path(void) {
 
 // Read and check ocw-config.json. False (logged, with what to do about it) leaves everything inert: unlike the
 // console mod, which aborts the game when its config is missing, a bad config here must not stop the game.
-static bool config_load(void) {
-    const char *path = config_path();
+static bool config_load_from(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) {
         LOG("[ocw] no %s in the data folder: Course World stays off\n", path);
@@ -111,6 +114,8 @@ static bool config_load(void) {
     return ok;
 }
 
+static bool config_load(void) { return config_load_from(config_path()); }
+
 // The modules are loaded and nothing of the game has run yet (runtime/mods.c mods_boot): write the domain into the
 // game's own host string, and tell the network stack which one host it may reach.
 void game_modules_loaded(void) {
@@ -132,14 +137,17 @@ void game_modules_loaded(void) {
     net_log_secret(g_ocw.token);  // (never in a log: a log file is what a player attaches to a bug report)
     net_ocw_set_target(g_ocw.domain, g_ocw.ip[0] ? g_ocw.ip : NULL);
     g_ocw.active = true;
+    snprintf(g_live_domain, sizeof g_live_domain, "%s", g_ocw.domain);
+    snprintf(g_live_token, sizeof g_live_token, "%s", g_ocw.token);
+    snprintf(g_live_ip, sizeof g_live_ip, "%s", g_ocw.ip);
     LOG("[ocw] on: the game's own online client against %s\n", g_ocw.domain);
 }
 
 bool ocw_active(void) { return g_ocw.active; }
 
 // ---- Play History (My Info and a maker's page): the game's own GetUsers record comes from OCW's NEX side with no play
-// statistics, so they are filled in from OCW's REST API, which lists every course a maker played with their own
-// tries, deaths and clears:  GET https://<domain>/api/makers/<maker id>/played?offset=0&size=10000  (public: no token
+// statistics, so they are filled in from OCW's REST API, which holds each maker's totals:
+//   GET https://<domain>/api/makers/<maker id>  ->  { "stats": { plays, clears, tries, deaths, ... } }  (public: no token
 // is sent). The user record (0x1f0 bytes, world.c) holds the four numbers the screen shows at +0xfc: courses played,
 // courses cleared, attempts, lives lost. The maker is read from the record the game just got (maker code +0x08, UTF-16
 // without dashes), so the player's own record and any maker's page work alike. A failed request leaves the record
@@ -162,36 +170,17 @@ static bool record_maker_id(uint64_t e, char out[12]) {
     return true;
 }
 
-// {played, cleared, attempts, lives lost} of the maker's played list; false when the request or its answer failed.
+// {played, cleared, attempts, lives lost} of the maker, the service's own totals (fetch_profile below: the played list
+// was paged, and summing the first page came out short); false when the request or its answer failed.
+static bool fetch_profile(const char *maker, OnlineProfile *out);
 static bool fetch_play_totals(const char *maker_id, uint32_t totals[4]) {
-    char url[256];
-    snprintf(url, sizeof url, "https://%s/api/makers/%s/played?offset=0&size=10000", g_ocw.domain, maker_id);
-    HttpResponse r;
+    OnlineProfile p;
+    memset(&p, 0, sizeof p);
     kernel_host_wait_begin();  // (the calling guest thread gives its core up while it waits, as server.c does)
-    int st = http_request("GET", url, "Accept: application/json\r\n", NULL, 0, OCW_REST_TIMEOUT_MS, &r);
+    bool ok = fetch_profile(maker_id, &p);
     kernel_host_wait_end();
-    if (st != 200) {
-        LOG("[ocw] play history of %s: %s\n", maker_id, st ? "HTTP error" : r.error);
-        http_free(&r);
-        return false;
-    }
-    Json *list = json_parse(r.body, r.len);
-    http_free(&r);
-    if (!list || list->type != JSON_ARR) {
-        LOG("[ocw] play history of %s: the answer is not a list\n", maker_id);
-        json_free(list);
-        return false;
-    }
-    uint32_t played = 0, cleared = 0, tries = 0, deaths = 0;
-    for (const Json *p = list->child; p; p = p->next) {
-        played++;
-        tries += (uint32_t)json_num(json_get(p, "tries"), 0);
-        deaths += (uint32_t)json_num(json_get(p, "deaths"), 0);
-        if (json_bool(json_get(p, "cleared"), false) || json_num(json_get(p, "clears"), 0) > 0) cleared++;
-    }
-    json_free(list);
-    totals[0] = played, totals[1] = cleared, totals[2] = tries, totals[3] = deaths;
-    return true;
+    if (ok) totals[0] = p.played, totals[1] = p.cleared, totals[2] = p.attempts, totals[3] = p.lives_lost;
+    return ok;
 }
 
 // main+0x14d2f00: a maker's page (GetUsers): the game's own wrapper, then the maker's Play History from OCW's REST API
@@ -410,6 +399,124 @@ __attribute__((constructor)) static void ocw_register(void) {
     hle_override(OCW_SYNC_PROFILE, sync_user_profile, "mod: SyncUserProfile: the player's Mii from OCW when the game's is blank");
 }
 
+// ---- issue #13: some makers' Miis come from OCW blank (all zeros) or otherwise not a CharInfo the game can use, and show up
+// as a broken Mii wherever that maker appears. The user record the game just fetched holds the Mii at +0x9c (88 bytes of
+// CharInfo; read off the records of makers with good and bad Miis). With the setting on, a bad one of ANOTHER maker (the
+// player's own is handled with the rest of their Mii) is replaced by a generated Mii seeded from the maker code and a number
+// chosen per session: the same maker looks the same all session, and different in the next one.
+#define OCW_RECORD_SIZE 0x1f0
+#define OCW_RECORD_MII 0x9c
+extern void mii_default_charinfo(uint8_t out[0x58], const char *nickname);  // (runtime/services/mii.c)
+
+static bool mii_is_bad(const uint8_t m[0x58]) {
+    bool zero = true;
+    for (int i = 0; i < 0x58 && zero; i++) zero = m[i] == 0;
+    return zero || !mii_charinfo_valid(m);
+}
+
+static uint32_t mii_rng(uint64_t *st) {  // xorshift64*
+    *st ^= *st >> 12, *st ^= *st << 25, *st ^= *st >> 27;
+    return (uint32_t)((*st * 0x2545F4914F6CDD1Dull) >> 32);
+}
+static int mii_pick(uint64_t *st, int lo, int hi) { return lo + (int)(mii_rng(st) % (uint32_t)(hi - lo + 1)); }
+
+// Chosen once per run of the app: a maker with a bad Mii gets a different generated Mii in each session, the same one for the
+// whole session (the Mii is a function of the maker code and this).
+static uint64_t mii_session_salt(void) {
+    static uint64_t salt;
+    if (!salt) {
+        struct timespec t;
+        clock_gettime(CLOCK_REALTIME, &t);
+        salt = ((uint64_t)t.tv_sec * 1000003ull) ^ ((uint64_t)t.tv_nsec << 20) ^ (uint64_t)(uintptr_t)&t;
+        if (!salt) salt = 1;
+    }
+    return salt;
+}
+
+// A valid random Mii, the same for the same maker code within a session. Types and colours are drawn from their whole (valid) ranges; sizes
+// and positions stay near the default's so the face keeps its proportions. Always passes mii_charinfo_valid.
+static void mii_generate(const char *maker, uint8_t out[0x58]) {
+    uint64_t st = 0xcbf29ce484222325ull ^ mii_session_salt();
+    for (const char *p = maker; *p; p++) st = (st ^ (unsigned char)*p) * 0x100000001b3ull;
+    if (!st) st = 1;
+    mii_default_charinfo(out, "Mii");
+    for (int i = 0; i < 8; i++) out[i] = (uint8_t)mii_rng(&st);  // (the create ID: random, with the "valid" bits kept)
+    for (int i = 9; i < 16; i++) out[i] = (uint8_t)mii_rng(&st);
+    out[8] = (uint8_t)(0x80 | (mii_rng(&st) & 0x3f));
+    uint8_t *f = out + 0x26;
+    f[1] = (uint8_t)mii_pick(&st, 0, 11);                              // favourite colour
+    f[2] = (uint8_t)mii_pick(&st, 0, 1);                               // gender
+    f[3] = (uint8_t)mii_pick(&st, 30, 100), f[4] = (uint8_t)mii_pick(&st, 30, 100);  // height, build
+    f[7] = (uint8_t)mii_pick(&st, 0, 11), f[8] = (uint8_t)mii_pick(&st, 0, 9);  // face shape, skin
+    f[9] = mii_pick(&st, 0, 9) < 8 ? 0 : (uint8_t)mii_pick(&st, 1, 11);   // wrinkles, mostly none
+    f[10] = mii_pick(&st, 0, 9) < 7 ? 0 : (uint8_t)mii_pick(&st, 1, 11);  // makeup
+    f[11] = (uint8_t)mii_pick(&st, 0, 131), f[12] = (uint8_t)mii_pick(&st, 0, 7), f[13] = (uint8_t)mii_pick(&st, 0, 1);  // hair
+    f[14] = (uint8_t)mii_pick(&st, 0, 59), f[15] = (uint8_t)mii_pick(&st, 0, 5);  // eyes: type, colour
+    f[16] = (uint8_t)mii_pick(&st, 3, 5), f[17] = 3, f[18] = (uint8_t)mii_pick(&st, 3, 5);  // scale, aspect, rotation
+    f[19] = (uint8_t)mii_pick(&st, 1, 3), f[20] = (uint8_t)mii_pick(&st, 11, 13);  // x, y
+    f[21] = (uint8_t)mii_pick(&st, 0, 23), f[22] = f[12];             // eyebrows: type, colour (the hair's)
+    f[23] = (uint8_t)mii_pick(&st, 3, 5), f[24] = 3, f[25] = (uint8_t)mii_pick(&st, 5, 7);
+    f[26] = (uint8_t)mii_pick(&st, 1, 3), f[27] = (uint8_t)mii_pick(&st, 9, 11);
+    f[28] = (uint8_t)mii_pick(&st, 0, 17), f[29] = (uint8_t)mii_pick(&st, 3, 5), f[30] = (uint8_t)mii_pick(&st, 8, 10);  // nose
+    f[31] = (uint8_t)mii_pick(&st, 0, 35), f[32] = (uint8_t)mii_pick(&st, 0, 4);  // mouth: type, colour
+    f[33] = (uint8_t)mii_pick(&st, 3, 5), f[34] = 3, f[35] = (uint8_t)mii_pick(&st, 12, 14);
+    f[36] = f[12];                                                     // beard colour (the hair's)
+    f[37] = mii_pick(&st, 0, 9) < 8 ? 0 : (uint8_t)mii_pick(&st, 1, 5);   // beard, mostly none
+    f[38] = mii_pick(&st, 0, 9) < 8 ? 0 : (uint8_t)mii_pick(&st, 1, 5);   // moustache
+    f[39] = 4, f[40] = 10;
+    f[41] = mii_pick(&st, 0, 9) < 8 ? 0 : (uint8_t)mii_pick(&st, 1, 8);   // glasses, mostly none
+    f[42] = (uint8_t)mii_pick(&st, 0, 5), f[43] = 4, f[44] = 10;
+    f[45] = mii_pick(&st, 0, 9) < 9 ? 0 : 1, f[46] = 4, f[47] = 2, f[48] = 20;  // a mole, rarely
+    f[49] = 0;
+    if (!mii_charinfo_valid(out) || (out[8] & 0xc0) != 0x80) mii_default_charinfo(out, "Mii");  // (cannot happen: kept as a guard)
+}
+
+// The server's answer is fixed before the game parses it (runtime/services/ssl.c): this decides for one record. The player's
+// own is left alone; the Mii is generated from the maker code (or the name when the answer gave none), so it is the same for
+// the whole session.
+bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]) {
+    if (!g_settings.replace_bad_mii || !g_ocw.active) return false;
+    char id[12];
+    if (strlen(maker) == 9) snprintf(id, sizeof id, "%.3s-%.3s-%.3s", maker, maker + 3, maker + 6);
+    else snprintf(id, sizeof id, "%.11s", name);
+    pthread_mutex_lock(&g_mii.lock);
+    self_load_locked();
+    bool own = g_self.have && !strcmp(g_self.maker, id);
+    pthread_mutex_unlock(&g_mii.lock);
+    if (own) return false;
+    mii_generate(id, out);
+    LOG("[ocw] the Mii OCW sent for %s (%s) is blank: a generated one goes to the game instead\n", id, name);
+    return true;
+}
+
+static void mii_fix_records(Cpu *c, uint64_t no) {
+    if (!g_settings.replace_bad_mii) return;
+    char self[12] = "";
+    pthread_mutex_lock(&g_mii.lock);
+    self_load_locked();
+    if (g_self.have) snprintf(self, sizeof self, "%s", g_self.maker);
+    pthread_mutex_unlock(&g_mii.lock);
+    netobj_lock(c);
+    uint64_t e = g64(no + OCW_USER_RING);
+    int n = (int32_t)g32(no + OCW_USER_RING + 0x10);
+    if (e && n > 0) {
+        if (n > 8) n = 8;
+        for (int i = 0; i < n; i++) {
+            uint64_t rec = e + (uint64_t)i * OCW_RECORD_SIZE;
+            char id[12];
+            if (!record_maker_id(rec, id) || !strcmp(id, self)) continue;  // (not the player's own)
+            uint8_t cur[0x58];
+            memcpy(cur, (const void *)(uintptr_t)(rec + OCW_RECORD_MII), sizeof cur);
+            if (!mii_is_bad(cur)) continue;
+            uint8_t fresh[0x58];
+            mii_generate(id, fresh);
+            memcpy((void *)(uintptr_t)(rec + OCW_RECORD_MII), fresh, sizeof fresh);
+            LOG("[ocw] the Mii OCW has for %s is not usable: a generated one is shown instead\n", id);
+        }
+    }
+    netobj_unlock(c);
+}
+
 // After a GetUsers wrapper of the game ran (no = the network-session object, ret = what the wrapper returned): the
 // first record of its user ring gets the maker's play history. Only with OCW on and the game's own request done.
 void ocw_fill_play_stats(Cpu *c, uint64_t no, uint64_t ret) {
@@ -422,6 +529,7 @@ void ocw_fill_play_stats(Cpu *c, uint64_t no, uint64_t ret) {
     bool known = e && record_maker_id(e, id);
     netobj_unlock(c);
     if (known) self_learn(id);  // (the first record of a session is the player's own)
+    mii_fix_records(c, no);
     uint32_t totals[4];
     if (known && fetch_play_totals(id, totals)) {  // (outside the lock: HTTP)
         netobj_lock(c);
@@ -468,13 +576,8 @@ int ocw_rows(GameModRow *out, int room) {
          .desc = "OCW's server, as opencourse.world gives it (at most 29 characters: the size of the slot in the "
                  "game's own code). May be an address instead. Takes effect at the next start.",
          .text = g_ocw.domain, .cap = sizeof g_ocw.domain, .hint = "not set", .max_len = OCW_DOMAIN_MAX},
-        {.label = "Address",
-         .desc = "Optional: the address the domain above should resolve to, instead of asking this computer's "
-                 "resolver. For a self-hosted or local OCW; leave empty otherwise. Takes effect at the next start.",
-         .text = g_ocw.ip, .cap = sizeof g_ocw.ip, .hint = "ask the resolver",
-         .max_len = (int)sizeof g_ocw.ip - 1},
         {.label = "Token",
-         .desc = "Your personal OCW token, 22 characters, from the package opencourse.world gives you. Not shown "
+         .desc = "Your personal OCW token, 22 characters, from the config opencourse.world gives you. Not shown "
                  "until you activate this row, hidden again when the menu closes, and never written to a log. Takes "
                  "effect at the next start.",
          .text = g_ocw.token, .cap = sizeof g_ocw.token, .hint = "not set", .secret = true,
@@ -495,6 +598,119 @@ void ocw_rows_changed(void) {
     if (g_ocw.token[0] && strlen(g_ocw.token) != OCW_TOKEN_LEN)
         LOG("[ocw] the token is %zu characters; OCW's are %d - check it\n", strlen(g_ocw.token), OCW_TOKEN_LEN);
     if (!(g_ocw.domain[0] && g_ocw.token[0])) LOG("[ocw] the domain and the token are not both set yet\n");
+}
+
+// The Online tab (runtime/game_rows.h): the status shown by its globe, and a config file picked there.
+int game_online_state(void) {
+    if (!rows_read) rows_read = true, config_load();
+    if (!g_ocw.domain[0] || strlen(g_ocw.token) != OCW_TOKEN_LEN) return 0;
+    bool same = g_ocw.active && !strcmp(g_ocw.domain, g_live_domain) && !strcmp(g_ocw.token, g_live_token) &&
+                !strcmp(g_ocw.ip, g_live_ip);
+    return same ? 1 : 2;
+}
+
+// ---- the player's profile for the Online tab: the maker code learned above, and the played totals and name from OCW's
+// public REST API, fetched on a thread of their own (the menu draws every frame and must not wait for HTTP)
+static struct {
+    pthread_mutex_t lock;
+    OnlineProfile p;
+    time_t next;
+} g_prof = {.lock = PTHREAD_MUTEX_INITIALIZER};
+
+// GET /api/makers/<code>: { "username": ..., "stats": { plays, clears, tries, deaths, world_records, first_clears } }. These are
+// the service's own totals (the played list stops short of them: it is paged and holds only what is listed).
+static bool fetch_profile(const char *maker, OnlineProfile *out) {
+    char url[256];
+    snprintf(url, sizeof url, "https://%s/api/makers/%s", g_ocw.domain, maker);
+    HttpResponse r;
+    int st = http_request("GET", url, "Accept: application/json\r\n", NULL, 0, OCW_REST_TIMEOUT_MS, &r);
+    if (st != 200) {
+        LOG("[ocw] profile of %s: %s\n", maker, st ? "HTTP error" : r.error);
+        http_free(&r);
+        return false;
+    }
+    Json *j = json_parse(r.body, r.len);
+    http_free(&r);
+    const Json *stats = j ? json_get(j, "stats") : NULL;
+    bool ok = stats && stats->type == JSON_OBJ;
+    if (ok) {
+        out->played = (unsigned)json_num(json_get(stats, "plays"), 0);
+        out->cleared = (unsigned)json_num(json_get(stats, "clears"), 0);
+        out->attempts = (unsigned)json_num(json_get(stats, "tries"), 0);
+        out->lives_lost = (unsigned)json_num(json_get(stats, "deaths"), 0);
+        out->world_records = (unsigned)json_num(json_get(stats, "world_records"), 0);
+        out->first_clears = (unsigned)json_num(json_get(stats, "first_clears"), 0);
+    }
+    if (j) snprintf(out->name, sizeof out->name, "%s", json_str(json_get(j, "username"), ""));
+    json_free(j);
+    return ok;
+}
+
+static void *profile_thread(void *arg) {
+    (void)arg;
+    char maker[12];
+    OnlineProfile got;
+    memset(&got, 0, sizeof got);
+    pthread_mutex_lock(&g_prof.lock);
+    snprintf(maker, sizeof maker, "%s", g_prof.p.maker);
+    pthread_mutex_unlock(&g_prof.lock);
+    bool ok = fetch_profile(maker, &got);
+    pthread_mutex_lock(&g_prof.lock);
+    g_prof.p.busy = false;
+    g_prof.next = time(NULL) + (ok ? 60 : 30);
+    if (!strcmp(maker, g_prof.p.maker)) {  // (not another account's by now)
+        if (ok) {
+            g_prof.p.have_stats = true;
+            g_prof.p.played = got.played, g_prof.p.cleared = got.cleared, g_prof.p.attempts = got.attempts;
+            g_prof.p.lives_lost = got.lives_lost, g_prof.p.world_records = got.world_records;
+            g_prof.p.first_clears = got.first_clears;
+        }
+        if (got.name[0]) snprintf(g_prof.p.name, sizeof g_prof.p.name, "%s", got.name);
+    }
+    pthread_mutex_unlock(&g_prof.lock);
+    return NULL;
+}
+
+void game_online_profile(OnlineProfile *out) {
+    char maker[12] = "";
+    pthread_mutex_lock(&g_mii.lock);
+    self_load_locked();
+    bool known = g_self.have && g_ocw.active;
+    if (known) snprintf(maker, sizeof maker, "%s", g_self.maker);
+    pthread_mutex_unlock(&g_mii.lock);
+    pthread_mutex_lock(&g_prof.lock);
+    if (!known) {
+        memset(&g_prof.p, 0, sizeof g_prof.p);
+    } else {
+        if (strcmp(g_prof.p.maker, maker)) {  // (another account: start over)
+            bool busy = g_prof.p.busy;
+            memset(&g_prof.p, 0, sizeof g_prof.p);
+            g_prof.p.busy = busy, g_prof.next = 0;
+            snprintf(g_prof.p.maker, sizeof g_prof.p.maker, "%s", maker);
+        }
+        g_prof.p.known = true;
+        if (!g_prof.p.busy && time(NULL) >= g_prof.next) {
+            pthread_t th;
+            g_prof.p.busy = true;
+            if (pthread_create(&th, NULL, profile_thread, NULL) == 0) pthread_detach(th);
+            else g_prof.p.busy = false, g_prof.next = time(NULL) + 30;
+        }
+    }
+    *out = g_prof.p;
+    pthread_mutex_unlock(&g_prof.lock);
+}
+
+bool game_online_import(const char *path) {
+    if (!rows_read) rows_read = true, config_load();
+    char keep[sizeof g_ocw];  // (a file that isn't a usable config changes nothing)
+    memcpy(keep, &g_ocw, sizeof g_ocw);
+    if (!config_load_from(path)) {
+        memcpy(&g_ocw, keep, sizeof g_ocw);
+        return false;
+    }
+    self_forget();
+    config_save();
+    return true;
 }
 
 // The WebSocket handshake (mods/patches.py: the one patch, in place of the game's own snprintf call). Same arguments

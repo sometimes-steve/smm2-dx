@@ -17,8 +17,11 @@ extern uint64_t renderer_present_count(void);
 extern uint64_t g_test_buttons, g_test_buttons_until;  // runtime/game_hooks.c, read by runtime/hle/input.c
 
 static volatile uint64_t g_boot_hook_at, g_boot_hook_first, g_boot_state;  // the logo's hooks last ran / first ran / state
+static volatile double g_boot_hook_wall;  // (and when, in seconds: the sequence runs unpaced, so frames are not time)
+static double ms_wall(void);
 static void boot_note(Cpu *c) {
     uint64_t now = renderer_present_count();
+    g_boot_hook_wall = ms_wall();
     g_boot_hook_at = now;
     if (!g_boot_hook_first) g_boot_hook_first = now;
     g_boot_state = g32(c->x[0] + 0x240);
@@ -75,13 +78,15 @@ static void boot_cinmain(Cpu *c) {
 enum { BTN_A = 1 << 0, BTN_L = 1 << 6, BTN_R = 1 << 7, BTN_LEFT = 1 << 12, BTN_UP = 1 << 13, BTN_RIGHT = 1 << 14,
        BTN_DOWN = 1 << 15 };  // nn::hid button bits (runtime/hle/input.c)
 
-typedef struct { uint64_t buttons; int settle; const char *what; } MsStep;
+typedef struct { uint64_t buttons; int settle; const char *what; int hold; } MsStep;
 static const MsStep g_ms_steps[] = {
-    {BTN_L | BTN_R, 0,   "L+R on the title screen"},
-    {BTN_RIGHT,     200, "Play"},
-    {BTN_A,         60,  "open Play"},
-    {BTN_DOWN,      300, "Course World"},
-    {BTN_A,         60,  "open Course World"},
+    // (hold: presented frames the press is held. L+R was held 8 and was sometimes not taken by the title screen, which then
+    // stayed on "Press L+R"; held for 30 the game sees it for over half a second of game time)
+    {BTN_L | BTN_R, 0,   "L+R on the title screen", 30},
+    {BTN_RIGHT,     200, "Play", 8},
+    {BTN_A,         60,  "open Play", 8},
+    {BTN_DOWN,      300, "Course World", 8},
+    {BTN_A,         60,  "open Course World", 8},
 };
 
 extern _Atomic int g_present_hidden;  // runtime/nvn/objects.c: frames run unpaced and unseen (counts down per frame)
@@ -115,7 +120,7 @@ extern int rt_reboot_requested(void);  // runtime/main.c: set from the request u
 static _Atomic unsigned g_ms_epoch;
 static _Atomic int g_ms_state;  // Skip mode select this boot: 0 not decided yet, 1 running, 2 done (or off)
 RT_ON_RESET(skip_intro_reset) {
-    g_boot_hook_at = g_boot_hook_first = g_boot_state = 0;
+    g_boot_hook_at = g_boot_hook_first = g_boot_state = 0, g_boot_hook_wall = 0;
     atomic_fetch_add(&g_ms_epoch, 1);
     atomic_store(&g_ms_state, 0);
 }
@@ -130,6 +135,23 @@ bool game_launch_skipping(void) {
     return !title_up;
 }
 
+// ---- diagnostics (always on, a few lines per boot): what the scene manager looked like at each press and whether
+// anything changed after it, and why the sequence ended. A scene manager's words 0x320..0x360 are snapshotted and the
+// ones that differ are logged, so a press that did nothing is told apart from one that was never seen by the game.
+enum { MS_SNAP_WORDS = 16, MS_SNAP_FROM = 0x320, MS_VERIFY_FRAMES = 300 };
+typedef struct { uint32_t w[MS_SNAP_WORDS]; } MsSnap;
+static void ms_snap(uint64_t s, MsSnap *out) {
+    for (int i = 0; i < MS_SNAP_WORDS; i++) out->w[i] = g32(s + MS_SNAP_FROM + 4 * i);
+}
+static void ms_snap_log(const char *tag, uint64_t s, uint64_t now) {
+    MsSnap m;
+    ms_snap(s, &m);
+    LOG("[mod] skip mode select: %s (frame %llu) scene mgr %llx:", tag, (unsigned long long)now, (unsigned long long)s);
+    for (int i = 0; i < MS_SNAP_WORDS; i++) LOG(" %x", m.w[i]);
+    LOG("\n");
+}
+extern uint64_t g_ms_test_seen;  // (runtime/hle/input.c: how many times the game's input poll took an injected press)
+
 // Hardened against slow starts: a press only goes out once the game has run at a steady frame rate for 2 s (first-run
 // shader compiles and asset loads stall the frames, and a press during a stall is lost), the settle delays count in
 // presented frames (so they stretch with a slow machine), and the player's own buttons cancel the sequence.
@@ -143,8 +165,12 @@ static void *ms_driver(void *arg) {
     uint64_t base = 0;  // (the frame this boot began at)
     bool logging = getenv("RECOMP_SKIP_MODE_SELECT_LOG") != NULL, started = false;
     uint64_t last_target = ~0ull, done_at = 0;
+    double last_press_wall = 0;
     double t_start = 0;
     uint64_t g_ms_logged_at = 0;
+    bool verifying = false;
+    size_t verify_step = 0;
+    uint64_t verify_from = 0, verify_seen0 = 0;
     for (;;) {
         usleep(20000);
         if (rt_reboot_requested()) continue;  // (the game is being torn down: its memory is about to be wiped)
@@ -152,9 +178,9 @@ static void *ms_driver(void *arg) {
         if (epoch != atomic_load(&g_ms_epoch)) {  // (a new boot: start over)
             epoch = atomic_load(&g_ms_epoch);
             next_at = win_frames = steady_since = done_at = 0;
-            win_t = t_start = 0;
+            win_t = t_start = last_press_wall = 0;
             step = 0, last_target = ~0ull, base = now;
-            latched = enabled = finished = started = false;
+            latched = enabled = finished = started = verifying = false;
             g_test_buttons = 0;
             atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false);
         }
@@ -170,15 +196,21 @@ static void *ms_driver(void *arg) {
         if (!latched) latched = true, enabled = g_settings.skip_mode_select, atomic_store(&g_ms_state, enabled ? 1 : 2);
         if (!enabled || finished) continue;
         uint32_t target = g32(s + 0x33c);
+        if (verifying && now - verify_from >= 30) {  // how many times the game's pad poll took the press
+            LOG("[mod] skip mode select: press %zu (%s): the game's pad poll took it %llu times (held %llu frames, frame %llu)\n",
+                verify_step + 1, g_ms_steps[verify_step].what, (unsigned long long)(g_ms_test_seen - verify_seen0),
+                (unsigned long long)g_ms_steps[verify_step].hold, (unsigned long long)now);
+            verifying = false;
+        }
         if (logging && target != last_target) LOG("[mod] skip mode select: scene 0x%x at frame %llu\n", target, (unsigned long long)now);
         last_target = target;
         // The presses run unseen and unpaced (the window stays black), then Course World appears: the lease is
         // renewed while the sequence runs and let go ~1.5 s of game time after the last press, or after 120 s.
         if (!t_start) t_start = ms_wall();
-        if (ms_wall() - t_start > 120.0) { atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2); continue; }
+        if (ms_wall() - t_start > 120.0) { LOG("[mod] skip mode select: TIMED OUT after 120 s at step %zu of %zu (title up: %d, steady frames: %llu, hooks first %llu last %llu, frame %llu)\n", step, sizeof g_ms_steps / sizeof *g_ms_steps, (int)((g_boot_hook_first && now - g_boot_hook_at >= 180) || now - base >= 2400), (unsigned long long)steady_since, (unsigned long long)g_boot_hook_first, (unsigned long long)g_boot_hook_at, (unsigned long long)now); ms_snap_log("at timeout", s, now); atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2); continue; }
         if (step >= sizeof g_ms_steps / sizeof *g_ms_steps) {
             if (!done_at) done_at = now;
-            if (now - done_at >= 90) { atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2); continue; }
+            if (now - done_at >= 90) { ms_snap_log("sequence done", s, now); atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2); continue; }
         }
         atomic_store(&g_present_hidden, 300), g_audio_muted = 1, atomic_store(&g_splash, true);
         {   // the loading bar: waiting for the title screen, then one fifth of the rest for each press, then Course World
@@ -217,15 +249,24 @@ static void *ms_driver(void *arg) {
         // for ~1100 frames and any press before then would be lost); if they never run, go after 2400 frames. The title
         // screen takes input some time after the hooks stop (it fades in): 30 frames was too early on some starts (the
         // L+R was lost and the rest of the sequence did nothing), 190 worked, so wait 180
-        bool title_up = (g_boot_hook_first && now - g_boot_hook_at >= 180) || now - base >= 2400;
+        // The frames run unpaced and unseen (700+ per second on a fast machine), so 180 of them can be a quarter of a second,
+        // and the title screen's fade-in and the menus' animations follow the clock, not the frame count: a press in
+        // that window is taken by the pad poll (the log counts it) and ignored by the screen. Every wait also needs
+        // real time: 2.5 s after the logo went quiet, 1 s between presses.
+        bool title_up = (g_boot_hook_first && now - g_boot_hook_at >= 180 && ms_wall() - g_boot_hook_wall >= 2.5) || now - base >= 2400;
         if (!title_up || !steady_since || now - steady_since < 120) continue;
         if (!next_at) next_at = now + g_ms_steps[step].settle;
         if (now < next_at) continue;
-        LOG("[mod] skip mode select: %s (frame %llu, scene 0x%x)\n", g_ms_steps[step].what, (unsigned long long)now, target);
-        g_test_buttons = g_ms_steps[step].buttons, g_test_buttons_until = now + 8;
+        if (last_press_wall && ms_wall() - last_press_wall < 1.0) continue;
+        LOG("[mod] skip mode select: %s (frame %llu, scene 0x%x, steady for %llu frames, buttons 0x%llx, %.1f s since the logo went quiet)\n", g_ms_steps[step].what,
+            (unsigned long long)now, target, (unsigned long long)(now - steady_since), (unsigned long long)g_ms_steps[step].buttons,
+            g_boot_hook_wall ? ms_wall() - g_boot_hook_wall : -1.0);
+        verifying = true, verify_step = step, verify_from = now, verify_seen0 = g_ms_test_seen;
+        last_press_wall = ms_wall();
+        g_test_buttons = g_ms_steps[step].buttons, g_test_buttons_until = now + g_ms_steps[step].hold;
         started = true;
         step++;
-        next_at = step < sizeof g_ms_steps / sizeof *g_ms_steps ? now + g_ms_steps[step].settle + 8 : 0;
+        next_at = step < sizeof g_ms_steps / sizeof *g_ms_steps ? now + g_ms_steps[step].settle + g_ms_steps[step - 1].hold : 0;
     }
     return NULL;
 }

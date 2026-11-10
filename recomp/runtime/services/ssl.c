@@ -35,6 +35,7 @@
 #include "../ipc.h"
 #include "../kernel.h"
 #include "../net/netcfg.h"
+#include "../game_rows.h"
 #include "../net/roots.h"
 #include "bsd.h"
 
@@ -68,6 +69,7 @@ typedef struct {
     mbedtls_x509_crt ca;
     uint8_t *peek;          // Peek: read ahead, served first by Read
     size_t npeek;
+    bool hold;              // the tail of peek is a Mii that has not all arrived: not served yet
     uint64_t sent, recvd;   // plaintext bytes (logs)
 } SslConn;
 
@@ -331,6 +333,55 @@ static void handshake(SslConn *c, IpcReq *req, IpcResp *resp) {
     }
 }
 
+// ---- a maker's blank Mii in the server's answer (issue #13). OpenCourse World sends some makers' Miis as 88 zero bytes. In its
+// answers a user record holds, in this order: the maker code (u16 length 10, nine characters, a NUL), the name (u16 length,
+// the characters, a NUL), a few bytes of flags, then u16 0x58 and the 88 bytes of the Mii. Seen in a capture of a session
+// (RECOMP_NET_HEX): every blank one is "58 00" followed by 88 zeros and preceded by a name string like that; a good one has
+// a CharInfo there. The plaintext is held in c->peek before it is served, so a blank Mii that has arrived whole is replaced
+// there (game_replace_bad_mii decides: setting, own Mii, which Mii), and the game parses a good one. One that has arrived
+// in part (the answer is cut at a read) is held back until the rest comes: *safe is how many leading bytes may be served.
+static bool wire_name_before(const uint8_t *p, size_t i, size_t *name_at, size_t *name_len) {
+    for (size_t j = i >= 4 ? i - 4 : 0; j + 4 <= i; j--) {  // (the nearest string that ends in a NUL a few bytes before)
+        size_t len = (size_t)p[j] | (size_t)p[j + 1] << 8;
+        if (len >= 2 && len <= 40 && j + 2 + len <= i && i - (j + 2 + len) <= 24 && p[j + 2 + len - 1] == 0) {
+            bool text = true;
+            for (size_t k = 0; k + 1 < len && text; k++) text = p[j + 2 + k] >= 0x20 && p[j + 2 + k] < 0x7f;
+            if (text) { *name_at = j + 2, *name_len = len - 1; return true; }
+        }
+        if (j == 0) break;
+    }
+    return false;
+}
+
+static int wire_fix_mii(uint8_t *p, size_t n, size_t *safe) {
+    int fixed = 0;
+    *safe = n;
+    for (size_t i = 0; i + 1 < n; i++) {
+        if (p[i] != 0x58 || p[i + 1] != 0) continue;
+        size_t z = 0;
+        while (i + 2 + z < n && z < 0x58 && p[i + 2 + z] == 0) z++;
+        size_t name_at, name_len;
+        if (z < 0x58 && i + 2 + z < n) continue;  // (a non-zero byte inside: a real Mii, or something else)
+        if (!wire_name_before(p, i, &name_at, &name_len)) continue;
+        if (z < 0x58) { *safe = i; break; }  // (the rest of it is still to come)
+        char name[48], maker[12] = "";
+        memcpy(name, p + name_at, name_len), name[name_len] = 0;
+        size_t m = name_at - 2;  // (the maker code's string ends where the name's length starts)
+        if (m >= 12 && p[m - 12] == 10 && p[m - 11] == 0 && p[m - 1] == 0) {
+            bool code = true;
+            for (size_t k = 0; k < 9 && code; k++) {
+                uint8_t ch = p[m - 10 + k];
+                code = (ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z');
+            }
+            if (code) memcpy(maker, p + m - 10, 9), maker[9] = 0;
+        }
+        uint8_t mii[0x58];
+        if (game_replace_bad_mii(maker, name, mii)) memcpy(p + i + 2, mii, sizeof mii), fixed++;
+        i += 0x59;
+    }
+    return fixed;
+}
+
 static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
     IpcBuf *b = out_buf(req, 0);
     uint8_t *dst = b && b->size ? (uint8_t *)(uintptr_t)b->addr : NULL;
@@ -340,11 +391,13 @@ static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
     if (!c->done) { resp->result = R_INTERNAL; return; }
     pthread_mutex_lock(&c->mu);
     size_t have = c->npeek;
+    bool held = c->hold;
     pthread_mutex_unlock(&c->mu);
-    if (!have && cap) {
+    if ((!have || held) && cap) {
         uint8_t *tmp = malloc(cap);
         uint32_t res;
         int r = run(c, op_read, tmp, cap, &res);
+        if (r < 0 && held) r = 0, c->hold = false;  // (the connection ended with a partial one held: it goes to the game as it is)
         if (r < 0) { free(tmp); resp->result = res; return; }
         pthread_mutex_lock(&c->mu);
         c->peek = realloc(c->peek, c->npeek + (size_t)r + 1);
@@ -355,7 +408,11 @@ static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
         if (r) log_data("->game", c, c->peek + c->npeek - r, (size_t)r);
     }
     pthread_mutex_lock(&c->mu);
-    size_t n = c->npeek < cap ? c->npeek : cap;
+    size_t safe = c->npeek;
+    if (c->npeek && wire_fix_mii(c->peek, c->npeek, &safe)) LOG("[ssl] a blank Mii in the server's answer was replaced\n");
+    c->hold = safe < c->npeek && safe > 0;  // (the tail waits for the rest of a Mii; never everything: that would stall)
+    size_t avail = c->hold ? safe : c->npeek;
+    size_t n = avail < cap ? avail : cap;
     if (n) memcpy(dst, c->peek, n);
     if (!peek) memmove(c->peek, c->peek + n, c->npeek - n), c->npeek -= n, c->recvd += n;
     pthread_mutex_unlock(&c->mu);

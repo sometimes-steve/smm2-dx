@@ -245,8 +245,20 @@ static void page_installed(void) {
                    "folder's mods/ (its files in mods/<name>/romfs).", false);
         return;
     }
-    opt_section("Installed mods");
+    int shown = 0;  // (the mods the search lets through)
+    for (int i = 0; i < n; i++) {
+        UserMod m;
+        if (usermods_get(i, &m) && (contains(m.name, g_search) || contains(m.author, g_search) ||
+                                    contains(m.category[0] ? m.category : "Other", g_search)))
+            shown++;
+    }
+    char title[64];
+    if (g_search[0]) snprintf(title, sizeof title, "Installed mods (%d of %d)", shown, n);
+    else snprintf(title, sizeof title, "Installed mods (%d)", n);
+    opt_section(title);
     opt_text("Search installed", g_search, sizeof g_search, "name, author, category", "Shows only the mods that match.");
+    if (g_search[0] && opt_button("Clear search", "Shows every installed mod again."))
+        g_search[0] = 0;
     // by category: each one once, in the order first seen
     char cats[32][64];
     int nc = 0;
@@ -394,19 +406,27 @@ static void page_gb(void) {
             gb_refresh(g_gb_search);
         }
     }
-    if (g_gb_search[0] && opt_button("Most downloaded", "Back to the most downloaded mods."))
+    if (g_gb_search[0] && opt_button("Clear search", "Clears the search and goes back to browsing the list."))
         g_gb_search[0] = 0, gb_refresh(NULL);
     install_status_row();
     char msg[160];
     GbState st = gb_list_state(msg, sizeof msg);
     static GbMod list[100];
     int n = st == GB_BUSY ? 0 : gb_list(list, 100);
+    if (st == GB_BUSY) {  // a fetch is in flight: a line that says so, with dots that move (not an empty list)
+        static const char *const dots[] = {"", ".", "..", "..."};
+        opt_action(msg[0] ? msg : "Loading from GameBanana...", dots[(SDL_GetTicks() / 400) % 4],
+                   "Mods are listed from GameBanana's public site. This can take a few seconds.", false);
+        return;
+    }
     if (st != GB_IDLE || !n) {
         opt_action(msg[0] ? msg : "Nothing found", "", "Mods are listed from GameBanana's public site. Downloads go onto "
                    "this device only; each mod's author and licence are shown on its page.", false);
         if (st == GB_ERROR && opt_button("Try again", "")) gb_refresh(g_gb_search);
     }
-    opt_section(g_gb_search[0] ? "Results" : gb_sort_names[g_gb_sort]);
+    char rtitle[96];
+    snprintf(rtitle, sizeof rtitle, "%s (%d)", g_gb_search[0] ? "Results" : gb_sort_names[g_gb_sort], n);
+    opt_section(rtitle);
     for (int i = 0; i < n; i++) {
         bool on = false, inst = installed_gb(list[i].id, &on);
         char label[260];

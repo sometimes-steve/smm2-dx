@@ -17,6 +17,7 @@
 // survivable for four fields and not for these nine.
 #pragma once
 #include <stdbool.h>
+#include <stdint.h>
 
 typedef struct {
     const char *label, *desc;
@@ -34,6 +35,28 @@ extern "C" {
 #endif
 int game_mod_rows(const GameModRow **out);  // how many, and where (runtime/game_hooks.c: none)
 void game_mod_rows_changed(void);           // one of them was changed in the menu
+// The Online tab (runtime/ui/online_rows.c): is the game's online service set up and in use. 0: no usable config yet;
+// 1: online (the config the game started with is the config now); 2: the config changed since the game started (a
+// restart applies it). runtime/game_hooks.c: 0.
+int game_online_state(void);
+// A config file the player picked (the one opencourse.world gives out) replaces the current one. False (and nothing
+// changed) when it isn't a usable config.
+bool game_online_import(const char *path);
+// The player's own profile on the online service, for the Online tab: known is false until the maker code has been learned
+// (the first profile the game fetches); the numbers come from the service's public API in the background (busy while a
+// request is out, have_stats once one answered) and are refreshed about once a minute while the tab is looked at.
+typedef struct {
+    bool known, busy, have_stats;
+    char maker[12];  // "AAA-BBB-CCC"
+    char name[64];   // "" until the service says
+    unsigned played, cleared, attempts, lives_lost, world_records, first_clears;
+} OnlineProfile;
+void game_online_profile(OnlineProfile *out);
+// The server's answer holds a maker's Mii that is blank or broken (runtime/services/ssl.c finds it as the plaintext reaches the
+// game): fills `out` with the Mii to hand the game instead and returns true, or false to leave it as it is (the setting is
+// off, or it is the player's own). maker: the 9 characters of the maker code without dashes ("" if the answer has none);
+// name: the maker's name there. runtime/game_hooks.c: false.
+bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]);  // runtime/game_hooks.c: nothing known
 // The secret rows go back to "set" / "not set" (runtime/ui/menu.cpp calls this when the menu closes; drawn and
 // defined by runtime/ui/mods_page.cpp, the Mods tab's Online page)
 void game_mod_rows_hide(void);

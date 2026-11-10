@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.5.0 - 2026-11-09
+
+### Menu
+
+- **Footer hints:** the menu shows what the buttons do (Select, Back, Switch Tab; Choose, Cancel while a list is open),
+  named for your Button Icons setting (A/B, Cross/Circle, L/R, LB/RB, L1/R1), or Enter, Esc and Q/E when you last used the
+  keyboard. Hidden on touch (#11).
+- **The menu remembers where you were:** each page's scroll position and selected row come back when you reopen the menu,
+  along with the tab and the Installed / GameBanana page (#11).
+- **Collapsible sections:** Display, Rendering and Shaders on the Video tab fold with A or a click on their heading (#11).
+- **Live previews:** Theme and Menu size open a list on A or a click and show each choice as you move over it; B or Esc puts
+  the old one back (#11).
+- The Quit tab no longer has a "Reset Page to Defaults" row.
+
+### Mods
+
+- **Clear search** buttons on Installed and GameBanana, counts in the headings ("Installed mods (3 of 12)", "Results (30)"),
+  and a "Loading from GameBanana..." line with moving dots while a fetch is out (#10).
+
+### Online
+
+- **The Online tab shows your status:** a globe that spins and pulses green while you are online, turns amber when a changed
+  config waits for a restart, and sits grey with no config.
+- **Your profile:** name, maker code, courses played and cleared, attempts, lives lost, world records and first clears,
+  read from OpenCourse World's own totals. The in-game Play History uses the same totals; before, it summed only the first
+  page of your played list and came out short.
+- **Change Config File...** picks the `ocw-config.json` you downloaded and **Get Your Config** opens
+  opencourse.world/account. The Address row is gone from the menu (an `ip` entry in the config file still works).
+- **Fix Broken Miis** (on by default): some players' Miis arrive from OpenCourse World blank, which showed as a broken Mii
+  or the grey silhouette wherever they appeared, including the course list. The blank Mii is replaced, before the game reads
+  the server's answer, by a generated one that stays the same for that player until the app closes. Your own Mii is never
+  changed. Turn it off to see Miis as OpenCourse World sends them (#13).
+
+### Fixes
+
+- **Skip mode select no longer stops on the title screen.** Its waits counted frames, but the frames run unpaced and unseen
+  at several hundred per second, so the L+R press came before the title screen took input. It now also waits 2.5 s of real
+  time after the logo goes quiet and 1 s between presses, and holds L+R for 30 frames. The log says how many times the game
+  read each press and why a sequence ended.
+
+### Build
+
+- The release zip no longer includes `smm2.ini` (your settings), `ocw-maker.txt` (your maker code) or `ocw-config.json` (your
+  token), and the packager refuses to ship them.
+
 ## 0.4.2 - 2026-11-09
 
 ### Menu

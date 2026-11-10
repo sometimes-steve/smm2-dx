@@ -34,6 +34,10 @@ WEAK void game_texture_final(uint64_t addr) { (void)addr; }
 // ---- a game's mod settings that are not switches, in the same tab after them (runtime/game_rows.h): none
 WEAK int game_mod_rows(const GameModRow **out) { *out = NULL; return 0; }
 WEAK void game_mod_rows_changed(void) {}
+WEAK int game_online_state(void) { return 0; }
+WEAK bool game_online_import(const char *path) { (void)path; return false; }
+WEAK void game_online_profile(OnlineProfile *out) { memset(out, 0, sizeof *out); }
+WEAK bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]) { (void)maker, (void)name, (void)out; return false; }
 
 // ---- once per frame on the game's main thread (runtime/hle/input.c), and per presented frame (renderers)
 WEAK void warp_game_tick(Cpu *c) { (void)c; }

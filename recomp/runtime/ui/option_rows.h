@@ -11,6 +11,15 @@
 
 void opt_begin(const char *id, float scale);
 void opt_section(const char *title);
+// the page being drawn has no "Reset Page to Defaults" row at its end (the Quit tab: nothing there is a setting to reset)
+void opt_no_reset(void);
+// a section that folds (A / click on its heading): true when open, so its rows are drawn: if (opt_section_fold("X")) { rows }
+bool opt_section_fold(const char *title);
+// a choice that previews each entry while it is highlighted in its list; B / Esc puts the old value back. True when *v changed.
+bool opt_choice_live(const char *label, int *v, const char *const *names, int n, int def, const char *desc);
+// the menu opened again: the pages' scroll and selected row come back (opt_cursor_restored: a row took the cursor)
+void opt_remember_arm(void);
+bool opt_cursor_restored(void);
 bool opt_toggle(const char *label, bool *v, bool def, const char *desc);
 // wrap: past the last value back to the first (and the other way); false: stops at the ends
 bool opt_choice(const char *label, int *v, const char *const *names, int n, int def, const char *desc, bool wrap);

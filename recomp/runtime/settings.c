@@ -23,6 +23,7 @@ Settings g_settings = {
     .reverb = true,
     .movie_audio = true,
     .skip_intro = false,
+    .replace_bad_mii = true,
     .show_recomp_version = true,
     .skip_mode_select = false,
     .keep_obj_cache = false,
@@ -89,6 +90,7 @@ void settings_load(void) {
         else if (!strcmp(key, "reverb")) g_settings.reverb = atoi(val) != 0;
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
         else if (!strcmp(key, "skip_intro")) g_settings.skip_intro = atoi(val) != 0;
+        else if (!strcmp(key, "replace_bad_mii")) g_settings.replace_bad_mii = atoi(val) != 0;
         else if (!strcmp(key, "show_recomp_version")) g_settings.show_recomp_version = atoi(val) != 0;
         else if (!strcmp(key, "skip_mode_select")) g_settings.skip_mode_select = atoi(val) != 0;
         else if (!strcmp(key, "keep_obj_cache")) g_settings.keep_obj_cache = atoi(val) != 0;
@@ -168,6 +170,7 @@ void settings_save(void) {
     fprintf(f, "reverb = %d\n", g_settings.reverb);
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
     fprintf(f, "skip_intro = %d\n", g_settings.skip_intro);
+    fprintf(f, "replace_bad_mii = %d\n", g_settings.replace_bad_mii);
     fprintf(f, "show_recomp_version = %d\n", g_settings.show_recomp_version);
     fprintf(f, "skip_mode_select = %d\n", g_settings.skip_mode_select);
     fprintf(f, "keep_obj_cache = %d\n", g_settings.keep_obj_cache);

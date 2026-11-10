@@ -78,6 +78,7 @@ static void set_open(bool open) {
     if (open) {
         static bool opened;  // the controller's cursor: the first tab (Controls) the first time this session, later the
         menu_tabs_focus(!opened);  // selected one
+        if (opened) opt_remember_arm();  // (scroll and selected row of every page come back: opt_cursor_restored)
         opened = true;
     }
     // (game_mod_rows_hide: a game's secret settings rows go back to "set" / "not set")
@@ -626,7 +627,7 @@ double output_scale_dynamic_factor(void);
 static void tab_display(void) {
     float scale = igGetFontSize() / 34;
     opt_flat_begin("##video", scale);
-    opt_section("Display");
+    if (opt_section_fold("Display")) {
     bool fs = g_settings.fullscreen;
     if (opt_toggle("Fullscreen", &fs, false, "Fills the screen. Also: F11 or Alt+Enter.")) {
         g_settings.fullscreen = fs;
@@ -636,7 +637,8 @@ static void tab_display(void) {
     opt_toggle("Show memory use", &g_settings.show_memory, false,
                "Shows how much memory the app uses in the top right corner, once a second.");
 
-    opt_section("Rendering");
+    }
+    if (opt_section_fold("Rendering")) {
     // display order -> RES_* (the ini / enum order predates the menu order)
     // (up to 4x: 7680 x 4320, 8K - more only ran out of GPU memory, and sat next to 75% in the list)
     // (Match display in the middle: left from it 75% / 50% / 25%, right Dynamic then 1x-4x; user 2026-10-11)
@@ -682,8 +684,8 @@ static void tab_display(void) {
                "monitors). The game itself still runs at 60. Adds a little input lag; fast motion may show small "
                "artifacts. Does nothing on a 60 Hz display.", true);
 
-    {   // the shader compile-ahead (GitHub #37): how far it is, and the switch to let it run at full speed
-        opt_section("Shaders");
+    }
+    if (opt_section_fold("Shaders")) {  // the shader compile-ahead (GitHub #37): how far it is, and the switch to let it run at full speed
         AheadStatus a = shader_ahead_status();
         char v[64];
         if (a.state == 2) snprintf(v, sizeof v, "Prepared");
@@ -704,21 +706,22 @@ static void tab_display(void) {
 static void tab_general(void) {
     opt_flat_begin("##general", igGetFontSize() / 34);
     opt_section("Appearance");
-    opt_choice("Theme", &g_settings.theme, g_theme_names, N_THEMES, THEME_DEFAULT,
-               "The look of this menu:\n"
+    opt_choice_live("Theme", &g_settings.theme, g_theme_names, N_THEMES, THEME_DEFAULT,
+               "The look of this menu (A opens the list and shows each one as you move over it; B puts the old one back):\n"
                "- Default: black with blue accents, square and flat, like the setup screen.\n"
                "- NES: the 8-bit look of NES.css (https://nostalgic-css.github.io/NES.css/) - dark panels, thick white "
-               "borders, square edges and stepped corners.", true);
+               "borders, square edges and stepped corners.");
     static const char *sizes[] = {"Compact", "Small", "Normal", "Large", "Extra large"};
     static const float size_scale[] = {0.6f, 0.8f, 1.0f, 1.25f, 1.5f};
     enum { NSIZES = sizeof size_scale / sizeof size_scale[0], SIZE_NORMAL = 2 };
     int si = SIZE_NORMAL;
     for (int i = 0; i < NSIZES; i++)  // (the nearest preset, for a hand-edited value in the ini)
         if (fabsf(size_scale[i] - g_settings.menu_scale) < fabsf(size_scale[si] - g_settings.menu_scale)) si = i;
-    if (opt_choice("Menu size", &si, sizes, NSIZES, SIZE_NORMAL,
+    if (opt_choice_live("Menu size", &si, sizes, NSIZES, SIZE_NORMAL,
                    "How big this menu is. Normal adapts to the window (smaller on small windows, growing more slowly "
                    "on big or high-resolution ones); Compact and Small fit more on the screen, Large and Extra large "
-                   "are easier to read from a distance. Applies at once.", true))
+                   "are easier to read from a distance. Applies at once; A opens the list and shows each size as you move over it, "
+                   "B puts the old one back."))
         g_settings.menu_scale = size_scale[si];
 
     opt_section("Game");
@@ -855,6 +858,7 @@ static void tab_quit(float scale, bool in_game) {
     opt_section("About");
     opt_action("Version", app_version(), "This program's version. Please include it in bug reports.", false);
     launcher_settings_rows();  // (Check for updates, New version available)
+    opt_no_reset();  // (Quit, Version, one update switch: nothing here to put back to defaults)
     opt_end();
 }
 
@@ -1014,6 +1018,37 @@ int menu_keyboard_run(const char *initial, int max_len, char *out, int cap) {
 // The tab bar and its pages, into the current window: the in-game menu, and the start screen's Settings (in_game
 // false: nothing of the game is loaded yet - the tabs that need it are greyed out; prelaunch: the start screen's own
 // first tab, game files and fonts, drawn by launcher.mm).
+// The footer: what the buttons do, with the Button Icons setting's names for them (issue #11). Keycaps in the theme's
+// colours, drawn along the bottom of the page area (the page's child leaves the room).
+static void footer_draw(ImVec2 at, float w, float h, bool popup) {
+    int fam = g_settings.prompts ? (g_settings.prompts - 1) % 3 : input_pad_family() % 3;  // 0 Nintendo, 1 Xbox, 2 PlayStation
+    bool pad = atomic_load(&g_last_pad);
+    typedef struct { const char *key, *what; } Hint;
+    Hint items[3];
+    int n = 0;
+    items[n++] = (Hint){pad ? (fam == 2 ? "Cross" : "A") : "Enter", popup ? "Choose" : "Select"};
+    items[n++] = (Hint){pad ? (fam == 2 ? "Circle" : "B") : "Esc", popup ? "Cancel" : "Back"};
+    if (!popup) items[n++] = (Hint){pad ? (fam == 0 ? "L / R" : fam == 1 ? "LB / RB" : "L1 / R1") : "Q / E", "Switch Tab"};
+    ImDrawList *dl = igGetWindowDrawList();
+    const bool nes = nes_theme();
+    float fs = igGetFontSize(), ch = fs * 1.45f, cy = at.y + h * 0.5f + fs * 0.1f, x = at.x + fs * 0.4f;
+    ImDrawList_AddLine(dl, IM_VEC2(at.x, at.y + fs * 0.1f), IM_VEC2(at.x + w, at.y + fs * 0.1f), menu_accent(70), 1.0f);
+    for (int i = 0; i < n; i++) {
+        ImVec2 kw, ww;
+        igCalcTextSize(&kw, items[i].key, NULL, false, -1.0f);
+        igCalcTextSize(&ww, items[i].what, NULL, false, -1.0f);
+        float cw = kw.x + fs * 0.9f;
+        if (x + cw + fs * 0.4f + ww.x > at.x + w) break;  // (a narrow window: the rest is left out)
+        ImVec2 a = IM_VEC2(x, cy - ch * 0.5f), b = IM_VEC2(x + cw, cy + ch * 0.5f);
+        ImDrawList_AddRectFilled(dl, a, b, IM_COL32(255, 255, 255, 24), nes ? 0 : ch * 0.3f, 0);
+        ImDrawList_AddRect(dl, a, b, menu_accent(200), nes ? 0 : ch * 0.3f, 0, nes ? 2.0f : 1.5f);
+        ImDrawList_AddText_Vec2(dl, IM_VEC2(x + fs * 0.45f, cy - kw.y * 0.5f), menu_accent(255), items[i].key, NULL);
+        x += cw + fs * 0.4f;
+        ImDrawList_AddText_Vec2(dl, IM_VEC2(x, cy - ww.y * 0.5f), menu_muted(), items[i].what, NULL);
+        x += ww.x + fs * 1.4f;
+    }
+}
+
 static float g_tabs_w;  // the width the tab row needs (measured last frame: the same whichever tab is open)
 static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     // (id: the page; -1 = Prelaunch)
@@ -1060,6 +1095,10 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     bool touch = g_touch_ui;
     if (touch) igPushStyleVar_Vec2(ImGuiStyleVar_FramePadding, IM_VEC2(igGetStyle()->FramePadding.x * 1.6f,
                                                                        igGetStyle()->FramePadding.y * 2.2f));
+    const float footer_h = touch ? 0 : igGetFontSize() * 2.0f;  // (a finger has no buttons to name)
+    ImVec2 foot_at = IM_VEC2(0, 0);
+    float foot_w = 0;
+    bool have_foot = false;
     if (igBeginTabBar("##tabs", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
         float tabs_w = 0;
         for (int k = 0; k < ntabs; k++) {
@@ -1107,7 +1146,13 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
             if (open) {
                 g_tab = t.id;
                 igSpacing();
-                igBeginChild_Str("##page", IM_VEC2(0, 0), ImGuiChildFlags_NavFlattened,  // (the rest of the window: no hint line)
+                {
+                    ImVec2 pp, pa;
+                    igGetCursorScreenPos(&pp);
+                    igGetContentRegionAvail(&pa);
+                    foot_at = IM_VEC2(pp.x, pp.y + pa.y - footer_h), foot_w = pa.x, have_foot = footer_h > 0;
+                }
+                igBeginChild_Str("##page", IM_VEC2(0, -footer_h), ImGuiChildFlags_NavFlattened,  // (the rest of the window, less the footer)
                                  0);
                 // Down from the tab bar, pages that aren't option rows (Prelaunch, Controls, Warp): their first control
                 // (option-row pages: opt_focus_first)
@@ -1133,6 +1178,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;
                 }
+                if (opt_cursor_restored()) g_focus_tab = -99, g_focus_frames = 0;  // (a row took the cursor back: not the tab)
                 static const char *scroll_test;  // test hook: page scroll, 0..1
                 static bool scroll_test_read;
                 if (!scroll_test_read) scroll_test = getenv("LARECOMP_MENU_SCROLL"), scroll_test_read = true;
@@ -1146,6 +1192,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
         opt_focus_first(false);  // (a page without option rows: nothing took it)
         igEndTabBar();
     }
+    if (have_foot) footer_draw(foot_at, foot_w, footer_h, any_popup);
     restart_popup(scale, in_game);
     if (touch) igPopStyleVar(1);
 }

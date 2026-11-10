@@ -18,11 +18,12 @@ ROOT = Path(__file__).resolve().parents[2]  # repo root (this file is in recomp/
 # Only these top-level folders of smm2-dx_data are skipped: a bare name match would also drop every nested folder
 # of that name (zig/lib/std/Build/Cache!).
 SKIP_DIRS = ("extracted", "cache", "work", "logs", "sysdata", "save")
-SKIP_FILES = ("launcher.ini", "*.bfttf", "*.log")
+# (smm2.ini: their settings; ocw-maker.txt: their maker code; ocw-config.json: their token)
+SKIP_FILES = ("launcher.ini", "smm2.ini", "ocw-maker.txt", "ocw-config.json", "*.bfttf", "*.log")
 
 # Safety net: refuse to ship anything that looks like game or key material.
 BAD_EXT = {".nca", ".nsp", ".xci", ".nso", ".bfttf", ".keys"}
-BAD_NAMES = {"prod.keys", "title.keys", "launcher.ini"}
+BAD_NAMES = {"prod.keys", "title.keys", "launcher.ini", "smm2.ini", "ocw-maker.txt", "ocw-config.json"}
 
 
 def main():
