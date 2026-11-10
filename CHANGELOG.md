@@ -1,8 +1,6 @@
 # Changelog
 
-## 0.5.5 - 2026-11-09
-
-### Play time (#15)
+## 0.5.5 "Play time" - 2026-11-09
 
 - **How long you have played, kept on this device only.** The Online tab has a **Play Time** section with **This Session** and
   **All Time**, and the menu shows the all-time total at the bottom right (`Played  3 h 12 min`) on every page. Time counts while
