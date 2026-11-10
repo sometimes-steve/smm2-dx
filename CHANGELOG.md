@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.4 - 2026-11-09
+## 0.5.4 "Language Safe" - 2026-11-09
 
 ### Names in other scripts
 
@@ -15,7 +15,7 @@
 
 - The Mods and Online tabs no longer end with "Reset Page to Defaults" (nothing on them is a page of settings to reset).
 
-## 0.5.3 - 2026-11-09
+## 0.5.3 "Course Finder" - 2026-11-09
 
 ### Course ID / Maker ID search (#17)
 
@@ -38,7 +38,7 @@
 - Setup now also copies the Chinese and Korean shared fonts from your firmware when it has them. An install set up before this
   runs the font step once more to look for them. `RECOMP_NO_FONT_FALLBACK=1` turns the name fallback off.
 
-## 0.5.2 - 2026-11-09
+## 0.5.2 "Hands Off" - 2026-11-09
 
 ### Fixes
 
@@ -52,7 +52,7 @@
 - **Copy Error Details:** when setup stops, a button next to "Setup stopped." puts the version, the error, the hint, the log's
   path and the end of the log on the clipboard, so a report doesn't have to be retyped (#12).
 
-## 0.5.1 - 2026-11-09
+## 0.5.1 "Our Corner" - 2026-11-09
 
 ### Title screen
 
@@ -62,7 +62,7 @@
   Nintendo's copyright notice. `recomp/tools/gen_title_claim.py` draws the new picture (it needs Pillow; a normal build does
   not, the result is part of the source).
 
-## 0.5.0 - 2026-11-09
+## 0.5.0 "Menu Polish" - 2026-11-09
 
 ### Menu
 
@@ -107,7 +107,7 @@
 - The release zip no longer includes `smm2.ini` (your settings), `ocw-maker.txt` (your maker code) or `ocw-config.json` (your
   token), and the packager refuses to ship them.
 
-## 0.4.2 - 2026-11-09
+## 0.4.2 "Restart Prompt" - 2026-11-09
 
 ### Menu
 
@@ -121,7 +121,7 @@
 - The helper scripts are Python now and live in `recomp/tools/`: `rebuild_confirm.py` (was `rebuild-confirm.ps1`) and
   `package_release.py` (was `package-release.ps1`).
 
-## 0.4.1 - 2026-11-09
+## 0.4.1 "Mii Safe" - 2026-11-09
 
 ### Mii
 
@@ -151,7 +151,7 @@
   that name in the data folder: `RECOMP_TRACE_UPLOAD` (a call chain for each write to a TLS connection) and `RECOMP_MII_TRACE`
   (where in memory the game holds the Mii it was served; `RECOMP_MII_PROBE.txt` looks for a given pattern around it).
 
-## 0.4.0 - 2026-11-08
+## 0.4.0 "Mii From Boot" - 2026-11-08
 
 ### Mii
 
@@ -171,7 +171,7 @@
 
 - **The Build Helper unpacks a fresh Python** when the one it set up earlier lacks the packages the account lookup needs.
 
-## 0.3.0 - 2026-11-07
+## 0.3.0 "Faster Setup" - 2026-11-07
 
 ### Mii
 
@@ -195,7 +195,7 @@
   generators are done** (their memory is free then).
 - `RECOMP_GAMEBUILD_CFLAGS` adds compiler flags for trying them out.
 
-## 0.2.0 - 2026-11-07
+## 0.2.0 "New Menu" - 2026-11-07
 
 The in-game menu is redesigned, installed mods now work, and a lot of small things around starting, restarting and updating are
 fixed.
@@ -257,7 +257,7 @@ fixed.
 - **Skip Intro is greyed out and says "Unavailable" while Skip Mode Select is on**, instead of showing a misleading Off.
 - **The offline notice** points at the Online tab and Restart the Game instead of the setup screen.
 
-## 0.1.0 - Initial release
+## 0.1.0 "First Course" - Initial release
 
 First release of smm2-dx: Super Mario Maker 2 (3.0.3) as a native Windows program.
 
