@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 - 2026-11-09
+
+### Title screen
+
+- **The corner line on the title screen now reads "© 2026 sometimes_steve"** instead of "© 2019 Nintendo" (#14). That line is
+  not text but a picture in the game's title layout (the texture `Title_Claim_00`, 384 x 60), so it is swapped for this
+  project's own picture when the game loads it; the game's files are never changed or shipped. The staff roll still carries
+  Nintendo's copyright notice. `recomp/tools/gen_title_claim.py` draws the new picture (it needs Pillow; a normal build does
+  not, the result is part of the source).
+
 ## 0.5.0 - 2026-11-09
 
 ### Menu
