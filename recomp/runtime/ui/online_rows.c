@@ -10,9 +10,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../game.h"  // GAME_TITLE
 #include "../game_rows.h"
 #include "../settings.h"
 #include "option_rows.h"
+#include "playtime.h"
 
 bool online_rows_available(void) { return true; }
 void menu_notice(const char *text, double seconds);
@@ -82,6 +84,16 @@ void online_rows(void) {
     }
     igDummy(IM_VEC2(1, fs * 0.3f));
     globe(fs * 1.6f, state, SDL_GetTicks() / 1000.0);
+    {   // how long it has been played (issue #15): kept on this device only
+        char v[32];
+        opt_section("Play Time");
+        playtime_format(playtime_session(), v, sizeof v);
+        opt_action("This Session", v, "Time played since " GAME_TITLE " was started. Counted while the game is running, its "
+                   "window has the focus and the menu is closed.", true);
+        playtime_format(playtime_total(), v, sizeof v);
+        opt_action("All Time", v, "Time played in every session on this install. Kept in playtime.txt in the data folder, "
+                   "on this device only: it is never sent anywhere.", true);
+    }
     {   // the player's own profile, once the maker code is known
         OnlineProfile pr;
         game_online_profile(&pr);

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.5 - 2026-11-09
+
+### Play time (#15)
+
+- **How long you have played, kept on this device only.** The Online tab has a **Play Time** section with **This Session** and
+  **All Time**, and the menu shows the all-time total at the bottom right (`Played  3 h 12 min`) on every page. Time counts while
+  the game is running, its window has the focus and is not minimized, and the menu, the keyboard box and the loading screen
+  are not up. There is one total for the install, in `playtime.txt` in the data folder (written every minute and when the app
+  closes; never sent anywhere, and left out of release zips).
+
 ## 0.5.4 "Language Safe" - 2026-11-09
 
 ### Names in other scripts

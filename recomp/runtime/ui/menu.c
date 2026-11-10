@@ -13,6 +13,7 @@
 #include "option_rows.h"
 #include "theme_draw.h"
 #include "osk.h"
+#include "playtime.h"
 bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 
 #include "../game_rows.h"
@@ -1082,12 +1083,20 @@ static void footer_draw(ImVec2 at, float w, float h, bool popup) {
     const bool nes = nes_theme();
     float fs = igGetFontSize(), ch = fs * 1.45f, cy = at.y + h * 0.5f + fs * 0.1f, x = at.x + fs * 0.4f;
     ImDrawList_AddLine(dl, IM_VEC2(at.x, at.y + fs * 0.1f), IM_VEC2(at.x + w, at.y + fs * 0.1f), menu_accent(70), 1.0f);
+    // the time played, all sessions, at the right (issue #15): on every page; the hints give way to it on a narrow window
+    char played[48], played_label[64];
+    playtime_format(playtime_total(), played, sizeof played);
+    snprintf(played_label, sizeof played_label, "Played  %s", played);
+    ImVec2 pw;
+    igCalcTextSize(&pw, played_label, NULL, false, -1.0f);
+    ImDrawList_AddText_Vec2(dl, IM_VEC2(at.x + w - pw.x - fs * 0.1f, cy - pw.y * 0.5f), menu_muted(), played_label, NULL);
+    const float room = w - pw.x - fs * 1.5f;  // (what is left of the line for the hints)
     for (int i = 0; i < n; i++) {
         ImVec2 kw, ww;
         igCalcTextSize(&kw, items[i].key, NULL, false, -1.0f);
         igCalcTextSize(&ww, items[i].what, NULL, false, -1.0f);
         float cw = kw.x + fs * 0.9f;
-        if (x + cw + fs * 0.4f + ww.x > at.x + w) break;  // (a narrow window: the rest is left out)
+        if (x + cw + fs * 0.4f + ww.x > at.x + room) break;  // (a narrow window: the rest is left out)
         ImVec2 a = IM_VEC2(x, cy - ch * 0.5f), b = IM_VEC2(x + cw, cy + ch * 0.5f);
         ImDrawList_AddRectFilled(dl, a, b, IM_COL32(255, 255, 255, 24), nes ? 0 : ch * 0.3f, 0);
         ImDrawList_AddRect(dl, a, b, menu_accent(200), nes ? 0 : ch * 0.3f, 0, nes ? 2.0f : 1.5f);
@@ -1371,6 +1380,12 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     float splash_p = 0;
     const char *splash_what = "";
     bool splash = game_splash(&splash_p, &splash_what);
+    {   // play time (issue #15): this frame counts when the game is being looked at and played
+        extern SDL_Window *ui_window(void);  // runtime/nvn/vulkan/device.c
+        SDL_Window *w = ui_window();
+        playtime_tick(!open && !kbd && !splash && w && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS) &&
+                      !(SDL_GetWindowFlags(w) & SDL_WINDOW_MINIMIZED));
+    }
     g_drew = false;
     if (!open && !kbd && !g_settings.show_fps && !g_settings.show_memory && !(g_settings.show_recomp_version && game_launch_skipping()) && !ov_img && !splash && !touchpad_visible() && !notice_active()) {
         if (g_inited) { pthread_mutex_lock(&q_lock); q_count = 0; pthread_mutex_unlock(&q_lock); }
