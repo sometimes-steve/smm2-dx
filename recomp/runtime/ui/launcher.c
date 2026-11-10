@@ -671,6 +671,43 @@ static void fail(int step, const char *what, const char *hint, const char *log) 
     g_job = 3;
 }
 
+// "Copy Error Details" (issue #12): the message, the hint, the log's path and the end of that log on the clipboard, so a
+// report doesn't have to be retyped. Text only (no token or key is ever in these logs: they are the setup's own output).
+static double g_copied_at;  // when it was last copied (seconds since start; the button says so for a moment)
+static void copy_error_details(void) {
+    char *what, *hint, *log;
+    pthread_mutex_lock(&g_lock);
+    what = xdup(g_err_what ? g_err_what : ""), hint = xdup(g_err_hint ? g_err_hint : ""), log = xdup(g_err_log ? g_err_log : "");
+    pthread_mutex_unlock(&g_lock);
+    char tail[6001] = "";
+    size_t n = 0;
+    FILE *f = *log ? fopen(log, "rb") : NULL;
+    if (f) {  // (the last 6000 bytes, from the start of a line, at most 40 lines)
+        fseek(f, 0, SEEK_END);
+        long size = ftell(f);
+        long from = size > 6000 ? size - 6000 : 0;
+        fseek(f, from, SEEK_SET);
+        n = fread(tail, 1, 6000, f);
+        fclose(f);
+        tail[n] = 0;
+        char *start = tail;
+        if (from > 0) {
+            char *q = strchr(tail, '\n');
+            start = q ? q + 1 : tail;
+        }
+        int lines = 0;
+        for (char *q = start + strlen(start); q > start; q--)
+            if (q[-1] == '\n' && q[0] && ++lines > 40) { start = q; break; }
+        memmove(tail, start, strlen(start) + 1);
+    }
+    char *text = xfmt(GAME_TITLE " %s: setup stopped.\n%s\n%s\nLog: %s\n%s%s", RECOMP_VERSION, what, hint, *log ? log : "(none)",
+                      tail[0] ? "--- the end of the log ---\n" : "", tail);
+    SDL_SetClipboardText(text);
+    g_copied_at = SDL_GetTicks() / 1000.0;
+    LOG("[launcher] error details copied (%zu bytes)\n", strlen(text));
+    free(text), free(what), free(hint), free(log);
+}
+
 // The argument list of a script (NULL-terminated)
 typedef struct {
     const char **v;
@@ -1563,6 +1600,9 @@ void launcher_run(const char *root) {
             } else {
                 igBeginGroup();
                 igTextColored(BAD, "Setup stopped.");
+                igSameLine(0, -1);
+                if (igSmallButton(SDL_GetTicks() / 1000.0 - g_copied_at < 2.5 && g_copied_at > 0 ? "Copied" : "Copy Error Details"))
+                    copy_error_details();
                 igEndGroup();
                 igGetItemRectSize(&isz);
                 float gh = isz.y;

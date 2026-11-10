@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.2 - 2026-11-09
+
+### Fixes
+
+- **Your input is ignored while Skip mode select runs.** The sequence presses buttons for you, and a click, a key or a stick
+  moved in the middle of it spoiled it. While it runs, key presses, mouse clicks and movement, the wheel, touches and
+  controller buttons are dropped (and so are the menu's keys, so the menu can't open); F11 and Alt+Enter still work. It lifts
+  when the sequence is done, or after 120 seconds. Pressing a button no longer cancels the sequence.
+
+### Build Helper
+
+- **Copy Error Details:** when setup stops, a button next to "Setup stopped." puts the version, the error, the hint, the log's
+  path and the end of the log on the clipboard, so a report doesn't have to be retyped (#12).
+
 ## 0.5.1 - 2026-11-09
 
 ### Title screen

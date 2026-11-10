@@ -87,6 +87,9 @@ WEAK bool game_splash(float *progress, const char **what) {
 // the menu layer then shows the recomp's version in the game's own Ver. box's look (Show recomp version), which those
 // options never let the title screen show. It goes away once the game has launched.
 WEAK bool game_launch_skipping(void) { return false; }
+// game_input_blocked: the player's keyboard, mouse, touch and controller buttons do nothing for now (a game drives its own
+// start with presses of its own, and a stray one spoils it: Skip mode select): runtime/hle/input.c input_user_blocked.
+WEAK bool game_input_blocked(void) { return false; }
 WEAK bool game_overlay_captured(void) { return false; }
 WEAK uint64_t game_input_mask(void) { return ~0ull; }
 // the game's mixed audio (interleaved stereo float) just before it is played: a host screen's sounds go in here

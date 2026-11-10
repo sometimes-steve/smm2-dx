@@ -172,7 +172,30 @@ static bool test_event(const SDL_Event *e) {
 // Scripted test runs ignore the user's own input (a key or stick touched while a test drives Link spoils it):
 // LARECOMP_NO_USER_INPUT=1, on by default whenever LARECOMP_INPUT / LARECOMP_DOORJUMP_TEST / LARECOMP_PLACE is set
 // (or LARECOMP_HOST_INPUT / LARECOMP_BIND_TEST; LARECOMP_NO_USER_INPUT=0 lets it through again).
+// The same choke point keeps the player's hands off a game that is driving its own start (game_input_blocked: Skip mode select
+// presses buttons for you, and anything you press meanwhile lands in the middle of its sequence). Presses, clicks, touches,
+// the wheel and text are dropped, and so are the menu's keys; releases pass, so nothing is left held when it ends, and so do
+// the sticks' axes (the game's own input is masked while it lasts: input_frame). F11 and Alt+Enter (fullscreen) still work.
+static bool blocked_for_game(const SDL_Event *e) {
+    extern bool game_input_blocked(void);
+    if (!game_input_blocked()) return false;
+    switch (e->type) {
+    case SDL_EVENT_KEY_DOWN:
+        if (e->key.scancode == SDL_SCANCODE_F11 || (e->key.scancode == SDL_SCANCODE_RETURN && (e->key.mod & (SDL_KMOD_ALT | SDL_KMOD_GUI))))
+            return false;
+        return true;
+    case SDL_EVENT_TEXT_INPUT: case SDL_EVENT_TEXT_EDITING:
+    case SDL_EVENT_MOUSE_MOTION: case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_WHEEL:
+    case SDL_EVENT_FINGER_DOWN: case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_GAMEPAD_BUTTON_DOWN: case SDL_EVENT_JOYSTICK_BUTTON_DOWN:
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool input_user_blocked(const SDL_Event *e) {
+    if (blocked_for_game(e)) return true;
     static int on = -1;
     if (on < 0) {
         const char *v = getenv("LARECOMP_NO_USER_INPUT");
@@ -738,7 +761,8 @@ static void fill_state(Cpu *c, uint8_t *s, uint32_t id, bool single) {
     // presses) still reaches the game. game_input_mask: buttons of the player's a host screen keeps for itself.
     extern bool game_overlay_captured(void);
     extern uint64_t game_input_mask(void);
-    bool menu = menu_input_captured() || game_overlay_captured();  // the overlay menu / name entry has the controls (typing there isn't for the game)
+    extern bool game_input_blocked(void);
+    bool menu = menu_input_captured() || game_overlay_captured() || game_input_blocked();  // the overlay menu / name entry has the controls (typing there isn't for the game); a game driving its own start does not share them
     uint64_t touch_b = 0;  // the on-screen controller (runtime/ui/touchpad.cpp)
     int32_t touch_lx = 0, touch_ly = 0;
     if (!menu) touchpad_state(&touch_b, &touch_lx, &touch_ly);

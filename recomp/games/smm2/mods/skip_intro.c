@@ -125,6 +125,12 @@ RT_ON_RESET(skip_intro_reset) {
     atomic_store(&g_ms_state, 0);
 }
 
+// Skip mode select presses buttons for the player, and one of theirs in the middle of it spoils the sequence (a click, a key, a
+// stick moved): while it runs the player's input is dropped (runtime/hle/input.c input_user_blocked). Only once the game is
+// there and the sequence has begun (not at the setup screen, which has no sequence to protect), and it always ends: when the
+// sequence is done, or 120 s after it began.
+bool game_input_blocked(void) { return atomic_load(&g_ms_state) == 1 || atomic_load(&g_splash); }
+
 // The game is still launching with its intro skipped (runtime/game_hooks.c game_launch_skipping): Skip mode select
 // until its sequence is over, Skip intro until the title screen is up (the boot logo's hooks have gone quiet).
 bool game_launch_skipping(void) {
@@ -229,13 +235,6 @@ static void *ms_driver(void *arg) {
             atomic_store(&g_splash_progress, p);
         }
         if (step >= sizeof g_ms_steps / sizeof *g_ms_steps) continue;  // (all pressed: waiting for the screen)
-        if (started && input_player_buttons()) {  // the player took over
-            LOG("[mod] skip mode select: cancelled, the player pressed a button\n");
-            g_test_buttons = 0;
-            atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false);
-            finished = true, atomic_store(&g_ms_state, 2);
-            continue;
-        }
         // frame rate over one-second windows: steady = at least 45 fps and no change pending in the scene manager
         double t = ms_wall();
         if (!win_t) win_t = t, win_frames = now;
