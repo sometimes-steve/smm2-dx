@@ -37,7 +37,8 @@ int game_mod_rows(const GameModRow **out);  // how many, and where (runtime/game
 void game_mod_rows_changed(void);           // one of them was changed in the menu
 // The Online tab (runtime/ui/online_rows.c): is the game's online service set up and in use. 0: no usable config yet;
 // 1: online (the config the game started with is the config now); 2: the config changed since the game started (a
-// restart applies it). runtime/game_hooks.c: 0.
+// restart applies it); 3: set up, but the service's name does not resolve (it is down, or this machine has no
+// internet). runtime/game_hooks.c: 0.
 int game_online_state(void);
 // A config file the player picked (the one opencourse.world gives out) replaces the current one. False (and nothing
 // changed) when it isn't a usable config.

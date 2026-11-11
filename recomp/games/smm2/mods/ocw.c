@@ -608,7 +608,8 @@ int game_online_state(void) {
     if (!g_ocw.domain[0] || strlen(g_ocw.token) != OCW_TOKEN_LEN) return 0;
     bool same = g_ocw.active && !strcmp(g_ocw.domain, g_live_domain) && !strcmp(g_ocw.token, g_live_token) &&
                 !strcmp(g_ocw.ip, g_live_ip);
-    return same ? 1 : 2;
+    if (!same) return 2;
+    return net_ocw_reachable() == 0 ? 3 : 1;  // (not known yet counts as online: it is asked again within a frame or two)
 }
 
 // ---- the player's profile for the Online tab: the maker code learned above, and the played totals and name from OCW's

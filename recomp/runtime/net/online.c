@@ -11,4 +11,5 @@ __attribute__((weak)) bool net_pretend_online(void) {
     return on;
 }
 
-bool net_online(void) { return net_pretend_online() || net_real_sockets(); }
+// (the host not resolving - OpenCourse World down, or no internet - is offline: the game is told so and does not dial)
+bool net_online(void) { return net_pretend_online() || (net_real_sockets() && net_ocw_reachable() != 0); }

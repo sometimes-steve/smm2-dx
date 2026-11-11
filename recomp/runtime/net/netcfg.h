@@ -57,6 +57,9 @@ const char *net_nsd_environment(void); // the nsd environment that replaces '%' 
 // instance is reached and how an IP-only setup works. Nothing else resolves and nothing else is reachable.
 void net_ocw_set_target(const char *host, const char *ip);
 bool net_ocw_host(char *out, size_t cap);  // the configured host ("" / false: none)
+// Does the configured host resolve right now? 1 yes (or it is an address), 0 no, -1 not known yet (no host, or the
+// first lookup is still out). Never blocks: the lookup runs on a thread and is repeated, so call it as often as needed.
+int net_ocw_reachable(void);
 
 // What the backend wants as the network service account (services/acc.c): the account ID to use, with no ID token
 // at all. It matches the console mod exactly (_vendor/ocw-client-mod: it stubs GetNetworkServiceAccountId to one

@@ -6,12 +6,14 @@
 
 #include <ctype.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include "../hle.h"
+#include "http.h"
 #include "hostsock.h"
 
 // a game's own settings store (runtime/game_hooks.c, weak: none): SMM2 keeps these in smm2mods.ini
@@ -38,6 +40,7 @@ static int ocw_nips, ocw_oldest;           // connected to one must keep sending
                                            // while. A ring: full, the oldest goes, so a new one always gets in
 static uint32_t ocw_cur;                   // the newest the name answered with: what net_resolve hands out
 static time_t ocw_when;
+static _Atomic int probe_state = -1;       // net_ocw_reachable: -1 not asked yet, 0 does not resolve, 1 resolves
 
 static bool cfg(const char *env, const char *key, char *out, size_t cap) {
     const char *e = getenv(env);
@@ -164,6 +167,7 @@ void net_ocw_set_target(const char *host, const char *ip) {
     ocw_name[n] = 0;
     while (n && ocw_name[n - 1] == '.') ocw_name[--n] = 0;
     snprintf(ocw_fixed, sizeof ocw_fixed, "%s", ip ? ip : "");
+    atomic_store(&probe_state, -1);  // (a new name: not known to resolve until asked)
     ocw_nips = 0;
     ocw_oldest = 0;
     ocw_cur = 0;
@@ -178,6 +182,55 @@ bool net_ocw_host(char *out, size_t cap) {
     bool any = ocw_name[0] != 0;
     pthread_mutex_unlock(&ocw_lock);
     return any;
+}
+
+// ---- is the ocw host there at all? For the Online tab and net_online(). A name can resolve while the server answers
+// nothing (down, or the address is dead), so this asks the server itself: an HTTPS request to its root. Any answer
+// counts, even an error page or a refused certificate (a self-hosted OCW may have no public one: something is there);
+// no answer, a handshake that fails (a port that accepts and says nothing), or a gateway error, does not. The menu draws every frame and the request can take seconds, so it runs
+// on a thread of its own and the last answer is kept: asked again every OCW_PROBE_OK_S while it works, every
+// OCW_PROBE_FAIL_S while it does not (so the tab notices within seconds once OCW is back).
+#define OCW_PROBE_OK_S 60
+#define OCW_PROBE_FAIL_S 5
+#define OCW_PROBE_TIMEOUT_MS 5000
+static _Atomic bool probe_busy;
+static time_t probe_when;             // (the menu's thread only)
+
+static void *probe_thread(void *arg) {
+    char url[192];
+    snprintf(url, sizeof url, "https://%s/", (const char *)arg);
+    HttpResponse r;
+    int st = http_request("GET", url, "Accept: */*\r\n", NULL, 0, OCW_PROBE_TIMEOUT_MS, &r);
+    bool ok = (st && st != 502 && st != 503 && st != 504) || !strcmp(r.error, "TLS: certificate not trusted");
+    char why[96];
+    snprintf(why, sizeof why, "%s", st ? "" : r.error);
+    http_free(&r);
+    int was = atomic_exchange(&probe_state, ok);
+    if (was != ok) LOG("[net] ocw: %s %s (%d%s%s)\n", (const char *)arg, ok ? "answers" : "does not answer", st,
+                       why[0] ? ": " : "", why);
+    free(arg);
+    atomic_store(&probe_busy, false);
+    return NULL;
+}
+
+int net_ocw_reachable(void) {
+    char name[sizeof ocw_name], fixed[sizeof ocw_fixed];
+    pthread_mutex_lock(&ocw_lock);
+    snprintf(name, sizeof name, "%s", ocw_name);
+    snprintf(fixed, sizeof fixed, "%s", ocw_fixed);
+    pthread_mutex_unlock(&ocw_lock);
+    if (!name[0]) return -1;
+    int st = atomic_load(&probe_state);
+    time_t now = time(NULL);
+    if (!atomic_load(&probe_busy) && (st < 0 || now - probe_when >= (st ? OCW_PROBE_OK_S : OCW_PROBE_FAIL_S))) {
+        char *copy = strdup(fixed[0] ? fixed : name);  // (the config's "ip" points the name at an address: ask that)
+        pthread_t th;
+        probe_when = now;
+        atomic_store(&probe_busy, true);
+        if (copy && !pthread_create(&th, NULL, probe_thread, copy)) pthread_detach(th);
+        else free(copy), atomic_store(&probe_busy, false);
+    }
+    return st;
 }
 
 // Note an address of the ocw host. Addresses are merged, never replaced: a session already connected to one has to

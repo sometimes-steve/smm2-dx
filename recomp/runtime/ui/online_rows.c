@@ -12,6 +12,7 @@
 
 #include "../game.h"  // GAME_TITLE
 #include "../game_rows.h"
+#include "../net/netcfg.h"
 #include "../settings.h"
 #include "option_rows.h"
 
@@ -28,7 +29,8 @@ static void globe(float r, int state, double t) {
     igGetCursorScreenPos(&p);
     ImDrawList *dl = igGetWindowDrawList();
     ImVec2 c = IM_VEC2(p.x + r * 1.4f, p.y + r * 1.4f);
-    ImU32 col = state == 1 ? IM_COL32(64, 217, 102, 255) : state == 2 ? IM_COL32(240, 180, 50, 255) : IM_COL32(130, 134, 140, 255);
+    ImU32 col = state == 1 ? IM_COL32(64, 217, 102, 255) : state == 2 ? IM_COL32(240, 180, 50, 255)
+              : state == 3 ? IM_COL32(230, 80, 70, 255) : IM_COL32(130, 134, 140, 255);
     ImU32 dim = (col & 0x00ffffffu) | (70u << 24), faint = (col & 0x00ffffffu) | (150u << 24);
     if (state == 1) {  // a ring going out from the globe, twice a second-ish
         float ph = (float)fmod(t * 0.7, 1.0);
@@ -51,9 +53,11 @@ static void globe(float r, int state, double t) {
     }
     ImDrawList_AddCircle(dl, c, r, col, 0, 2.4f);
     float fs = igGetFontSize();
-    const char *title = state == 1 ? "Online" : state == 2 ? "Restart to go online" : "Offline";
+    const char *title = state == 1 ? "Online" : state == 2 ? "Restart to go online" : state == 3 ? "Can't reach OpenCourse World"
+                                                                                                 : "Offline";
     const char *sub = state == 1 ? "Using your OpenCourse World config."
                     : state == 2 ? "Restart the game to use your new config."
+                    : state == 3 ? "OpenCourse World may be down, or you have no internet. Checking again."
                                  : "Add your config below, then restart.";
     float tx = p.x + r * 3.0f;
     ImDrawList_AddText_Vec2(dl, IM_VEC2(tx, c.y - fs * 1.15f), col, title, NULL);
@@ -115,8 +119,9 @@ void online_offline_notice(void) {
     Uint64 now = SDL_GetTicks();
     if (last && now - last < 20000) return;
     last = now;
-    const char *t = "You're offline. The game needs OpenCourse World, even for Course Practice: add your OpenCourse "
-                    "World config (ocw-config.json) in the menu's Online tab, then restart the game (Quit > Restart the Game).";
+    const char *t = net_ocw_reachable() == 0
+        ? "Can't reach OpenCourse World. It may be down, or you have no internet. Try again in a moment."
+        : "You're offline. Add your OpenCourse World config in the menu's Online tab, then restart the game.";
     rt_log("[online] notice: %s\n", t);
     menu_notice(t, 8);
 }

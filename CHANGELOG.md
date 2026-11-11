@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.8 "Honest Globe" - 2026-11-11
+
+### Online tab (#37)
+
+- **The Online tab no longer says Online when OpenCourse World can't be reached.** It used to show the green globe whenever your
+  config was loaded, even with the service down. It now checks in the background that the server actually answers (not only that
+  its name resolves: a down server can still have a name), and while it does not the globe turns red and reads "Can't reach
+  OpenCourse World". It checks again every few seconds, so the tab goes back to Online as soon as the service is back.
+- **The game is told it is offline too, with a toast saying why.** While the server does not answer the game no longer tries to
+  connect, and when it asks to go online you get a toast, "Can't reach OpenCourse World", instead of the game sitting on a dead
+  connection. It connects as soon as the server answers again.
+
 ## 0.5.7 "Tidy Names" - 2026-11-10
 
 ### Play History
