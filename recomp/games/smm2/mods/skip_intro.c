@@ -177,6 +177,8 @@ static void *ms_driver(void *arg) {
     bool verifying = false;
     size_t verify_step = 0;
     uint64_t verify_from = 0, verify_seen0 = 0;
+    uint32_t title_scene = 0;  // the scene manager's target scene while the title screen is up (read at the first press)
+    int retries = 0;           // presses of the last step repeated because Course World did not open
     for (;;) {
         usleep(20000);
         if (rt_reboot_requested()) continue;  // (the game is being torn down: its memory is about to be wiped)
@@ -185,7 +187,7 @@ static void *ms_driver(void *arg) {
             epoch = atomic_load(&g_ms_epoch);
             next_at = win_frames = steady_since = done_at = 0;
             win_t = t_start = last_press_wall = 0;
-            step = 0, last_target = ~0ull, base = now;
+            step = 0, last_target = ~0ull, base = now, title_scene = 0, retries = 0;
             latched = enabled = finished = started = verifying = false;
             g_test_buttons = 0;
             atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false);
@@ -206,6 +208,7 @@ static void *ms_driver(void *arg) {
             LOG("[mod] skip mode select: press %zu (%s): the game's pad poll took it %llu times (held %llu frames, frame %llu)\n",
                 verify_step + 1, g_ms_steps[verify_step].what, (unsigned long long)(g_ms_test_seen - verify_seen0),
                 (unsigned long long)g_ms_steps[verify_step].hold, (unsigned long long)now);
+            ms_snap_log("after press", s, now);
             verifying = false;
         }
         if (logging && target != last_target) LOG("[mod] skip mode select: scene 0x%x at frame %llu\n", target, (unsigned long long)now);
@@ -215,8 +218,29 @@ static void *ms_driver(void *arg) {
         if (!t_start) t_start = ms_wall();
         if (ms_wall() - t_start > 120.0) { LOG("[mod] skip mode select: TIMED OUT after 120 s at step %zu of %zu (title up: %d, steady frames: %llu, hooks first %llu last %llu, frame %llu)\n", step, sizeof g_ms_steps / sizeof *g_ms_steps, (int)((g_boot_hook_first && now - g_boot_hook_at >= 180) || now - base >= 2400), (unsigned long long)steady_since, (unsigned long long)g_boot_hook_first, (unsigned long long)g_boot_hook_at, (unsigned long long)now); ms_snap_log("at timeout", s, now); atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2); continue; }
         if (step >= sizeof g_ms_steps / sizeof *g_ms_steps) {
-            if (!done_at) done_at = now;
-            if (now - done_at >= 90) { ms_snap_log("sequence done", s, now); atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2); continue; }
+            // Checked against the game: Course World is open once the scene manager's target scene has left the title
+            // screen's and the change has finished (the menus before it stay in the title scene, so they can't be told this way).
+            // If it hasn't after 6 s, the last press was lost: repeat it (twice at most), then stop and say so.
+            bool changing = g8(s + 0x344) != 0, opened = target != title_scene;
+            if (opened && !changing) {
+                if (!done_at) done_at = now;
+                if (now - done_at >= 90) { ms_snap_log("sequence done (Course World open)", s, now); atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2); continue; }
+            } else {
+                done_at = 0;
+                if (!changing && ms_wall() - last_press_wall >= 6.0) {
+                    if (retries < 2) {
+                        retries++;
+                        LOG("[mod] skip mode select: Course World did not open (scene 0x%x): pressing A again (%d of 2, frame %llu)\n", target, retries, (unsigned long long)now);
+                        last_press_wall = ms_wall();
+                        g_test_buttons = BTN_A, g_test_buttons_until = now + 8;
+                    } else {
+                        LOG("[mod] skip mode select: Course World did not open after 2 more presses (scene 0x%x, frame %llu): giving up\n", target, (unsigned long long)now);
+                        ms_snap_log("not confirmed", s, now);
+                        atomic_store(&g_present_hidden, 0), g_audio_muted = 0, atomic_store(&g_splash, false), finished = true, atomic_store(&g_ms_state, 2);
+                        continue;
+                    }
+                }
+            }
         }
         atomic_store(&g_present_hidden, 300), g_audio_muted = 1, atomic_store(&g_splash, true);
         {   // the loading bar: waiting for the title screen, then one fifth of the rest for each press, then Course World
@@ -260,6 +284,7 @@ static void *ms_driver(void *arg) {
         LOG("[mod] skip mode select: %s (frame %llu, scene 0x%x, steady for %llu frames, buttons 0x%llx, %.1f s since the logo went quiet)\n", g_ms_steps[step].what,
             (unsigned long long)now, target, (unsigned long long)(now - steady_since), (unsigned long long)g_ms_steps[step].buttons,
             g_boot_hook_wall ? ms_wall() - g_boot_hook_wall : -1.0);
+        if (step == 0) title_scene = target;
         verifying = true, verify_step = step, verify_from = now, verify_seen0 = g_ms_test_seen;
         last_press_wall = ms_wall();
         g_test_buttons = g_ms_steps[step].buttons, g_test_buttons_until = now + g_ms_steps[step].hold;

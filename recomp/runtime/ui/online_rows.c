@@ -14,7 +14,6 @@
 #include "../game_rows.h"
 #include "../settings.h"
 #include "option_rows.h"
-#include "playtime.h"
 
 bool online_rows_available(void) { return true; }
 void menu_notice(const char *text, double seconds);
@@ -84,17 +83,7 @@ void online_rows(void) {
     }
     igDummy(IM_VEC2(1, fs * 0.3f));
     globe(fs * 1.6f, state, SDL_GetTicks() / 1000.0);
-    {   // how long it has been played (issue #15): kept on this device only
-        char v[32];
-        opt_section("Play Time");
-        playtime_format(playtime_session(), v, sizeof v);
-        opt_action("This Session", v, "Time played since " GAME_TITLE " was started. Counted while the game is running, its "
-                   "window has the focus and the menu is closed.", true);
-        playtime_format(playtime_total(), v, sizeof v);
-        opt_action("All Time", v, "Time played in every session on this install. Kept in playtime.txt in the data folder, "
-                   "on this device only: it is never sent anywhere.", true);
-    }
-    {   // the player's own profile, once the maker code is known
+    {   // the player's own profile, once the maker code is known (the totals are in the Stats tab)
         OnlineProfile pr;
         game_online_profile(&pr);
         opt_section("Your Profile");
@@ -102,27 +91,10 @@ void online_rows(void) {
             opt_action("Maker Code", "Not known yet", "Learned the first time the game loads your profile (Course World, "
                        "or the title screen's My Info). Start the game online and it shows here.", true);
         } else {
-            char v[64], d[160];
             if (pr.name[0]) opt_action("Name", pr.name, "Your name on OpenCourse World.", true);
             opt_action("Maker Code", pr.maker, "Your maker code. Others find you with it.", true);
-            const char *none = pr.busy ? "Loading..." : "Unavailable";
-            snprintf(d, sizeof d, "From OpenCourse World, about once a minute while this tab is open.");
-            struct { const char *label; unsigned n; } st[] = {{"Courses Played", pr.played}, {"Courses Cleared", pr.cleared},
-                                                              {"Attempts", pr.attempts}, {"Lives Lost", pr.lives_lost},
-                                                              {"World Records", pr.world_records}, {"First Clears", pr.first_clears}};
-            for (int i = 0; i < 6; i++) {
-                if (pr.have_stats) snprintf(v, sizeof v, "%u", st[i].n);
-                else snprintf(v, sizeof v, "%s", none);
-                opt_action(st[i].label, v, d, true);
-            }
         }
     }
-    opt_section("Miis");
-    if (opt_toggle("Fix Broken Miis", &g_settings.replace_bad_mii, true,
-                   "Some OpenCourse World players have a blank or broken Mii, which shows up in the game wherever they "
-                   "appear. On: it is replaced by a generated Mii that stays the same for that player until the app closes. Off: shown as "
-                   "OpenCourse World sends it. Your own Mii is never changed. Applies to players the game loads from now "
-                   "on.")) settings_save();
     opt_section("OpenCourse World Account");
     if (opt_action("Change Config File...", "", "Pick the ocw-config.json you downloaded from opencourse.world/account. "
                    "It replaces the domain and token below. The game uses it from the next start.", true)) {

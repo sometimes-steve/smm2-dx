@@ -13,6 +13,8 @@
 #include "option_rows.h"
 #include "theme_draw.h"
 #include "osk.h"
+#include "character.h"
+#include "history.h"
 #include "playtime.h"
 bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 
@@ -789,6 +791,12 @@ static void tab_general(void) {
                    "next time the title screen loads.")) {
         settings_save();
     }
+    opt_section("Miis");
+    if (opt_toggle("Fix Broken Miis", &g_settings.replace_bad_mii, true,
+                   "Some OpenCourse World players have a blank or broken Mii, which shows up in the game wherever they "
+                   "appear. On: it is replaced by a generated Mii that stays the same for that player until the app closes. Off: shown as "
+                   "OpenCourse World sends it. Your own Mii is never changed. Applies to players the game loads from now "
+                   "on.")) settings_save();
     opt_end();
 }
 
@@ -825,11 +833,20 @@ static void tab_mods(void) {
     opt_end();
 }
 
+void stats_rows(void);   // runtime/ui/stats_rows.c
+static void tab_stats(void) {
+    ImVec2 avail;  // (cards, not option rows: its own child, which the controller scrolls by moving between the cards)
+    igGetContentRegionAvail(&avail);
+    igBeginChild_Str("##stats", avail, ImGuiChildFlags_NavFlattened, 0);
+    stats_rows();
+    igEndChild();
+}
+
 void online_page(void);  // runtime/ui/mods_page.cpp: the backend, its accounts, the game's rows for it, the app's
 static void tab_online(void) {
     opt_flat_begin("##online", igGetFontSize() / 34);
     online_page();
-    opt_no_reset();  // (the account and the Miis switch: no page of settings to reset)
+    opt_no_reset();  // (the account: no page of settings to reset)
     opt_end();
 }
 
@@ -1116,8 +1133,8 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     if (prelaunch) tabs[ntabs++] = (Tab){"Prelaunch", -1, true};
     // (LAS Recomp's game tabs - Save Editor, Randomizer, Warp, Cheats, Gameplay, Cosmetics - are not part of the
     // shared runtime; their ids stay unused so the test hooks keep their numbers)
-    static const char *names[] = {"Video", "Audio", "Mods", "Online", "", "General", "", "", "Controls", "Quit"};
-    static const int order[] = {5, 8, 0, 1, 2, 3, 9};  // General, Controls, Video, Audio, Mods, Online, Quit
+    static const char *names[] = {"Video", "Audio", "Mods", "Online", "Stats", "General", "", "", "Controls", "Quit"};
+    static const int order[] = {5, 8, 0, 1, 2, 3, 4, 9};  // General, Controls, Video, Audio, Mods, Online, Stats, Quit
     const GameModRow *mrows;
     bool have_mods = game_mod_rows(&mrows) > 0 || launcher_has_settings() || online_rows_available();
     for (size_t oi = 0; oi < sizeof order / sizeof order[0]; oi++) {  // (Quit: in game only; Mods: when the game has some)
@@ -1232,6 +1249,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case 1: tab_audio(); break;
                 case 2: tab_mods(); break;
                 case 3: tab_online(); break;
+                case 4: tab_stats(); break;
                 case 5: tab_general(); break;
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;
@@ -1385,6 +1403,8 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         SDL_Window *w = ui_window();
         playtime_tick(!open && !kbd && !splash && w && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS) &&
                       !(SDL_GetWindowFlags(w) & SDL_WINDOW_MINIMIZED));
+        history_tick();
+        character_tick();  // (adds what playtime_tick just counted to the character being played)
     }
     g_drew = false;
     if (!open && !kbd && !g_settings.show_fps && !g_settings.show_memory && !(g_settings.show_recomp_version && game_launch_skipping()) && !ov_img && !splash && !touchpad_visible() && !notice_active()) {

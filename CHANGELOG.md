@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.6 "Full Stats" - 2026-11-10
+
+### Stats tab (#25)
+
+- **A new Stats tab, on this device only.** Cards for **Play Time** (this session, all time), **Sessions** (longest, average, how
+  many), **Characters** and **Game Styles** (a bar for the time spent with each), the totals **OpenCourse World** keeps for you
+  (courses played and cleared, attempts, lives lost, world records, first clears) and **Clear Stats** worked out from them
+  (clear rate, attempts per clear, lives lost per clear). Under them, **Last 14 Days** (a bar a day) and an **hours of the week**
+  heatmap across the full width. The cards sit in two columns when the window is wide enough.
+- **Characters and game styles are counted from the moment you start.** The character is the one you have picked (Mario, Luigi,
+  Toad, Toadette); the style is that of the level you are in (not counted in Course World or the menus). Nothing is kept from
+  before this version.
+- The numbers are kept in `character.txt` and `history.txt` in the data folder (written every minute and when the app closes;
+  never sent anywhere, and left out of release zips).
+
+### Menu
+
+- **Play Time moved from the Online tab to the Stats tab**; the Online tab keeps your profile and account.
+- **Fix Broken Miis moved to the General tab.**
+- **Every tab's sections sit on shaded cards**, the Mods tab included.
+
+### Skip mode select
+
+- It now checks that Course World opened (the game's scene changes once it has) and presses A again, up to twice, if it did not
+  after 6 s. The log says what happened.
+
 ## 0.5.5 "Play time" - 2026-11-09
 
 - **How long you have played, kept on this device only.** The Online tab has a **Play Time** section with **This Session** and

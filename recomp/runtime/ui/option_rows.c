@@ -188,18 +188,51 @@ static void begin_page(const char *id, float scale, bool flat) {
 void opt_begin(const char *id, float scale) { begin_page(id, scale, false); }
 void opt_flat_begin(const char *id, float scale) { begin_page(id, scale, true); }
 
+// A section sits on a shaded card (as the Stats tab's): one-pane pages only (the NES theme's rows are boxes already). The card
+// is drawn behind its rows, on a lower channel of the window's draw list, once the section's end is known.
+static struct { bool open; ImVec2 p; float w; } g_card;
+static void card_open(float w) {
+    if (menu_row_notch() > 0) return;
+    ImDrawList *dl = igGetWindowDrawList();
+    igGetCursorScreenPos(&g_card.p);
+    g_card.w = w, g_card.open = true;
+    ImDrawList_ChannelsSplit(dl, 2);
+    ImDrawList_ChannelsSetCurrent(dl, 1);
+}
+static void card_close(void) {
+    if (!g_card.open) return;
+    g_card.open = false;
+    ImDrawList *dl = igGetWindowDrawList();
+    ImVec2 e;
+    igGetCursorScreenPos(&e);
+    float r = igGetFontSize() * 0.3f, y1 = e.y - igGetStyle()->ItemSpacing.y + 4 * g_scale;
+    ImDrawList_ChannelsSetCurrent(dl, 0);
+    ImDrawList_AddRectFilled(dl, g_card.p, IM_VEC2(g_card.p.x + g_card.w, y1), menu_accent(22), r, 0);
+    ImDrawList_AddRect(dl, g_card.p, IM_VEC2(g_card.p.x + g_card.w, y1), menu_accent(80), r, 0, 1.5f);
+    ImDrawList_ChannelsMerge(dl);
+    igDummy(IM_VEC2(0, 4 * g_scale));
+}
+
 void opt_section(const char *title) {
     char t[TXT_CAP];
     snprintf(t, sizeof t, "%s", title);
     title_case(t);
+    card_close();
     if (igGetCursorPosY() > igGetStyle()->WindowPadding.y + 1) igDummy(IM_VEC2(0, 10 * g_scale));
+    ImVec2 av0;
+    igGetContentRegionAvail(&av0);
+    card_open(g_flat ? flat_layout(av0.x, NULL) : av0.x);
+    float inset = g_card.open ? 16 * g_scale : 0;  // (the heading sits in from the card's edge, as the rows' text does)
+    if (g_card.open) igDummy(IM_VEC2(0, 6 * g_scale));
+    igSetCursorPosX(igGetCursorPosX() + inset);
     igPushStyleColor_U32(ImGuiCol_Text, menu_muted());
     igTextUnformatted(t, NULL);
     igPopStyleColor(1);
     ImVec2 p, avail;  // (a hairline under the heading, as Ship of Harkinian's separator text)
     igGetCursorScreenPos(&p);
     igGetContentRegionAvail(&avail);
-    ImDrawList_AddLine(igGetWindowDrawList(), IM_VEC2(p.x, p.y + 1), IM_VEC2(p.x + (g_flat ? flat_layout(avail.x, NULL) : avail.x), p.y + 1),
+    p.x += inset;
+    ImDrawList_AddLine(igGetWindowDrawList(), IM_VEC2(p.x, p.y + 1), IM_VEC2(p.x - inset + (g_flat ? flat_layout(avail.x, NULL) : avail.x) - inset, p.y + 1),
                        menu_accent(70), 1.0f);
     igDummy(IM_VEC2(0, 4 * g_scale));
 }
@@ -367,10 +400,12 @@ bool opt_section_fold(const char *title) {
     for (; k < 48 && g_fold[k].id && g_fold[k].id != key; k++) {}
     if (k == 48) k = 47;
     g_fold[k].id = key;
+    card_close();
     if (igGetCursorPosY() > igGetStyle()->WindowPadding.y + 1) igDummy(IM_VEC2(0, 10 * g_scale));
     ImVec2 p, avail;
-    igGetCursorScreenPos(&p);
     igGetContentRegionAvail(&avail);
+    card_open(g_flat ? flat_layout(avail.x, NULL) : avail.x);
+    igGetCursorScreenPos(&p);
     float fs = igGetFontSize(), w = g_flat ? flat_layout(avail.x, NULL) : avail.x, h = fs * (g_touch ? 2.0f : 1.5f);
     igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));
     igPushID_Str(title);
@@ -608,6 +643,7 @@ int opt_confirm_window(const char *id, bool *asked, const char *msg, bool in_gam
 }
 
 void opt_end(void) {
+    card_close();
     g_reset_page = false;  // (this frame's rows have gone back to their defaults)
     if (g_page_rows > 0 && !g_no_reset) {  // the page's last row: everything back to default, asked once
         igDummy(IM_VEC2(0, 10 * g_scale));

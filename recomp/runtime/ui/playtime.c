@@ -8,7 +8,7 @@
 #define FILE_NAME "playtime.txt"  // (relative: the data root is the working directory)
 
 static double g_total, g_session;
-static double g_last_tick, g_last_save;
+static double g_last_tick, g_last_save, g_dt;
 static bool g_loaded, g_dirty;
 
 static void save(void) {
@@ -36,12 +36,14 @@ void playtime_tick(bool playing) {
     double now = SDL_GetTicks() / 1000.0;
     double dt = g_last_tick > 0 ? now - g_last_tick : 0;
     g_last_tick = now;
+    g_dt = 0;
     if (!playing) return;
     if (dt > 0.25) dt = 0.25;  // (a stall, or the first frame after a pause: not a quarter of a second more than it was)
-    g_total += dt, g_session += dt, g_dirty = true;
+    g_total += dt, g_session += dt, g_dt = dt, g_dirty = true;
     if (now - g_last_save > 60) g_last_save = now, save();
 }
 
+double playtime_last_frame(void) { return g_dt; }
 double playtime_session(void) { return g_session; }
 double playtime_total(void) {
     if (!g_loaded) load();

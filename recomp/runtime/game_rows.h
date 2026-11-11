@@ -52,6 +52,12 @@ typedef struct {
     unsigned played, cleared, attempts, lives_lost, world_records, first_clears;
 } OnlineProfile;
 void game_online_profile(OnlineProfile *out);
+// The character the player has picked (ui/character.h, issue #25): an index into character_name(), or -1 when
+// not known. runtime/game_hooks.c: -1.
+int game_current_character(void);
+// The game style of the level being played (ui/history.h, issue #25): 0 Super Mario Bros., 1 Super Mario Bros. 3, 2 Super
+// Mario World, 3 New Super Mario Bros. U, 4 Super Mario 3D World; -1 when not in a level or not known. runtime/game_hooks.c: -1.
+int game_current_style(void);
 // The server's answer holds a maker's Mii that is blank or broken (runtime/services/ssl.c finds it as the plaintext reaches the
 // game): fills `out` with the Mii to hand the game instead and returns true, or false to leave it as it is (the setting is
 // off, or it is the player's own). maker: the 9 characters of the maker code without dashes ("" if the answer has none);

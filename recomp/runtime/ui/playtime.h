@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 void playtime_tick(bool playing);  // once per presented frame: `playing` says whether this one counts
+double playtime_last_frame(void);   // seconds the last playtime_tick counted (0 when it did not count)
 double playtime_session(void);     // seconds since the app started
 double playtime_total(void);       // seconds, all sessions
 // "Under 1 min", "45 min", "3 h 12 min"
