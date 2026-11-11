@@ -36,6 +36,7 @@
 #include "../kernel.h"
 #include "../net/netcfg.h"
 #include "../game_rows.h"
+#include "../settings.h"
 #include "../net/roots.h"
 #include "bsd.h"
 
@@ -333,6 +334,71 @@ static void handshake(SslConn *c, IpcReq *req, IpcResp *resp) {
     }
 }
 
+// ---- usernames (Clean Usernames). A maker's name can carry characters the game's fonts draw as boxes or that break the layout: the
+// console's own symbols (the private-use range, U+E000..U+F8FF, which the Switch draws as button icons) and line breaks, which
+// make a name three lines tall. The names in OCW's answers are UTF-8 strings (u16 length with the NUL, the bytes, a NUL), each
+// right after a maker code string; they are cleaned where the plaintext is held, before the game parses it. The length does not
+// change (the packet's own lengths stay right): what is kept moves to the front and the rest of the span is spaces.
+static bool username_drop(uint32_t cp) {
+    return cp < 0x20 || cp == 0x7f || (cp >= 0x80 && cp < 0xa0) || cp == 0x2028 || cp == 0x2029 ||
+           (cp >= 0xe000 && cp <= 0xf8ff) || cp >= 0xf0000;  // (controls, line and paragraph separators, private use)
+}
+
+static size_t username_char(const uint8_t *s, size_t len, size_t i, uint32_t *cp) {  // length of the character at i, 0 if not UTF-8
+    uint8_t b = s[i];
+    size_t n = b < 0x80 ? 1 : (b >> 5) == 6 ? 2 : (b >> 4) == 14 ? 3 : (b >> 3) == 30 ? 4 : 0;
+    if (!n || i + n > len) return 0;
+    uint32_t c = n == 1 ? b : b & (0xffu >> (n + 1));
+    for (size_t k = 1; k < n; k++) {
+        if ((s[i + k] & 0xc0) != 0x80) return 0;
+        c = c << 6 | (s[i + k] & 0x3f);
+    }
+    *cp = c;
+    return n;
+}
+
+// `s`: the name's UTF-8 bytes (no NUL). Returns how many characters were taken out; a name that is not valid UTF-8 is left alone.
+int username_clean(uint8_t *s, size_t len) {
+    size_t kept = 0;
+    int dropped = 0;
+    uint32_t cp;
+    for (size_t i = 0, n; i < len; i += n) {
+        if (!(n = username_char(s, len, i, &cp))) return 0;
+        if (username_drop(cp)) dropped++;
+        else kept += n;
+    }
+    if (!dropped) return 0;
+    size_t o = 0;
+    for (size_t i = 0, n; i < len; i += n) {
+        n = username_char(s, len, i, &cp);
+        if (!username_drop(cp)) memmove(s + o, s + i, n), o += n;
+    }
+    if (!kept) s[o++] = '?';  // (nothing but symbols: not an empty name)
+    memset(s + o, ' ', len - o);
+    return dropped;
+}
+
+// Every user record in the plaintext (a maker code string, then the name): the names are cleaned in place. A record cut by the end
+// of what has arrived is held back until the rest comes (*safe, as for the Mii below).
+static int wire_clean_names(uint8_t *p, size_t n, size_t *safe) {
+    int cleaned = 0;
+    for (size_t i = 0; i + 12 <= n; i++) {
+        if (p[i] != 10 || p[i + 1] != 0 || p[i + 11] != 0) continue;
+        bool code = true;
+        for (size_t k = 0; k < 9 && code; k++) code = (p[i + 2 + k] >= '0' && p[i + 2 + k] <= '9') || (p[i + 2 + k] >= 'A' && p[i + 2 + k] <= 'Z');
+        if (!code) continue;
+        size_t j = i + 12;
+        if (j + 2 > n) { if (i < *safe) *safe = i; break; }
+        size_t len = (size_t)p[j] | (size_t)p[j + 1] << 8;
+        if (len < 2 || len > 200) continue;
+        if (j + 2 + len > n) { if (i < *safe) *safe = i; break; }
+        if (p[j + 2 + len - 1] != 0) continue;
+        if (username_clean(p + j + 2, len - 1)) cleaned++;
+        i = j + 1 + len;
+    }
+    return cleaned;
+}
+
 // ---- a maker's blank Mii in the server's answer (issue #13). OpenCourse World sends some makers' Miis as 88 zero bytes. In its
 // answers a user record holds, in this order: the maker code (u16 length 10, nine characters, a NUL), the name (u16 length,
 // the characters, a NUL), a few bytes of flags, then u16 0x58 and the 88 bytes of the Mii. Seen in a capture of a session
@@ -409,7 +475,13 @@ static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
     }
     pthread_mutex_lock(&c->mu);
     size_t safe = c->npeek;
-    if (c->npeek && wire_fix_mii(c->peek, c->npeek, &safe)) LOG("[ssl] a blank Mii in the server's answer was replaced\n");
+    if (c->npeek && g_settings.clean_usernames) {
+        int cleaned = wire_clean_names(c->peek, c->npeek, &safe);
+        if (cleaned) LOG("[ssl] %d username(s) in the server's answer had symbols or line breaks taken out\n", cleaned);
+    }
+    size_t mii_safe = c->npeek;
+    if (c->npeek && wire_fix_mii(c->peek, c->npeek, &mii_safe)) LOG("[ssl] a blank Mii in the server's answer was replaced\n");
+    if (mii_safe < safe) safe = mii_safe;
     c->hold = safe < c->npeek && safe > 0;  // (the tail waits for the rest of a Mii; never everything: that would stall)
     size_t avail = c->hold ? safe : c->npeek;
     size_t n = avail < cap ? avail : cap;

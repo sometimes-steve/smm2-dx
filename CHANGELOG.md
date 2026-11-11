@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.7 "Tidy Names" - 2026-11-10
+
+### Play History
+
+- **The totals in a maker's Play History are right wherever you open it from.** Opened from the leaderboards, a maker's profile showed
+  the wrong numbers (Courses played had the clears, Courses cleared had the lives lost). The four totals went into the wrong slots of
+  the game's record; they now go where the game reads them.
+
+### Usernames
+
+- **New setting, on by default: Clean Usernames** (General tab, Players). It takes the console's symbols (private-use characters
+  the game draws as boxes) and line breaks out of other players' names, so a name that was three lines tall shows on one. What is
+  left is shown as it was; a name made only of symbols shows as `?`. Off: names are shown as OpenCourse World sends them. Your own
+  name in the Online tab is cleaned the same way.
+
 ## 0.5.6 "Full Stats" - 2026-11-10
 
 ### Stats tab (#25)

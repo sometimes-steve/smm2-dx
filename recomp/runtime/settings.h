@@ -62,6 +62,7 @@ typedef struct {
     int tunic;           // index into g_tunic_colours (0 = Default: the game's / the seed's own)
     int hearts;          // index into g_heart_colours (0 = Default red)
     char rando_seed[128];  // active randomizer seed (rando/<name>/), empty = vanilla
+    bool clean_usernames;     // private-use symbols and line breaks are taken out of other players' names in OCW's answers: services/ssl.c
     bool replace_bad_mii;     // another maker's blank / broken Mii from OCW is replaced by a generated one: games/smm2/mods/ocw.c
     bool show_recomp_version; // the title screen's Ver. box shows the recomp's version, not the game's: services/am.c
     bool skip_intro;     // skip the boot logo presentation animations

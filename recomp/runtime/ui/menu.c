@@ -791,7 +791,12 @@ static void tab_general(void) {
                    "next time the title screen loads.")) {
         settings_save();
     }
-    opt_section("Miis");
+    opt_section("Players");
+    if (opt_toggle("Clean Usernames", &g_settings.clean_usernames, true,
+                   "Some OpenCourse World players have symbols in their name that the game draws as boxes (the console's "
+                   "button icons and other private-use characters), or line breaks that make the name several lines tall. "
+                   "On: those are taken out of other players' names and what is left is shown. Off: shown as "
+                   "OpenCourse World sends it. Applies to players the game loads from now on.")) settings_save();
     if (opt_toggle("Fix Broken Miis", &g_settings.replace_bad_mii, true,
                    "Some OpenCourse World players have a blank or broken Mii, which shows up in the game wherever they "
                    "appear. On: it is replaced by a generated Mii that stays the same for that player until the app closes. Off: shown as "

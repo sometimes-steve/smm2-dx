@@ -148,12 +148,14 @@ bool ocw_active(void) { return g_ocw.active; }
 // ---- Play History (My Info and a maker's page): the game's own GetUsers record comes from OCW's NEX side with no play
 // statistics, so they are filled in from OCW's REST API, which holds each maker's totals:
 //   GET https://<domain>/api/makers/<maker id>  ->  { "stats": { plays, clears, tries, deaths, ... } }  (public: no token
-// is sent). The user record (0x1f0 bytes, world.c) holds the four numbers the screen shows at +0xfc: courses played,
-// courses cleared, attempts, lives lost. The maker is read from the record the game just got (maker code +0x08, UTF-16
+// is sent). The user record (0x1f0 bytes, world.c) holds the four numbers the screen shows in the block at +0xfc (slots below). The maker is read from the record the game just got (maker code +0x08, UTF-16
 // without dashes), so the player's own record and any maker's page work alike. A failed request leaves the record
 // exactly as the game wrote it.
 #define OCW_USER_RING 0x68  // the user ring in the network-session object (online.c USER_RING)
-#define OCW_STATS_OFF 0xfc  // plays, clears, attempts, deaths (u32 each)
+#define OCW_STATS_OFF 0xfc  // the stats block of the record (u32 each): slot 0 is not a play count; the Play History reads slot 1
+// courses played, slot 2 attempts, slot 3 courses cleared, slot 4 lives lost (the order of the server's own record: 624, 305, 2763,
+// 155, 2595 for 305 played, 2763 attempts, 155 cleared, 2595 lives lost). The totals come as {played, cleared, attempts, lives lost}.
+static const int OCW_STATS_SLOT[4] = {1, 3, 2, 4};
 #define OCW_REST_TIMEOUT_MS 8000
 
 // The maker ID ("AAA-BBB-CCC") of a user record, from its code; false when the record has none.
@@ -535,7 +537,7 @@ void ocw_fill_play_stats(Cpu *c, uint64_t no, uint64_t ret) {
         netobj_lock(c);
         e = g64(no + OCW_USER_RING);
         if (e && record_maker_id(e, again) && !strcmp(id, again))
-            for (int i = 0; i < 4; i++) s32(e + OCW_STATS_OFF + 4 * i, totals[i]);
+            for (int i = 0; i < 4; i++) s32(e + OCW_STATS_OFF + 4 * OCW_STATS_SLOT[i], totals[i]);
         netobj_unlock(c);
         LOG("[ocw] play history of %s: %u played, %u cleared, %u attempts, %u lives lost\n", id, totals[0], totals[1],
             totals[2], totals[3]);
@@ -642,6 +644,12 @@ static bool fetch_profile(const char *maker, OnlineProfile *out) {
         out->first_clears = (unsigned)json_num(json_get(stats, "first_clears"), 0);
     }
     if (j) snprintf(out->name, sizeof out->name, "%s", json_str(json_get(j, "username"), ""));
+    if (g_settings.clean_usernames) {  // (the menu's font cannot draw the console's symbols either: cleaned as the game's names are)
+        extern int username_clean(uint8_t *s, size_t len);  // runtime/services/ssl.c
+        size_t n = strlen(out->name);
+        username_clean((uint8_t *)out->name, n);
+        while (n && out->name[n - 1] == ' ') out->name[--n] = 0;
+    }
     json_free(j);
     return ok;
 }
