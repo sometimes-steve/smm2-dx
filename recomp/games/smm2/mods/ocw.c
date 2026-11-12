@@ -39,6 +39,10 @@
 #include "../../../runtime/net/netcfg.h"
 #include "../../../runtime/net/http.h"
 #include "../../../runtime/kernel.h"
+#include "../../../runtime/gamebuild.h"
+#include "../../../runtime/net/online.h"
+#include "../../../runtime/paths.h"
+#include "../../../runtime/platform.h"
 #include "../../../runtime/services/mii_charinfo_file.h"
 #include "mod.h"
 #include "../../../runtime/settings.h"
@@ -65,6 +69,7 @@ static const char *config_path(void) {
     return e && *e ? e : "ocw-config.json";
 }
 
+static void boards_start_at_boot(void);  // (below, with the leaderboards)
 // Read and check ocw-config.json. False (logged, with what to do about it) leaves everything inert: unlike the
 // console mod, which aborts the game when its config is missing, a bad config here must not stop the game.
 static bool config_load_from(const char *path) {
@@ -141,6 +146,7 @@ void game_modules_loaded(void) {
     snprintf(g_live_token, sizeof g_live_token, "%s", g_ocw.token);
     snprintf(g_live_ip, sizeof g_live_ip, "%s", g_ocw.ip);
     LOG("[ocw] on: the game's own online client against %s\n", g_ocw.domain);
+    boards_start_at_boot();
 }
 
 bool ocw_active(void) { return g_ocw.active; }
@@ -618,6 +624,7 @@ static struct {
     pthread_mutex_t lock;
     OnlineProfile p;
     time_t next;
+    time_t styles_next;  // the clears per style are read again not before
 } g_prof = {.lock = PTHREAD_MUTEX_INITIALIZER};
 
 // GET /api/makers/<code>: { "username": ..., "stats": { plays, clears, tries, deaths, world_records, first_clears } }. These are
@@ -655,6 +662,38 @@ static bool fetch_profile(const char *maker, OnlineProfile *out) {
     return ok;
 }
 
+// GET /api/makers/<code>/played?offset=N: the courses the maker has played, ten to a page, each with "cleared" and the course's
+// "style" (SMB1, SMB3, SMW, NSMBU, SM3DW). The cleared ones counted per style, in ui/history.h order. False when a page fails.
+#define OCW_PLAYED_PAGES 150  // (1500 courses: a longer list is counted as far as that)
+static bool fetch_style_clears(const char *maker, unsigned out[5]) {
+    memset(out, 0, 5 * sizeof *out);
+    for (int page = 0; page < OCW_PLAYED_PAGES; page++) {
+        char url[256];
+        snprintf(url, sizeof url, "https://%s/api/makers/%s/played?offset=%d", g_ocw.domain, maker, page * 10);
+        HttpResponse r;
+        int st = http_request("GET", url, "Accept: application/json\r\n", NULL, 0, OCW_REST_TIMEOUT_MS, &r);
+        if (st != 200) {
+            LOG("[ocw] played list of %s: %s\n", maker, st ? "HTTP error" : r.error);
+            http_free(&r);
+            return false;
+        }
+        Json *j = json_parse(r.body, r.len);
+        http_free(&r);
+        size_t n = j && j->type == JSON_ARR ? json_len(j) : 0;
+        for (size_t i = 0; i < n; i++) {
+            const Json *e = json_at(j, i);
+            if (!json_bool(json_get(e, "cleared"), false)) continue;
+            const char *style = json_str(json_get(json_get(e, "course"), "style"), "");
+            int k = !strcmp(style, "SMB1") ? 0 : !strcmp(style, "SMB3") ? 1 : !strcmp(style, "SMW") ? 2
+                  : !strcmp(style, "NSMBU") ? 3 : !strcmp(style, "SM3DW") ? 4 : -1;
+            if (k >= 0) out[k]++;
+        }
+        json_free(j);
+        if (n < 10) return j != NULL || page > 0 || n == 0;  // (the last page)
+    }
+    return true;
+}
+
 static void *profile_thread(void *arg) {
     (void)arg;
     char maker[12];
@@ -676,7 +715,19 @@ static void *profile_thread(void *arg) {
         }
         if (got.name[0]) snprintf(g_prof.p.name, sizeof g_prof.p.name, "%s", got.name);
     }
+    bool styles_due = ok && time(NULL) >= g_prof.styles_next;
     pthread_mutex_unlock(&g_prof.lock);
+    if (styles_due) {  // (a longer walk, and the numbers move slowly: not on every refresh)
+        unsigned sc[5];
+        bool got_styles = fetch_style_clears(maker, sc);
+        pthread_mutex_lock(&g_prof.lock);
+        g_prof.styles_next = time(NULL) + (got_styles ? 600 : 60);
+        if (got_styles && !strcmp(maker, g_prof.p.maker)) {
+            g_prof.p.have_styles = true;
+            memcpy(g_prof.p.style_clears, sc, sizeof sc);
+        }
+        pthread_mutex_unlock(&g_prof.lock);
+    }
     return NULL;
 }
 
@@ -707,6 +758,147 @@ void game_online_profile(OnlineProfile *out) {
     }
     *out = g_prof.p;
     pthread_mutex_unlock(&g_prof.lock);
+}
+
+// The leaderboards (games/smm2/ocw_leaderboards.py): run in the background, half a minute or so as it walks the boards, and the
+// answer kept in ocw-boards.txt with the account's fingerprint, so the last one shows at once on the next start
+#define OCW_BOARDS_FILE "ocw-boards.txt"
+#define SEP "\\"
+#define OCW_BOARDS_MAX_S 600  // a run that has not finished in this long is stopped
+static const char *const BOARD_IDS[ONLINE_BOARDS] = {"weekly", "alltime", "clears", "first", "record",
+                                                     "endless0", "endless1", "endless2", "endless3"};
+static struct {
+    pthread_mutex_t lock;
+    OnlineBoards b;
+    bool loaded;     // the file was read once
+} g_boards = {.lock = PTHREAD_MUTEX_INITIALIZER};
+
+// Reads the file (this account's only): the age of the answer in seconds, or -1 when there is none
+static long boards_read(OnlineBoards *out) {
+    FILE *f = fopen(OCW_BOARDS_FILE, "rb");
+    if (!f) return -1;
+    unsigned long long fp = 0;
+    long long when = 0;
+    OnlineBoards b;
+    memset(&b, 0, sizeof b);
+    char line[96];
+    bool ok = fgets(line, sizeof line, f) && sscanf(line, "%llx %lld", &fp, &when) == 2 && fp == self_fingerprint();
+    while (ok && fgets(line, sizeof line, f)) {
+        char id[16], rank[16];
+        unsigned value = 0;
+        if (sscanf(line, "%15s %15s %u", id, rank, &value) < 2) continue;
+        for (int i = 0; i < ONLINE_BOARDS; i++) {
+            if (strcmp(id, BOARD_IDS[i])) continue;
+            b.rank[i] = rank[0] == '?' ? -1 : rank[0] == '~' ? -2 : rank[0] == '-' ? 0 : atoi(rank);
+            b.value[i] = value;
+        }
+    }
+    fclose(f);
+    if (!ok) return -1;
+    b.have = true;
+    *out = b;
+    long age = (long)(time(NULL) - (time_t)when);
+    return age < 0 ? 0 : age;
+}
+
+static void *boards_thread(void *arg) {
+    (void)arg;
+    char py[1100], script[1100];
+    bool ok = false;
+    if (gamebuild_python(py, sizeof py) &&
+        rt_resource("tools" SEP "games" SEP "smm2" SEP "ocw_leaderboards.py", "games/smm2/ocw_leaderboards.py", script, sizeof script)) {
+        // what the player has of the counts that First Clear and World Record are ordered by, when the service has said:
+        // a player with none is not on those boards, and the walk of them is skipped
+        char fc[16] = "", wr[16] = "";
+        pthread_mutex_lock(&g_prof.lock);
+        if (g_prof.p.have_stats) {
+            snprintf(fc, sizeof fc, "%u", g_prof.p.first_clears);
+            snprintf(wr, sizeof wr, "%u", g_prof.p.world_records);
+        }
+        pthread_mutex_unlock(&g_prof.lock);
+        const char *av[12] = {py, "-I", script, "--config", config_path(), "--out", OCW_BOARDS_FILE};
+        int ac = 7;
+        if (fc[0]) av[ac++] = "--first-clears", av[ac++] = fc, av[ac++] = "--world-records", av[ac++] = wr;
+        av[ac] = NULL;
+        PlatProc p = plat_spawn(av, NULL, false);
+        if (p) {
+            time_t t0 = time(NULL);
+            int rc;
+            while ((rc = plat_proc_wait(p, false)) < 0) {
+                if (time(NULL) - t0 > OCW_BOARDS_MAX_S) {
+                    plat_proc_kill(p);
+                    rc = -1;
+                    break;
+                }
+                struct timespec ts = {0, 500 * 1000 * 1000};
+                nanosleep(&ts, NULL);
+                OnlineBoards part;  // (written after each round of pages: the top of every board shows long before the end)
+                if (boards_read(&part) >= 0 && time(NULL) - t0 < OCW_BOARDS_MAX_S) {
+                    pthread_mutex_lock(&g_boards.lock);
+                    part.busy = true;
+                    g_boards.b = part;
+                    pthread_mutex_unlock(&g_boards.lock);
+                }
+            }
+            ok = rc == 0;
+        }
+    }
+    OnlineBoards got;
+    bool have = ok && boards_read(&got) >= 0;
+    pthread_mutex_lock(&g_boards.lock);
+    g_boards.b.busy = false;
+    if (have) g_boards.b = got, g_boards.b.busy = false;
+    pthread_mutex_unlock(&g_boards.lock);
+    LOG("[ocw] leaderboards: %s\n", have ? "read" : "no answer");
+    return NULL;
+}
+
+// Started when the game goes online (ocw.c's setup): once the service answers and the profile numbers are in, the boards are
+// asked for, so the Achievements tab is filled by the time it is opened. After that only the tab's refresh button asks again.
+static void *boards_boot_thread(void *arg) {
+    for (int i = 0; i < 180 && !net_online(); i++) sleep(1);  // (the service may take a while to answer, or be down)
+    for (int i = 0; i < 20; i++) {  // (the counts that two boards go by come with the profile)
+        OnlineProfile pr;
+        game_online_profile(&pr);
+        if (pr.have_stats) break;
+        sleep(1);
+    }
+    return boards_thread(arg);
+}
+
+static void boards_start(void *(*run)(void *)) {  // (under g_boards.lock)
+    pthread_t th;
+    g_boards.b.busy = true;
+    if (pthread_create(&th, NULL, run, NULL) == 0) pthread_detach(th);
+    else g_boards.b.busy = false;
+}
+
+static void boards_start_at_boot(void) {
+    pthread_mutex_lock(&g_boards.lock);
+    if (!g_boards.b.busy) boards_start(boards_boot_thread);
+    pthread_mutex_unlock(&g_boards.lock);
+}
+
+void game_online_boards_refresh(void) {
+    pthread_mutex_lock(&g_boards.lock);
+    if (g_ocw.domain[0] && !g_boards.b.busy && net_online()) boards_start(boards_thread);
+    pthread_mutex_unlock(&g_boards.lock);
+}
+
+void game_online_boards(OnlineBoards *out) {
+    pthread_mutex_lock(&g_boards.lock);
+    if (!g_boards.loaded) {  // (what the last run found, until a new answer comes)
+        g_boards.loaded = true;
+        if (!rows_read) rows_read = true, config_load();
+        OnlineBoards old;
+        if (g_ocw.domain[0] && boards_read(&old) >= 0) {
+            bool busy = g_boards.b.busy;
+            g_boards.b = old;
+            g_boards.b.busy = busy;
+        }
+    }
+    *out = g_boards.b;
+    pthread_mutex_unlock(&g_boards.lock);
 }
 
 bool game_online_import(const char *path) {

@@ -37,6 +37,8 @@ WEAK void game_mod_rows_changed(void) {}
 WEAK int game_online_state(void) { return 0; }
 WEAK bool game_online_import(const char *path) { (void)path; return false; }
 WEAK void game_online_profile(OnlineProfile *out) { memset(out, 0, sizeof *out); }
+WEAK void game_online_boards(OnlineBoards *out) { memset(out, 0, sizeof *out); }
+WEAK void game_online_boards_refresh(void) {}
 WEAK int game_current_character(void) { return -1; }
 WEAK int game_current_style(void) { return -1; }
 WEAK bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]) { (void)maker, (void)name, (void)out; return false; }

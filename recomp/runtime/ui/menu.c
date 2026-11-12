@@ -847,6 +847,15 @@ static void tab_stats(void) {
     igEndChild();
 }
 
+void achievements_rows(void);   // runtime/ui/achievements_rows.c
+static void tab_achievements(void) {
+    ImVec2 avail;  // (cards, as the Stats tab: its own child, which the controller scrolls by moving between the cards)
+    igGetContentRegionAvail(&avail);
+    igBeginChild_Str("##achievements", avail, ImGuiChildFlags_NavFlattened, 0);
+    achievements_rows();
+    igEndChild();
+}
+
 void online_page(void);  // runtime/ui/mods_page.cpp: the backend, its accounts, the game's rows for it, the app's
 static void tab_online(void) {
     opt_flat_begin("##online", igGetFontSize() / 34);
@@ -1138,8 +1147,8 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     if (prelaunch) tabs[ntabs++] = (Tab){"Prelaunch", -1, true};
     // (LAS Recomp's game tabs - Save Editor, Randomizer, Warp, Cheats, Gameplay, Cosmetics - are not part of the
     // shared runtime; their ids stay unused so the test hooks keep their numbers)
-    static const char *names[] = {"Video", "Audio", "Mods", "Online", "Stats", "General", "", "", "Controls", "Quit"};
-    static const int order[] = {5, 8, 0, 1, 2, 3, 4, 9};  // General, Controls, Video, Audio, Mods, Online, Stats, Quit
+    static const char *names[] = {"Video", "Audio", "Mods", "Online", "Stats", "General", "Achievements", "", "Controls", "Quit"};
+    static const int order[] = {5, 8, 0, 1, 2, 3, 4, 6, 9};  // General, Controls, Video, Audio, Mods, Online, Stats, Achievements, Quit
     const GameModRow *mrows;
     bool have_mods = game_mod_rows(&mrows) > 0 || launcher_has_settings() || online_rows_available();
     for (size_t oi = 0; oi < sizeof order / sizeof order[0]; oi++) {  // (Quit: in game only; Mods: when the game has some)
@@ -1236,14 +1245,14 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                                  0);
                 // Down from the tab bar, pages that aren't option rows (Prelaunch, Controls, Warp): their first control
                 // (option-row pages: opt_focus_first)
-                if (down_from_tab && (t.id == -1 || t.id == 8 || t.id == 4)) {
+                if (down_from_tab && (t.id == -1 || t.id == 8 || t.id == 4 || t.id == 6)) {
                     opt_focus_first(false);
                     igSetKeyboardFocusHere(0);
                     igSetNavCursorVisible(true);
                 }
                 // Down from the tab bar, pages that aren't option rows (Prelaunch, Controls, Warp): their first control
                 // (option-row pages: opt_focus_first)
-                if (down_from_tab && (t.id == -1 || t.id == 8 || t.id == 4)) {
+                if (down_from_tab && (t.id == -1 || t.id == 8 || t.id == 4 || t.id == 6)) {
                     opt_focus_first(false);
                     igSetKeyboardFocusHere(0);
                     igSetNavCursorVisible(true);
@@ -1255,6 +1264,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case 2: tab_mods(); break;
                 case 3: tab_online(); break;
                 case 4: tab_stats(); break;
+                case 6: tab_achievements(); break;
                 case 5: tab_general(); break;
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;

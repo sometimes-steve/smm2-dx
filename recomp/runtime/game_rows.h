@@ -51,8 +51,23 @@ typedef struct {
     char maker[12];  // "AAA-BBB-CCC"
     char name[64];   // "" until the service says
     unsigned played, cleared, attempts, lives_lost, world_records, first_clears;
+    bool have_styles;         // style_clears is filled in (read from the played list, a few seconds after the totals)
+    unsigned style_clears[5];  // courses cleared per game style, in ui/history.h order (SMB1, SMB3, SMW, NSMBU, 3DW)
 } OnlineProfile;
 void game_online_profile(OnlineProfile *out);
+// Where the player is on the online service's in-game leaderboards, for the Achievements tab (games/smm2/ocw_leaderboards.py asks
+// over NEX, as the game does, in the background once the game is online, and again when asked). The boards, in this
+// order: Maker Points Weekly, Maker Points All Time, Clears, First Clear, World Record, then the Endless Challenge's Easy,
+// Normal, Expert and Super Expert. rank: the place (1 is the top), 0 not on it (looked through to 999), -1 could not be read, -2 not found yet (the walk is still going). value is the
+// player's own figure for the board where it has one (points, clears, the Endless high score), else 0.
+#define ONLINE_BOARDS 9
+typedef struct {
+    bool have, busy;  // have: an answer is there (maybe an old one); busy: a request is out
+    int rank[ONLINE_BOARDS];
+    unsigned value[ONLINE_BOARDS];
+} OnlineBoards;
+void game_online_boards(OnlineBoards *out);  // runtime/game_hooks.c: nothing
+void game_online_boards_refresh(void);       // ask again (no-op while a run is out): they are asked for once the game is online, then only on this
 // The character the player has picked (ui/character.h, issue #25): an index into character_name(), or -1 when
 // not known. runtime/game_hooks.c: -1.
 int game_current_character(void);

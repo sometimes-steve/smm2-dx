@@ -10,17 +10,15 @@
 
 #include "../game.h"  // GAME_TITLE
 #include "../game_rows.h"
+#include "cards.h"
 #include "character.h"
 #include "history.h"
 #include "playtime.h"
 
-uint32_t menu_accent(int a);  // runtime/ui/menu.c
-uint32_t menu_muted(void);
 
-typedef struct { float fs, x, y, w; ImDrawList *dl; } Card;
 
 // A card: a focusable box of height h with its title, the width of the space left. Rows go in with card_row at c.y.
-static Card card_begin(const char *title, float h) {
+Card card_begin(const char *title, float h) {
     Card c;
     c.fs = igGetFontSize();
     ImVec2 p, av;
@@ -39,24 +37,24 @@ static Card card_begin(const char *title, float h) {
     c.y = p.y + c.fs * 2.1f;
     return c;
 }
-static float rows_h(float fs, int n) { return fs * 2.1f + n * fs * 1.5f + fs * 0.4f; }
-static void card_end(Card *c) { igDummy(IM_VEC2(1, c->fs * 0.2f)); }
+float rows_h(float fs, int n) { return fs * 2.1f + n * fs * 1.5f + fs * 0.4f; }
+void card_end(Card *c) { igDummy(IM_VEC2(1, c->fs * 0.2f)); }
 
-static float text_w(const char *s) {
+float text_w(const char *s) {
     ImVec2 v;
     igCalcTextSize(&v, s, NULL, false, -1.0f);
     return v.x;
 }
 
-static void card_row(Card *c, const char *label, const char *value) {
+void card_row(Card *c, const char *label, const char *value) {
     ImU32 text = igGetColorU32_Col(ImGuiCol_Text, 1.0f);
     ImDrawList_AddText_Vec2(c->dl, IM_VEC2(c->x + c->fs * 0.7f, c->y), menu_muted(), label, NULL);
     ImDrawList_AddText_Vec2(c->dl, IM_VEC2(c->x + c->w - c->fs * 0.7f - text_w(value), c->y), text, value, NULL);
     c->y += c->fs * 1.5f;
 }
 
-// bars: one per item, as long as its share of the longest, with its time at the right
-static void card_bars(Card *c, int n, const char *const *names, const double *secs) {
+// bars: one per item, as long as its share of the longest, with its time (or its count) at the right
+static void card_bars(Card *c, int n, const char *const *names, const double *secs, bool counts) {
     double max = 0;
     for (int i = 0; i < n; i++) if (secs[i] > max) max = secs[i];
     float lab = 0;
@@ -66,7 +64,8 @@ static void card_bars(Card *c, int n, const char *const *names, const double *se
     ImU32 text = igGetColorU32_Col(ImGuiCol_Text, 1.0f);
     for (int i = 0; i < n; i++) {
         char t[32];
-        playtime_format(secs[i], t, sizeof t);
+        if (counts) snprintf(t, sizeof t, "%.0f", secs[i]);
+        else playtime_format(secs[i], t, sizeof t);
         ImDrawList_AddText_Vec2(c->dl, IM_VEC2(c->x + c->fs * 0.7f, c->y), menu_muted(), names[i], NULL);
         float top = c->y + c->fs * 0.25f, bot = c->y + c->fs * 1.0f;
         ImDrawList_AddRectFilled(c->dl, IM_VEC2(x0, top), IM_VEC2(x1, bot), menu_accent(28), 2, 0);
@@ -118,17 +117,17 @@ static void card_characters(void) {
     const char *names[CHARACTER_COUNT];
     double secs[CHARACTER_COUNT];
     for (int i = 0; i < CHARACTER_COUNT; i++) names[i] = character_name(i), secs[i] = character_seconds(i);
-    card_bars(&c, CHARACTER_COUNT, names, secs);
+    card_bars(&c, CHARACTER_COUNT, names, secs, false);
     card_end(&c);
 }
 
-static void card_styles(void) {
+static void card_styles(const OnlineProfile *pr) {
     float fs = igGetFontSize();
-    Card c = card_begin("Game Styles", rows_h(fs, HISTORY_STYLES));
+    Card c = card_begin("Game Styles (Clears)", rows_h(fs, HISTORY_STYLES));
     const char *names[HISTORY_STYLES];
-    double secs[HISTORY_STYLES];
-    for (int i = 0; i < HISTORY_STYLES; i++) names[i] = history_style_name(i), secs[i] = history_style_seconds(i);
-    card_bars(&c, HISTORY_STYLES, names, secs);
+    double n[HISTORY_STYLES];
+    for (int i = 0; i < HISTORY_STYLES; i++) names[i] = history_style_name(i), n[i] = pr->have_styles ? pr->style_clears[i] : 0;
+    card_bars(&c, HISTORY_STYLES, names, n, true);
     card_end(&c);
 }
 
@@ -249,8 +248,10 @@ void stats_rows(void) {
     igDummy(IM_VEC2(1, fs * 0.2f));
     int cols = av.x > fs * 38 ? 2 : 1;  // (a narrow window: one column)
     if (igBeginTable("##stats", cols, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX, IM_VEC2(0, 0), 0)) {
-        void (*simple[])(void) = {card_play_time, card_sessions, card_characters, card_styles};
-        for (int i = 0; i < 4; i++) igTableNextColumn(), simple[i]();
+        void (*simple[])(void) = {card_play_time, card_sessions, card_characters};
+        for (int i = 0; i < 3; i++) igTableNextColumn(), simple[i]();
+        igTableNextColumn();
+        card_styles(&pr);
         igTableNextColumn();
         card_totals(&pr);
         igTableNextColumn();

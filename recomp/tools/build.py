@@ -1181,7 +1181,7 @@ def copy_support(dest, cfg):
     # the recompiler and the setup scripts
     for f in ('gen.py', 'lifter.py', 'analyze.py', 'nso.py', 'passes.py', 'patches.py', 'simd_c.py'):
         shutil.copy(RECOMP / 'tools' / f, dest / 'tools')
-    for f in ('setup.py', 'sysdata.py', 'ocw_identity.py', 'mii_stub.py', 'mini_head.json', 'BIZUDPGothic-Regular.ttf',
+    for f in ('setup.py', 'sysdata.py', 'ocw_identity.py', 'ocw_leaderboards.py', 'mii_stub.py', 'mini_head.json', 'BIZUDPGothic-Regular.ttf',
               'BIZUDPGothic-OFL.txt', 'versions.py'):
         shutil.copy(RECOMP / 'games' / g / f, dest / 'tools' / 'games' / g)
     # what the game code is compiled against (the same files the library id hashes)
@@ -1308,7 +1308,7 @@ def main(argv):
     copy_runtime_dlls()
     build_game_lib(cfg, lib_id, imp_lib, game_lib, jobs)
     g = RECOMP / 'games' / 'smm2'
-    update_staging(cfg, version, lib_srcs + [g / f for f in ('setup.py', 'sysdata.py', 'ocw_identity.py', 'mii_stub.py', 'mini_head.json',
+    update_staging(cfg, version, lib_srcs + [g / f for f in ('setup.py', 'sysdata.py', 'ocw_identity.py', 'ocw_leaderboards.py', 'mii_stub.py', 'mini_head.json',
                                                             'BIZUDPGothic-Regular.ttf', 'BIZUDPGothic-OFL.txt',
                                                             'versions.py')])
 

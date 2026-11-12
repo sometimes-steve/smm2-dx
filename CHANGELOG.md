@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.9 "Top 999" - 2026-11-11
+
+### Achievements tab
+
+- **New Achievements tab: where you stand on OpenCourse World's in-game leaderboards.** One box, "Leaderboards", with a row for
+  Maker Points (Weekly), Maker Points (All Time), Clears, First Clear, World Records and Endless (Easy, Normal, Expert, Super
+  Expert). It shows `#N` when you are on a board and a dash when you are not, looked for down to rank 999. It asks over NEX, as the
+  game does, so the places are the ones the game shows. A small spinner stands in for a board until its place is known.
+- **Filled in when the game goes online, refreshed only when you ask.** The places are looked up in the background as soon as the
+  game is online (the last answer shows straight away on the next start), and not again until you press the refresh button at the
+  top right of the tab.
+
+### Stats tab
+
+- **Game Styles (Clears)** now counts the courses you cleared in each style instead of the time played in it.
+
 ## 0.5.8 "Honest Globe" - 2026-11-11
 
 ### Online tab (#37)
