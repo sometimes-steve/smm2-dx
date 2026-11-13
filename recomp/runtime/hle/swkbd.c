@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../game_rows.h"
 #include "../hle.h"
 
 // (module 2, description 1: no real code is known for the keyboard applet's cancel; any failure should read as one)
@@ -53,12 +54,28 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
     uint64_t wb = LD64(arg + 0x4d0);
     char initial[400] = "", title[200] = "";
     if (wb && n) utf16_to_utf8((const uint16_t *)(uintptr_t)(wb + off), n, initial, sizeof initial);
+    // The Course ID prompt (nine characters) is answered with the course the Search tab took here, if there is one: no keyboard, the game
+    // goes on to that course as if the ID had been typed and confirmed
+    bool taken = false;
+    if (max_len == 9) {
+        char id[12], compact[12];
+        if (game_search_pending(id)) {
+            int k = 0;
+            for (const char *q = id; *q && k < 9; q++)
+                if (*q != '-') compact[k++] = *q;
+            compact[k] = 0;
+            snprintf(initial, sizeof initial, "%s", compact);
+            taken = k == 9;
+        }
+    }
     static const struct { uint32_t off, len; } texts[] = {{0x24, 65}, {0xa6, 129}, {0x1a8, 257}};
     for (int i = 0; i < 3 && !title[0]; i++)
         utf16_to_utf8((const uint16_t *)(uintptr_t)(arg + texts[i].off), texts[i].len, title, sizeof title);
     menu_keyboard_title(title);
     char text[400];
-    int ok = menu_keyboard_run(initial, max_len, text, sizeof text);
+    int ok = 1;
+    if (taken) snprintf(text, sizeof text, "%s", initial);
+    else ok = menu_keyboard_run(initial, max_len, text, sizeof text);
     if (!ok) snprintf(text, sizeof text, "%s", initial);  // cancelled: keep what was there
     LOG("[swkbd] \"%s\" (max %d, initial \"%s\"): %s \"%s\"\n", title, max_len, initial, ok ? "entered" : "cancelled",
         text);

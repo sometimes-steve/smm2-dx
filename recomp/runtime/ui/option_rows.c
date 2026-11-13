@@ -77,6 +77,7 @@ static bool g_flat;  // a one-pane page: no description pane, a tooltip instead
 // One-pane rows are as wide as the page needs, not the window: the widest label and the widest value of the page (measured
 // in the page's last frame, in the font it is drawn in: the NES theme's wide letters get wider rows), the value column right
 // after the labels. g_*_cur: this frame's widest; g_*_use: what the page's rows use (its last frame's).
+static bool g_in_column;  // (opt_in_column: this page fills the column it is in)
 static float g_labw_cur, g_valw_cur, g_labw_use, g_valw_use;
 static struct { char id[64]; float labw, valw; } g_flat_cache[24];
 static float flat_layout(float avail, float *vcol) {
@@ -85,7 +86,10 @@ static float flat_layout(float avail, float *vcol) {
     float vc = pad + lead + (g_labw_use > 0 ? g_labw_use : avail * 0.4f) + 2 * pad;
     // never narrower than the same minimum on every tab (the volume steppers on a short page looked small), the spare room
     // going between the labels and the values
-    float w = fminf(avail, fmaxf(g_labw_use > 0 ? vc + g_valw_use + pad : 640 * g_scale, 580 * g_scale));
+    // a box is half the page's width (as the Stats tab's cards), more only when its rows need it; a page that sits in a column of
+    // its own (opt_in_column) has that column
+    float need = fmaxf(g_labw_use > 0 ? vc + g_valw_use + pad : 640 * g_scale, 580 * g_scale);
+    float w = fminf(avail, g_in_column ? avail : fmaxf(avail * 0.5f, need));
     if (g_labw_use > 0) vc = fmaxf(vc, w - pad - g_valw_use);
     if (vcol) *vcol = vc;
     return w;
@@ -187,6 +191,7 @@ static void begin_page(const char *id, float scale, bool flat) {
 }
 void opt_begin(const char *id, float scale) { begin_page(id, scale, false); }
 void opt_flat_begin(const char *id, float scale) { begin_page(id, scale, true); }
+void opt_in_column(bool on) { g_in_column = on; }
 
 // A section sits on a shaded card (as the Stats tab's): one-pane pages only (the NES theme's rows are boxes already). The card
 // is drawn behind its rows, on a lower channel of the window's draw list, once the section's end is known.
@@ -213,7 +218,9 @@ static void card_close(void) {
     igDummy(IM_VEC2(0, 4 * g_scale));
 }
 
-void opt_section(const char *title) {
+static void section(const char *title, bool line);
+void opt_section(const char *title) { section(title, true); }
+static void section(const char *title, bool line) {
     char t[TXT_CAP];
     snprintf(t, sizeof t, "%s", title);
     title_case(t);
@@ -228,12 +235,14 @@ void opt_section(const char *title) {
     igPushStyleColor_U32(ImGuiCol_Text, menu_muted());
     igTextUnformatted(t, NULL);
     igPopStyleColor(1);
-    ImVec2 p, avail;  // (a hairline under the heading, as Ship of Harkinian's separator text)
-    igGetCursorScreenPos(&p);
-    igGetContentRegionAvail(&avail);
-    p.x += inset;
-    ImDrawList_AddLine(igGetWindowDrawList(), IM_VEC2(p.x, p.y + 1), IM_VEC2(p.x - inset + (g_flat ? flat_layout(avail.x, NULL) : avail.x) - inset, p.y + 1),
-                       menu_accent(70), 1.0f);
+    if (line) {
+        ImVec2 p, avail;  // (a hairline under the heading, as Ship of Harkinian's separator text)
+        igGetCursorScreenPos(&p);
+        igGetContentRegionAvail(&avail);
+        p.x += inset;
+        ImDrawList_AddLine(igGetWindowDrawList(), IM_VEC2(p.x, p.y + 1), IM_VEC2(p.x - inset + (g_flat ? flat_layout(avail.x, NULL) : avail.x) - inset, p.y + 1),
+                           menu_accent(70), 1.0f);
+    }
     igDummy(IM_VEC2(0, 4 * g_scale));
 }
 

@@ -9,6 +9,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "option_rows.h"
 #include "theme_draw.h"
@@ -16,6 +17,7 @@
 #include "character.h"
 #include "history.h"
 #include "playtime.h"
+#include "cards.h"
 bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 
 #include "../game_rows.h"
@@ -896,6 +898,233 @@ static void tab_achievements(void) {
     igEndChild();
 }
 
+// Search: a random course from OpenCourse World's list that nobody has cleared and the player never played (issue #24), with the
+// filters of knflrpn.com/mm2 and smm-uncleared.com (less the year). The filters are rows on the left, the pick a box on the right (as
+// the Stats tab's); the lists are read in the background (games/smm2/mods/search.c).
+void menu_close(void);
+static void search_time(char *out, size_t cap, unsigned ms) {
+    if (ms < 60000) snprintf(out, cap, "%u.%02us", ms / 1000, ms % 1000 / 10);
+    else snprintf(out, cap, "%um %02us", ms / 60000, ms / 1000 % 60);
+}
+static const char *const search_themes[] = {"Any", "Overworld", "Underground", "Castle", "Airship", "Underwater", "Ghost House", "Snow", "Desert", "Sky", "Forest"};
+static const char *const search_tags[] = {"Any", "Standard", "Puzzle-Solving", "Speedrun", "Autoscroll", "Auto-Mario", "Short and Sweet", "Multiplayer Versus",
+                                          "Themed", "Music", "Art", "Technical", "Shooter", "Boss Battle", "Single Player", "Link"};
+static bool s_uncleared = true, s_unplayed = true;
+static int s_style, s_theme, s_tag, s_cond, s_tmin, s_tmax, s_cmin, s_cmax;
+static const unsigned s_tries_val[] = {0, 50, 100, 200, 500, 1000};
+static const unsigned s_time_val[] = {0, 30000, 60000, 120000, 240000};
+
+static SearchFilter search_filter(void) {
+    return (SearchFilter){.uncleared = s_uncleared, .unplayed = s_unplayed, .style = s_style - 1, .theme = s_theme - 1, .tag = s_tag ? s_tag : -1,
+                          .condition = s_cond, .min_tries = s_tries_val[s_tmin], .max_tries = s_tries_val[s_tmax],
+                          .min_ms = s_time_val[s_cmin], .max_ms = s_time_val[s_cmax]};
+}
+
+static void search_filters(void) {
+    static const char *const styles[] = {"Any", "Super Mario Bros.", "Super Mario Bros. 3", "Super Mario World", "New Super Mario Bros. U", "Super Mario 3D World"};
+    static const char *const conds[] = {"Any", "None", "Has one"};
+    static const char *const tries_names[] = {"Any", "50", "100", "200", "500", "1000"};
+    static const char *const time_names[] = {"Any", "30 seconds", "60 seconds", "2 minutes", "4 minutes"};
+    opt_in_column(true);  // (its column is half the window already)
+    opt_flat_begin("##search", igGetFontSize() / 34);
+    opt_section("Courses");
+    opt_toggle("Uncleared", &s_uncleared, true, "Only courses nobody has cleared yet.");
+    opt_toggle("Unplayed", &s_unplayed, true,
+               "Only courses you have never played, from the list of courses OpenCourse World has for you. Needs your maker code, which the game "
+               "learns when it is online.");
+    opt_choice("Game Style", &s_style, styles, 6, 0, "Any, or one of the five game styles.", true);
+    opt_choice("Theme", &s_theme, search_themes, 11, 0, "Any, or one level theme.", true);
+    opt_choice("Tag", &s_tag, search_tags, 16, 0, "Any, or a course with this tag (either of its two).", true);
+    opt_choice("Clear Condition", &s_cond, conds, 3, 0, "Any, courses with no clear condition, or courses that have one.", true);
+    opt_choice("Min. Attempts", &s_tmin, tries_names, 6, 0, "At least this many attempts by everyone together.", true);
+    opt_choice("Max. Attempts", &s_tmax, tries_names, 6, 0, "At most this many attempts by everyone together.", true);
+    opt_choice("Min. Clear Check", &s_cmin, time_names, 5, 0, "The clear check (the course's maker clearing it before upload) took at least this long.", true);
+    opt_choice("Max. Clear Check", &s_cmax, time_names, 5, 0, "The clear check took at most this long.", true);
+    opt_no_reset();
+    opt_end();
+    opt_in_column(false);
+}
+
+// A button in a box, drawn as the option pages' buttons are (no box until pointed at, a gold edge then, the label at the left, dim when it
+// can't be used) and at the box's next row: true only when it is used
+static bool search_button(Card *c, const char *label, bool enabled) {
+    float fs = c->fs, h = fs * 1.7f;
+    ImVec2 back;
+    igGetCursorScreenPos(&back);
+    ImVec2 p = IM_VEC2(c->x + fs * 0.3f, c->y);
+    float w = c->w - fs * 0.6f;
+    igSetCursorScreenPos(p);
+    igPushID_Str(label);
+    igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));
+    if (!enabled) igBeginDisabled(true);
+    bool clicked = igInvisibleButton("##b", IM_VEC2(w, h), ImGuiButtonFlags_EnableNav);
+    bool hot = enabled && (igIsItemHovered(0) || (igIsItemFocused() && igGetCurrentContext()->NavCursorVisible));
+    if (!enabled) igEndDisabled();
+    igPopStyleColor(1);
+    igPopID();
+    ImDrawList *dl = c->dl;
+    if (hot) {
+        ImDrawList_AddRectFilled(dl, p, IM_VEC2(p.x + w, p.y + h), IM_COL32(255, 255, 255, 22), 0, 0);
+        ImDrawList_AddRect(dl, p, IM_VEC2(p.x + w, p.y + h), menu_accent(255), 0, 0, 2.0f);
+    }
+    ImDrawList_AddText_Vec2(dl, IM_VEC2(p.x + fs * 0.4f, p.y + (h - fs) * 0.5f), enabled ? IM_COL32(240, 236, 224, 255) : IM_COL32(110, 110, 102, 255), label, NULL);
+    igSetCursorScreenPos(back);
+    c->y += h + fs * 0.1f;
+    return clicked && enabled;
+}
+
+uint64_t vk_imgui_texture_picture(const void *rgba, int w, int h);  // runtime/nvn/vulkan/imgui_glue.c
+
+// The picture of the course in the Find box: 16:9 under the button; a spinning arc while it comes, "No picture" if it won't
+static void search_picture(const Card *c, const char *id, float iw, float ih, int64_t created) {
+    static char shown[12];  // (the course whose picture is in the texture)
+    static uint64_t tid;
+    float fs = c->fs;
+    float x0 = c->x + (c->w - iw) * 0.5f;  // (centred in the box)
+    ImVec2 p0 = IM_VEC2(x0, c->y), p1 = IM_VEC2(x0 + iw, c->y + ih);
+    int w = 0, h = 0;
+    const uint8_t *px = game_search_image(id, &w, &h);
+    if (px && w > 0 && (strcmp(shown, id) || !tid)) {
+        tid = vk_imgui_texture_picture(px, w, h);
+        snprintf(shown, sizeof shown, "%s", id);
+    }
+    if (px && tid && !strcmp(shown, id)) {
+        ImDrawList_AddImage(c->dl, (ImTextureID)tid, p0, p1, IM_VEC2(0, 0), IM_VEC2(1, 1), IM_COL32(255, 255, 255, 255));
+    } else {
+        ImDrawList_AddRectFilled(c->dl, p0, p1, IM_COL32(0, 0, 0, 70), fs * 0.2f, 0);
+        if (w < 0) {
+            const char *t = "No picture";
+            ImDrawList_AddText_Vec2(c->dl, IM_VEC2((p0.x + p1.x) * 0.5f - text_w(t) * 0.5f, (p0.y + p1.y) * 0.5f - fs * 0.5f), menu_muted(), t, NULL);
+        } else {
+            ui_spin(c->dl, (p0.x + p1.x) * 0.5f, (p0.y + p1.y) * 0.5f, fs * 0.5f, menu_muted(), (float)(SDL_GetTicks() / 1000.0 * 5.0));
+        }
+    }
+    if (created > 0) {  // the upload's date at the left and time at the right, over a dark strip along the bottom edge (as opencourse.world's)
+        time_t tt = (time_t)created;
+        struct tm *lt = localtime(&tt);
+        char d[16] = "", t[8] = "";
+        if (lt) strftime(d, sizeof d, "%m/%d/%Y", lt), strftime(t, sizeof t, "%H:%M", lt);
+        float sh = fs * 1.4f;
+        ImDrawList_AddRectFilled(c->dl, IM_VEC2(p0.x, p1.y - sh), p1, IM_COL32(0, 0, 0, 150), fs * 0.2f, ImDrawFlags_RoundCornersBottom);
+        float ty = p1.y - sh + (sh - fs) * 0.5f;
+        ImDrawList_AddText_Vec2(c->dl, IM_VEC2(p0.x + fs * 0.4f, ty), IM_COL32(255, 255, 255, 235), d, NULL);
+        ImDrawList_AddText_Vec2(c->dl, IM_VEC2(p1.x - fs * 0.4f - text_w(t), ty), IM_COL32(255, 255, 255, 235), t, NULL);
+    }
+    ImDrawList_AddRect(c->dl, p0, p1, menu_accent(80), fs * 0.2f, 0, 1.5f);
+}
+
+static void search_find(void) {
+    static const char *const sn[] = {"SMB1", "SMB3", "SMW", "NSMBU", "3DW"};
+    float fs = igGetFontSize();
+    SearchStatus st;
+    game_search_status(&st);
+    if (!st.online) {
+        Card c = card_begin("Find", rows_h(fs, 1));
+        card_row(&c, "Add your OpenCourse World config in the Online tab", "");
+        card_end(&c);
+        return;
+    }
+    SearchCourse r;
+    char err[96];
+    int rs = game_search_result(&r, err);
+    ImVec2 av;
+    igGetContentRegionAvail(&av);
+    float wrap = av.x - fs * 1.4f, eh = 0;
+    if (rs == 4) {  // (what went wrong, wrapped inside the box)
+        ImVec2 sz;
+        igCalcTextSize(&sz, err, NULL, false, wrap);
+        eh = sz.y + fs * 0.2f;
+    }
+    int rows = 1 + (rs == 2 ? (r.title[0] != 0) + (r.owner[0] != 0) + 5 : rs == 1 || rs == 3 ? 1 : 0);  // (Course List, then the pick)
+    float iw = (av.x - fs * 1.4f) * 0.7f, ih = iw * 9.0f / 16.0f;  // (the picture: 70% of the box)
+    float h = rows_h(fs, rows) + fs * 1.8f * (rs == 2 ? 2 : 1) + eh + (rs == 2 ? ih + fs * 0.3f + fs * 1.5f : 0);
+    Card c = card_begin("Find", h);
+    bool busy = st.loading || st.played_loading;
+    if (ui_card_refresh(&c, busy)) game_search_refresh();
+    // the list: its size, or the leaderboards' spinning arc while it is read
+    char v[96];
+    if (st.loading) v[0] = 0;
+    else if (st.error[0]) snprintf(v, sizeof v, "not read");
+    else snprintf(v, sizeof v, "%u courses", st.loaded);
+    float y = c.y;
+    card_row(&c, "Course List", v);
+    if (st.loading) {
+        float rr = fs * 0.32f;
+        ui_spin(c.dl, c.x + c.w - fs * 0.7f - rr, y + fs * 0.5f, rr, menu_muted(), (float)(SDL_GetTicks() / 1000.0 * 5.0));
+    }
+    // greyed until the lists are in (the course list, and the played list when Unplayed is on), and while a pick is made
+    bool ready = !st.loading && st.loaded > 0 && (!s_unplayed || st.played_known) && rs != 1;
+    SearchFilter f = search_filter();
+    if (search_button(&c, rs == 2 ? "Find Another" : "Find a Course", ready)) game_search_roll(&f);
+    if (rs == 1) card_row(&c, "Looking", "...");
+    else if (rs == 3) card_row(&c, "Result", "nothing matches");
+    else if (rs == 4) {
+        ImVec2 back;
+        igGetCursorScreenPos(&back);
+        igSetCursorScreenPos(IM_VEC2(c.x + fs * 0.7f, c.y));
+        igPushTextWrapPos(c.x + fs * 0.7f + wrap);
+        igTextDisabled("%s", err);
+        igPopTextWrapPos();
+        igSetCursorScreenPos(back);
+        c.y += eh;
+    } else if (rs == 2) {
+        search_picture(&c, r.id, iw, ih, r.created);
+        c.y += ih + fs * 0.3f;
+        card_row(&c, "Course ID", r.id);
+        if (r.title[0]) card_row(&c, "Name", r.title);
+        if (r.owner[0]) card_row(&c, "Maker", r.owner);
+        snprintf(v, sizeof v, "%s, %s", r.style < 5 ? sn[r.style] : "?", r.theme < 10 ? search_themes[r.theme + 1] : "?");
+        card_row(&c, "Style", v);
+        if (r.tag1 && r.tag1 <= SEARCH_TAGS)
+            snprintf(v, sizeof v, "%s%s%s", search_tags[r.tag1], r.tag2 && r.tag2 <= SEARCH_TAGS ? ", " : "", r.tag2 && r.tag2 <= SEARCH_TAGS ? search_tags[r.tag2] : "");
+        else snprintf(v, sizeof v, "none");
+        card_row(&c, "Tags", v);
+        snprintf(v, sizeof v, "%u clears, %u attempts", r.clears, r.tries);
+        card_row(&c, "Record", v);
+        search_time(v, sizeof v, r.clear_check_ms);
+        card_row(&c, "Clear Check", v);
+        static char launch_err[96];
+        static char launch_id[12];
+        if (strcmp(launch_id, r.id)) launch_id[0] = 0, launch_err[0] = 0;  // (another course: the old answer is gone)
+        if (search_button(&c, "Take to the Game", true)) {
+            snprintf(launch_id, sizeof launch_id, "%s", r.id);
+            if (game_search_launch(r.id, launch_err)) menu_close();  // (Course World's ID search)
+        }
+        if (launch_err[0]) {
+            ImVec2 back;
+            igGetCursorScreenPos(&back);
+            igSetCursorScreenPos(IM_VEC2(c.x + fs * 0.7f, c.y));
+            igPushTextWrapPos(c.x + c.w - fs * 0.7f);
+            igTextDisabled("%s", launch_err);
+            igPopTextWrapPos();
+            igSetCursorScreenPos(back);
+            c.y += fs * 1.5f;
+        }
+    }
+    card_end(&c);
+}
+
+static void tab_search(void) {
+    float fs = igGetFontSize();
+    ImVec2 av;
+    igGetContentRegionAvail(&av);
+    int cols = av.x > fs * 38 ? 2 : 1;  // (as the Stats tab: two columns when the window is wide)
+    if (!igBeginTable("##search_cols", cols, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX, IM_VEC2(0, 0), 0)) return;
+    igTableNextColumn();
+    if (cols == 1) {  // (one column: the pick first, the filters under it)
+        search_find();
+        search_filters();
+    } else {
+        search_filters();
+        igTableNextColumn();
+        igBeginChild_Str("##find", IM_VEC2(0, 0), ImGuiChildFlags_NavFlattened, 0);
+        igDummy(IM_VEC2(1, fs * 0.2f));
+        search_find();
+        igEndChild();
+    }
+    igEndTable();
+}
+
 void online_page(void);  // runtime/ui/mods_page.cpp: the backend, its accounts, the game's rows for it, the app's
 static void tab_online(void) {
     opt_flat_begin("##online", igGetFontSize() / 34);
@@ -1187,8 +1416,8 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     if (prelaunch) tabs[ntabs++] = (Tab){"Prelaunch", -1, true};
     // (LAS Recomp's game tabs - Save Editor, Randomizer, Warp, Cheats, Gameplay, Cosmetics - are not part of the
     // shared runtime; their ids stay unused so the test hooks keep their numbers)
-    static const char *names[] = {"Video", "Audio", "Mods", "Online", "Stats", "General", "Achievements", "", "Controls", "Quit"};
-    static const int order[] = {5, 8, 0, 1, 2, 3, 4, 6, 9};  // General, Controls, Video, Audio, Mods, Online, Stats, Achievements, Quit
+    static const char *names[] = {"Video", "Audio", "Mods", "Online", "Stats", "General", "Achievements", "Search", "Controls", "Quit"};
+    static const int order[] = {5, 8, 0, 1, 2, 3, 7, 4, 6, 9};  // General, Controls, Video, Audio, Mods, Online, Search, Stats, Achievements, Quit
     const GameModRow *mrows;
     bool have_mods = game_mod_rows(&mrows) > 0 || launcher_has_settings() || online_rows_available();
     for (size_t oi = 0; oi < sizeof order / sizeof order[0]; oi++) {  // (Quit: in game only; Mods: when the game has some)
@@ -1305,6 +1534,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 case 3: tab_online(); break;
                 case 4: tab_stats(); break;
                 case 6: tab_achievements(); break;
+                case 7: tab_search(); break;
                 case 5: tab_general(); break;
                 case 8: tab_about(); break;
                 case 9: tab_quit(scale, in_game); break;

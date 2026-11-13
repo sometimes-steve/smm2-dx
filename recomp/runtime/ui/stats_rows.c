@@ -24,9 +24,10 @@ Card card_begin(const char *title, float h) {
     ImVec2 p, av;
     igGetCursorScreenPos(&p);
     igGetContentRegionAvail(&av);
-    c.x = p.x, c.w = av.x, c.dl = igGetWindowDrawList();
+    c.x = p.x, c.top = p.y, c.w = av.x, c.dl = igGetWindowDrawList();
     igPushID_Str(title);
     igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));
+    igSetNextItemAllowOverlap();  // (buttons inside the box, the refresh arrow and Find a Course, are clicked over it)
     igInvisibleButton("##card", IM_VEC2(c.w, h), ImGuiButtonFlags_EnableNav);
     igPopStyleColor(1);
     igPopID();
@@ -34,6 +35,7 @@ Card card_begin(const char *title, float h) {
     ImDrawList_AddRectFilled(c.dl, IM_VEC2(p.x, p.y), IM_VEC2(p.x + c.w, p.y + h), menu_accent(hot ? 44 : 22), c.fs * 0.3f, 0);
     ImDrawList_AddRect(c.dl, IM_VEC2(p.x, p.y), IM_VEC2(p.x + c.w, p.y + h), menu_accent(hot ? 190 : 80), c.fs * 0.3f, 0, 1.5f);
     ImDrawList_AddText_Vec2(c.dl, IM_VEC2(p.x + c.fs * 0.7f, p.y + c.fs * 0.5f), menu_muted(), title, NULL);
+    ImDrawList_AddLine(c.dl, IM_VEC2(p.x + c.fs * 0.7f, p.y + c.fs * 1.75f), IM_VEC2(p.x + c.w - c.fs * 0.7f, p.y + c.fs * 1.75f), menu_accent(70), 1.0f);  // (a hairline under the title, as the option pages' headings)
     c.y = p.y + c.fs * 2.1f;
     return c;
 }
@@ -168,10 +170,11 @@ static void card_clear_stats(const OnlineProfile *pr) {
 }
 
 // the last 14 days, a bar each (today at the right), the weekday's first letter under it
-static void card_trend(void) {
+#define TREND_H(fs) ((fs) * 10.1f)  // (the box's natural height)
+static void card_trend(float box_h) {  // box_h: the box's height (the one beside it may be taller)
     enum { DAYS = 14 };
-    float fs = igGetFontSize(), plot = fs * 6;
-    Card c = card_begin("Last 14 Days", fs * 2.1f + plot + fs * 2.0f);
+    float fs = igGetFontSize(), plot = box_h - fs * 4.1f;
+    Card c = card_begin("Last 14 Days", box_h);
     double v[DAYS], max = 0, total = 0;
     for (int i = 0; i < DAYS; i++) {
         v[i] = history_day_seconds(DAYS - 1 - i);
@@ -197,7 +200,7 @@ static void card_trend(void) {
         char best[48];
         playtime_format(max, best, sizeof best);
         playtime_format(total, t, sizeof t);
-        snprintf(line, sizeof line, "Best day %s   Total %s", best, t);
+        snprintf(line, sizeof line, "Best %s  Total %s", best, t);
     } else {
         snprintf(line, sizeof line, "Nothing recorded yet");
     }
@@ -206,13 +209,16 @@ static void card_trend(void) {
 }
 
 // when it is played: a cell for each hour of each weekday (Monday first); darker is more
-static void card_heatmap(void) {
+static float heat_cell(float fs, float width) {  // a cell's size in a box `width` wide
+    float lab = text_w("Mon") + fs * 0.5f, cell = fminf((width - fs * 1.4f - lab) / 24, fs * 1.5f);
+    return cell < 4 ? 4 : cell;
+}
+static void card_heatmap(float box_h) {  // box_h: the box's height, at least its own
     float fs = igGetFontSize();
     ImVec2 av;
     igGetContentRegionAvail(&av);
-    float lab = text_w("Mon") + fs * 0.5f, cell = fminf((av.x - fs * 1.4f - lab) / 24, fs * 1.5f);
-    if (cell < 4) cell = 4;
-    Card c = card_begin("When You Play", fs * 2.1f + cell * 7 + fs * 1.9f);
+    float lab = text_w("Mon") + fs * 0.5f, cell = heat_cell(fs, av.x);
+    Card c = card_begin("When You Play", fmaxf(box_h, fs * 2.1f + cell * 7 + fs * 1.9f));
     static const char *const days[7] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
     double max = 0;
     for (int w = 0; w < 7; w++)
@@ -234,7 +240,7 @@ static void card_heatmap(void) {
         snprintf(t, sizeof t, "%d", h);
         ImDrawList_AddText_Vec2(c.dl, IM_VEC2(x0 + cell * h, c.y + cell * 7 + fs * 0.3f), menu_muted(), t, NULL);
     }
-    const char *note = max > 0 ? "Hour of the day, 24-hour clock. Darker means more time." : "Nothing recorded yet";
+    const char *note = max > 0 ? "Darker is more time" : "Nothing recorded yet";
     ImDrawList_AddText_Vec2(c.dl, IM_VEC2(c.x + c.w - fs * 0.7f - text_w(note), c.y - fs * 1.6f), menu_muted(), note, NULL);
     card_end(&c);
 }
@@ -258,7 +264,17 @@ void stats_rows(void) {
         card_clear_stats(&pr);
         igEndTable();
     }
-    card_trend();
-    card_heatmap();
+    // the last 14 days and when you play, side by side in a wide window (the one box as tall as the other)
+    if (igBeginTable("##stats2", cols, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_PadOuterX, IM_VEC2(0, 0), 0)) {
+        igTableNextColumn();
+        ImVec2 col;
+        igGetContentRegionAvail(&col);
+        float h = TREND_H(fs), hh = fs * 2.1f + heat_cell(fs, col.x) * 7 + fs * 1.9f;
+        if (hh > h) h = hh;
+        card_trend(h);
+        igTableNextColumn();
+        card_heatmap(h);
+        igEndTable();
+    }
     igDummy(IM_VEC2(1, fs * 0.5f));
 }

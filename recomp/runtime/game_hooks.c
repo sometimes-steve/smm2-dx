@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "cpu.h"
 #include "game_rows.h"
@@ -42,6 +43,15 @@ WEAK void game_online_boards_refresh(void) {}
 WEAK int game_current_character(void) { return -1; }
 WEAK int game_current_style(void) { return -1; }
 WEAK bool game_own_maker(char out[10]) { (void)out; return false; }
+WEAK void game_search_status(SearchStatus *out) { memset(out, 0, sizeof *out); }
+WEAK unsigned game_search_count(const SearchFilter *f) { (void)f; return 0; }
+WEAK void game_search_refresh(void) {}
+WEAK void game_search_roll(const SearchFilter *f) { (void)f; }
+WEAK int game_search_result(SearchCourse *out, char err[96]) { (void)out, (void)err; return 0; }
+WEAK const uint8_t *game_search_image(const char *id, int *w, int *h) { (void)id, (void)h; *w = -1; return NULL; }
+WEAK bool game_search_launch(const char *id, char msg[96]) { (void)id; snprintf(msg, 96, "Not available"); return false; }
+WEAK void game_search_go(const char *id) { (void)id; }
+WEAK bool game_search_pending(char out[12]) { (void)out; return false; }
 WEAK bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]) { (void)maker, (void)name, (void)out; return false; }
 
 // ---- once per frame on the game's main thread (runtime/hle/input.c), and per presented frame (renderers)

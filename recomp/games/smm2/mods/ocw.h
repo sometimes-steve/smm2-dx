@@ -1,6 +1,7 @@
 // OpenCourse World (mods/ocw.c): the game's own online client against the player's own OCW account.
 #pragma once
 #include <stdbool.h>
+#include <stddef.h>
 
 typedef struct Cpu Cpu;
 
@@ -15,3 +16,9 @@ void ocw_fill_play_stats(Cpu *c, uint64_t no, uint64_t ret);
 // The WebSocket handshake, in place of the game's own snprintf call (mods/patches.py). False: OCW is off, and the
 // generated code makes the game's own call instead.
 bool smm2_ocw_header(Cpu *c);
+
+// The service's REST host and the player's own maker code (search.c). False with the service off; maker is "" until it is learned.
+bool ocw_rest_target(char domain[], size_t domain_cap, char maker[12]);
+
+// Read the Search tab's course lists now (search.c): called when the game goes online.
+void search_boot(void);

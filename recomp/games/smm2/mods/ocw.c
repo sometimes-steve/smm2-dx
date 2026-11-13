@@ -492,6 +492,19 @@ bool game_own_maker(char out[10]) {
     return ok;
 }
 
+// The service's REST address and the player's own maker code ("AAA-BBB-CCC", "" when not learned yet), for the Search tab (search.c).
+// False with the service off.
+bool ocw_rest_target(char domain[], size_t domain_cap, char maker[12]) {
+    if (!g_ocw.active || !g_ocw.domain[0]) return false;
+    snprintf(domain, domain_cap, "%s", g_ocw.domain);
+    maker[0] = 0;
+    pthread_mutex_lock(&g_mii.lock);
+    self_load_locked();
+    if (g_self.have && strlen(g_self.maker) == 11) snprintf(maker, 12, "%s", g_self.maker);
+    pthread_mutex_unlock(&g_mii.lock);
+    return true;
+}
+
 bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]) {
     if (!g_settings.replace_bad_mii || !g_ocw.active) return false;
     char id[12];
@@ -886,6 +899,7 @@ static void boards_start(void *(*run)(void *)) {  // (under g_boards.lock)
 }
 
 static void boards_start_at_boot(void) {
+    search_boot();
     pthread_mutex_lock(&g_boards.lock);
     if (!g_boards.b.busy) boards_start(boards_boot_thread);
     pthread_mutex_unlock(&g_boards.lock);

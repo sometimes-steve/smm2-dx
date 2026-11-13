@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.0 "Roulette" - 2026-11-13
+
+### Search tab (#24)
+
+- **New Search tab: find a course nobody has cleared and you have never played, and take it to the game.** The filters are on the left, the
+  Find box on the right. Uncleared (nobody has cleared it) and Unplayed (you never played it) are on by default; there are also Game Style,
+  Theme, Tag, Clear Condition, Min. / Max. Attempts and Min. / Max. Clear Check time (the sites' filters, less the year). **Find a Course**
+  picks one at random from the ones that match, checks it with OpenCourse World, and shows its picture with the upload date and time, its
+  name, maker, style, tags, clears and attempts. **Find Another** draws again.
+- **Take to the Game** (in Course World): closes the menu and opens the course's page there for you: it backs out to Course World's home,
+  opens the ID search, and answers the game's Course ID prompt with the course's ID. Play is yours to press. Your own buttons are ignored
+  for the few seconds it takes. When Course World is not what the game is showing, the button says so.
+- The course list (about 30,000 courses; OpenCourse World's web API has no search) is read in the background when the game starts and kept in
+  `ocw-courses.bin` in the data folder, so the next start has it at once and only tops it up; your played list is kept the same way. The
+  circle at the top right of the Find box reads both again. Find a Course is greyed until they are in.
+- The Course ID prompt of the game's own Course World search is answered with that ID only when you took a course there from the Search tab
+  (for the next 15 minutes); typing an ID yourself works as before.
+
+### Menu
+
+- **Boxes are half the window's width on every tab** (as the Stats and Achievements cards are), more only when their rows need it.
+- Stats: **Last 14 Days** and **When You Play** sit side by side in a wide window, the same height. The titles of the boxes on the Stats
+  and Achievements tabs have a line under them, as the headings of the option pages do.
+- Achievements: the refresh circle is in the Leaderboards box's top right corner.
+- Mods: the help text on the right for the Show row and for "None yet" is gone.
+
 ## 0.5.11 "Maple Leaf" - 2026-11-13
 
 ### Maker flags (#35)

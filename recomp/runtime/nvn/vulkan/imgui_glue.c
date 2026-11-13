@@ -96,3 +96,25 @@ uint64_t vk_imgui_texture_stream(const void *rgba, int w, int h) {
     vkCmdCopyBufferToImage(cb, s.buf, img, VK_IMAGE_LAYOUT_GENERAL, 1, &rg);
     return id;
 }
+
+// One more streamed image of its own, for the Search tab's course picture (the one above is the game's host-drawn screen's): made on the
+// first call, its pixels replaced on later ones. Returns the ImTextureID.
+uint64_t vk_imgui_texture_picture(const void *rgba, int w, int h) {
+    static VkImage img;
+    static uint64_t id;
+    static int iw, ih;
+    if (!id || w != iw || h != ih) {  // (every picture is the same size: this does not happen)
+        id = vk_imgui_texture_rgba(rgba, w, h);
+        img = id ? g_last_image : VK_NULL_HANDLE;
+        iw = w, ih = h;
+        return id;
+    }
+    VkCommandBuffer cb = vk_upload_cmd();
+    VkSpan s = vk_transient_copy(rgba, (uint64_t)w * h * 4, 16);
+    VkBufferImageCopy rg = {0};
+    rg.bufferOffset = s.off;
+    rg.imageSubresource = (VkImageSubresourceLayers){VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    rg.imageExtent = (VkExtent3D){(uint32_t)w, (uint32_t)h, 1};
+    vkCmdCopyBufferToImage(cb, s.buf, img, VK_IMAGE_LAYOUT_GENERAL, 1, &rg);
+    return id;
+}

@@ -82,6 +82,48 @@ bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]
 // The player's own maker code, the 9 characters without dashes, for the flag they chose (runtime/services/ssl.c gives every maker in
 // the server's answers a flag): fills `out` and returns true, or false when it is not known yet. runtime/game_hooks.c: false.
 bool game_own_maker(char out[10]);
+// ---- the Search tab (games/smm2/mods/search.c): courses of the online service's own list, filtered here, and a random pick.
+// style: 0 SMB1, 1 SMB3, 2 SMW, 3 NSMBU, 4 3DW (ui/history.h order); theme: 0 Ground, 1 Underground, 2 Castle, 3 Airship, 4 Underwater,
+// 5 Ghost House, 6 Snow, 7 Desert, 8 Sky, 9 Forest (255: not known); tags 0 none, 1..15 as the game's list (SEARCH_TAGS names them).
+typedef struct {
+    char id[12];        // "AAA-BBB-CCC"
+    char title[100], owner[64];  // "" when the service could not be asked about the course just now
+    uint8_t style, theme, tag1, tag2;
+    uint32_t clears, plays, tries, clear_check_ms;
+    int64_t created;    // when it was uploaded (unix time; 0 when not known)
+    bool verified;      // the numbers are the service's answer just now (false: from the list read earlier)
+} SearchCourse;
+typedef struct {
+    bool uncleared;       // nobody has cleared it
+    bool unplayed;        // the player never played it
+    int style, theme, tag;  // -1: any
+    int condition;        // 0 any, 1 none, 2 has a clear condition
+    unsigned min_tries, max_tries;  // attempts by everyone; 0: no bound
+    unsigned min_ms, max_ms;        // the clear check's time; 0: no bound
+} SearchFilter;
+typedef struct {
+    bool online;          // an online service is set up (without one there is nothing to search)
+    bool loading;         // the course list is being read
+    bool played_loading, played_known;  // the player's own played list (for "unplayed")
+    unsigned loaded;      // courses in the list
+    char error[96];       // "" or what went wrong with reading the list
+} SearchStatus;
+#define SEARCH_TAGS 15
+void game_search_status(SearchStatus *out);                    // (the first call starts reading the lists)
+unsigned game_search_count(const SearchFilter *f);             // courses in the list that match
+void game_search_refresh(void);                                // read the lists again
+void game_search_roll(const SearchFilter *f);                  // pick one at random, on a thread: game_search_result says when
+// 0 nothing asked yet, 1 working, 2 found (out is the course), 3 nothing matches, 4 failed (err says why)
+int game_search_result(SearchCourse *out, char err[96]);
+// Take the course to the game: its Course ID is what the game's next Course ID prompt starts with (runtime/hle/swkbd.c)
+// The picture of a course (its one-screen thumbnail, 640 x 360) as RGBA8, fetched in the background: NULL until it is there (the first
+// call for an ID starts it; *w is -1 when it failed). The pixels stay valid for the last eight asked for.
+const uint8_t *game_search_image(const char *id, int *w, int *h);
+void game_search_go(const char *id);
+// Take the course to the game for real: Course World's ID search, driven for the player, and its page is up (games/smm2/mods/search.c). False,
+// with msg saying why, when the game is not showing Course World.
+bool game_search_launch(const char *id, char msg[96]);
+bool game_search_pending(char out[12]);                        // the ID waiting for the prompt (taken: the next call says false)
 // The secret rows go back to "set" / "not set" (runtime/ui/menu.cpp calls this when the menu closes; drawn and
 // defined by runtime/ui/mods_page.cpp, the Mods tab's Online page)
 void game_mod_rows_hide(void);

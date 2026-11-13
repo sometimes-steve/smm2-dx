@@ -129,7 +129,8 @@ RT_ON_RESET(skip_intro_reset) {
 // stick moved): while it runs the player's input is dropped (runtime/hle/input.c input_user_blocked). Only once the game is
 // there and the sequence has begun (not at the setup screen, which has no sequence to protect), and it always ends: when the
 // sequence is done, or 120 s after it began.
-bool game_input_blocked(void) { return atomic_load(&g_ms_state) == 1 || atomic_load(&g_splash); }
+extern bool course_launch_busy(void);  // search.c: a course is being taken to the game
+bool game_input_blocked(void) { return atomic_load(&g_ms_state) == 1 || atomic_load(&g_splash) || course_launch_busy(); }
 
 // The game is still launching with its intro skipped (runtime/game_hooks.c game_launch_skipping): Skip mode select
 // until its sequence is over, Skip intro until the title screen is up (the boot logo's hooks have gone quiet).

@@ -241,8 +241,7 @@ static void page_installed(void) {
     apply_row();
     if (!n) {
         opt_section("Installed mods");
-        opt_action("None yet", "", "Get mods from GameBanana (the next page), or copy a mod's folder into the data "
-                   "folder's mods/ (its files in mods/<name>/romfs).", false);
+        opt_action("None yet", "", "", false);
         return;
     }
     int shown = 0;  // (the mods the search lets through)
@@ -511,8 +510,7 @@ void mods_page(void) {
     opt_section("Mods");
     int page = g_page;
     if (np > 1)
-        opt_choice("Show", &page, (const char *const *)pages, np, 0, "Installed: mods you added; they load when the game starts again (the menu offers to restart after an install). GameBanana: "
-                   "get more.", true);
+        opt_choice("Show", &page, (const char *const *)pages, np, 0, "", true);
     if (page != g_page) g_mod = -1, g_gb = 0;  // (another page: no mod's page open)
     g_page = page;
     switch (g_page) {

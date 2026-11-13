@@ -39,6 +39,8 @@ bool opt_action(const char *label, const char *value, const char *desc, bool upp
 // One-pane pages (the Ship of Harkinian look): full-width rows, each row's description as a tooltip while it is hovered or
 // selected. opt_flat_begin takes the place of opt_begin (opt_end closes both). The two-pane page stays for the Mods.
 void opt_flat_begin(const char *id, float scale);
+// the next one-pane pages fill the column they are drawn in (a page in a table's cell) instead of being half the width of the window
+void opt_in_column(bool on);
 // A picture (an ImTextureID, w x h) for the description pane of the row just drawn: shown above its text while that row is
 // the hovered / selected one. w < 0: it won't come (a place says so); tex 0: still loading (a place says so).
 #include <stdint.h>
