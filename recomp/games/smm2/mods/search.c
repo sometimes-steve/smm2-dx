@@ -674,12 +674,25 @@ extern uint64_t renderer_present_count(void);
 extern uint64_t g_test_buttons, g_test_buttons_until;  // runtime/game_hooks.c, read by runtime/hle/input.c
 extern void touch_test(int32_t x, int32_t y, bool down);  // runtime/hle/touch.c: a finger at game pixels (1280 x 720)
 static _Atomic bool g_launching;
+static _Atomic float g_launch_progress;
+extern _Atomic int g_present_hidden;  // runtime/nvn/objects.c: frames run unpaced and unseen (the loading screen shows instead)
+extern volatile int g_audio_muted;    // runtime/services/audio.c
+
+// the black loading screen Skip Mode Select shows (skip_intro.c game_splash asks): the frames run fast and unseen while Course World is driven
+bool course_launch_splash(float *progress) {
+    if (!atomic_load(&g_launching)) return false;
+    *progress = atomic_load(&g_launch_progress);
+    return true;
+}
 
 bool course_launch_busy(void) { return atomic_load(&g_launching); }  // (the player's own input is dropped meanwhile: skip_intro.c)
 
 static void wait_frames(unsigned n) {  // presented frames (the game may run unpaced: a press is held for frames, not time)
     uint64_t until = renderer_present_count() + n;
-    while (renderer_present_count() < until) usleep(10000);
+    while (renderer_present_count() < until) {
+        atomic_store(&g_present_hidden, 300);
+        usleep(10000);
+    }
 }
 static void touch_hold(int x, int y) {  // (a touch is taken only when held about a second of the game's time)
     touch_test(x, y, true);
@@ -692,23 +705,33 @@ static void *launch_thread(void *arg) {
     snprintf(id, sizeof id, "%s", (char *)arg);
     free(arg);
     LOG("[search] taking %s to the game\n", id);
+    atomic_store(&g_launch_progress, 0.05f);
+    atomic_store(&g_present_hidden, 300), g_audio_muted = 1;
     for (int i = 0; i < 3; i++) {  // (1)
+        atomic_store(&g_launch_progress, 0.05f + 0.1f * i);
         g_test_buttons = 1u << 1, g_test_buttons_until = renderer_present_count() + 6;  // B
         wait_frames(30);
     }
+    atomic_store(&g_launch_progress, 0.4f);
     touch_hold(1207, 187);  // (2) the ID button
+    atomic_store(&g_launch_progress, 0.65f);
     for (int i = 0; i < 100; i++) {  // (the game's Course ID prompt takes the ID: the course's page follows by itself)
         usleep(100000);
         pthread_mutex_lock(&S.lock);
         bool asked = S.pending[0] == 0;
         pthread_mutex_unlock(&S.lock);
-        if (asked) goto done;
+        if (asked) {
+            atomic_store(&g_launch_progress, 0.85f);
+            wait_frames(90);  // (the course's page comes up unseen, then the window shows it)
+            goto done;
+        }
     }
     LOG("[search] the Course ID prompt did not open\n");
     pthread_mutex_lock(&S.lock);
     S.pending[0] = 0;
     pthread_mutex_unlock(&S.lock);
 done:
+    atomic_store(&g_present_hidden, 0), g_audio_muted = 0;
     atomic_store(&g_launching, false);
     return NULL;
 }

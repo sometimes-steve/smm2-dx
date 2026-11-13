@@ -105,7 +105,12 @@ static _Atomic bool g_splash;
 static _Atomic float g_splash_progress;
 static const char *volatile g_splash_what = "Starting the game";
 
+extern bool course_launch_splash(float *progress);  // search.c: Take to the Game
 bool game_splash(float *progress, const char **what) {
+    if (course_launch_splash(progress)) {
+        *what = "Opening the course";
+        return true;
+    }
     if (!atomic_load(&g_splash)) return false;
     *progress = atomic_load(&g_splash_progress);
     *what = g_splash_what;

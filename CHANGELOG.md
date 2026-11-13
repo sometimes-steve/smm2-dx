@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 "Blackout" - 2026-11-13
+
+### Search tab (#24)
+
+- **Take to the Game shows the black loading screen** Skip Mode Select uses ("Opening the course", with its loading bar) while Course World is
+  driven to the course's page: the game runs fast and unseen with its sound off, and the window shows the page once it is up.
+
 ## 0.6.0 "Roulette" - 2026-11-13
 
 ### Search tab (#24)
