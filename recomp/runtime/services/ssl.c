@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/entropy.h"
@@ -448,6 +449,38 @@ static int wire_fix_mii(uint8_t *p, size_t n, size_t *safe) {
     return fixed;
 }
 
+// ---- the server's clock in the login answer (issue #30). The NEX login answer ends with the server's current UTC time, a
+// 64-bit date (year << 26 | month << 22 | day << 17 | hour << 12 | minute << 6 | second), followed by the server's name
+// (u16 length 0x14, "Super Mario Maker 2", a NUL). The game counts "now" on from that date, to give the Last played line on
+// the leaderboards ("today", "N days ago", ...). OpenCourse World sends a fixed one (8 February 2023, 00:41:07 in captures of
+// three sessions), so every maker's last play was "in the future" and the line stayed blank. When the date in the answer is
+// more than a day away from this machine's clock it is replaced by the clock's (UTC); one that is right is left alone.
+static int wire_fix_server_time(uint8_t *p, size_t n) {
+    static const uint8_t name[] = {0x14, 0x00, 'S', 'u', 'p', 'e', 'r', ' ', 'M', 'a', 'r', 'i', 'o', ' ', 'M', 'a', 'k', 'e', 'r', ' ', '2', 0x00};
+    int fixed = 0;
+    for (size_t i = 9; i + sizeof name <= n; i++) {
+        if (p[i] != name[0] || memcmp(p + i, name, sizeof name) != 0) continue;
+        if (p[i - 9] != 0) continue;  // (the station URL before the date ends in a NUL)
+        uint64_t v;
+        memcpy(&v, p + i - 8, 8);
+        unsigned year = (unsigned)(v >> 26), month = (unsigned)((v >> 22) & 15), day = (unsigned)((v >> 17) & 31);
+        unsigned hour = (unsigned)((v >> 12) & 31), minute = (unsigned)((v >> 6) & 63), second = (unsigned)(v & 63);
+        if (year < 1970 || year > 2200 || month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 59) continue;
+        struct tm tm = {0};
+        tm.tm_year = (int)year - 1900, tm.tm_mon = (int)month - 1, tm.tm_mday = (int)day;
+        tm.tm_hour = (int)hour, tm.tm_min = (int)minute, tm.tm_sec = (int)second;
+        time_t theirs = _mkgmtime(&tm), now = time(NULL);
+        if (theirs != (time_t)-1 && difftime(now, theirs) < 86400.0 && difftime(theirs, now) < 86400.0) continue;  // (right)
+        struct tm g;
+        gmtime_r(&now, &g);
+        uint64_t real = ((uint64_t)(g.tm_year + 1900) << 26) | ((uint64_t)(g.tm_mon + 1) << 22) | ((uint64_t)g.tm_mday << 17) |
+                        ((uint64_t)g.tm_hour << 12) | ((uint64_t)g.tm_min << 6) | (uint64_t)g.tm_sec;
+        memcpy(p + i - 8, &real, 8);
+        fixed++;
+    }
+    return fixed;
+}
+
 static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
     IpcBuf *b = out_buf(req, 0);
     uint8_t *dst = b && b->size ? (uint8_t *)(uintptr_t)b->addr : NULL;
@@ -482,6 +515,7 @@ static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
     size_t mii_safe = c->npeek;
     if (c->npeek && wire_fix_mii(c->peek, c->npeek, &mii_safe)) LOG("[ssl] a blank Mii in the server's answer was replaced\n");
     if (mii_safe < safe) safe = mii_safe;
+    if (c->npeek && wire_fix_server_time(c->peek, c->npeek)) LOG("[ssl] the server's clock in the login answer was wrong: replaced by this machine's\n");
     c->hold = safe < c->npeek && safe > 0;  // (the tail waits for the rest of a Mii; never everything: that would stall)
     size_t avail = c->hold ? safe : c->npeek;
     size_t n = avail < cap ? avail : cap;

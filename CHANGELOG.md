@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.10 "Wall Clock" - 2026-11-13
+
+### Leaderboards (#30)
+
+- **The leaderboards show when each maker last played.** The "Last played" line used to stay blank (the layout's placeholder
+  text, `WWWWWWWWWWWWWWWW`). OpenCourse World's login answer tells the game the server's time, and it sends a fixed one, 8 February
+  2023. The game counts "now" on from it, so every maker's last play was in the future and no "today" / "N days ago" text fitted.
+  When the time in that answer is more than a day away from your machine's clock, it is now replaced by the clock's before the
+  game reads it, so the line reads "today", "one day ago", "N days ago" or "more than one year ago" in your own time zone. A
+  correct time from the server is left alone, so this stops doing anything once OpenCourse World fixes it.
+
 ## 0.5.9 "Top 999" - 2026-11-11
 
 ### Achievements tab
