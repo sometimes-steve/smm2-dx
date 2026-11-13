@@ -21,6 +21,7 @@ bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 #include "../game_rows.h"
 #include "../hle.h"
 #include "../settings.h"
+#include "../services/nexcountry.h"
 #include "menu.h"
 void input_reset(void);
 void controls_bindings_draw(float scale);  // controls_ui.mm
@@ -797,7 +798,46 @@ static void tab_general(void) {
                    "button icons and other private-use characters), or line breaks that make the name several lines tall. "
                    "On: those are taken out of other players' names and what is left is shown. Off: shown as "
                    "OpenCourse World sends it. Applies to players the game loads from now on.")) settings_save();
-    if (opt_toggle("Fix Broken Miis", &g_settings.replace_bad_mii, true,
+    if (opt_toggle("Maker Flags", &g_settings.maker_flags, true,
+                   "OpenCourse World does not know where makers are from, so the game has no flag to show. On: every maker "
+                   "gets one anyway: a guess from the language of their name (Japanese kana is Japan, Korean is Korea, "
+                   "and so on), otherwise one picked at random, the same for that maker every time, most often the US or "
+                   "Japan. These flags are made up, not where anyone really is. Off: no flags. Applies to players the "
+                   "game loads from now on.")) settings_save();
+    if (g_settings.maker_flags) {
+        // the flags by country name, in alphabetical order (the list in nexcountry.h is by code)
+        static int order[110];
+        static const char *sorted[110];
+        static bool built;
+        const int nf = (int)(sizeof NEXC_FLAGS / sizeof NEXC_FLAGS[0]);
+        if (!built) {
+            for (int i = 0; i < nf; i++) order[i] = i;
+            for (int i = 1; i < nf; i++) {  // (insertion sort by name)
+                int v = order[i], j = i - 1;
+                while (j >= 0 && strcmp(NEXC_NAMES[order[j]], NEXC_NAMES[v]) > 0) order[j + 1] = order[j], j--;
+                order[j + 1] = v;
+            }
+            for (int i = 0; i < nf; i++) sorted[i] = NEXC_NAMES[order[i]];
+            built = true;
+        }
+        int cur = 0, def = 0;
+        for (int i = 0; i < nf; i++) {
+            if (!strcmp(NEXC_FLAGS[order[i]], g_settings.own_flag)) cur = i;
+            if (!strcmp(NEXC_FLAGS[order[i]], "CA")) def = i;
+        }
+        if (opt_choice("Your Flag", &cur, sorted, nf, def,
+                       "The flag shown for you, wherever your maker appears in the game. Only the flag: it is not sent to "
+                       "OpenCourse World or seen by anyone else. Applies to players the game loads from now on.", true)) {
+            memcpy(g_settings.own_flag, NEXC_FLAGS[order[cur]], 3);
+            settings_save();
+        }
+    }
+    if (opt_toggle("Strip Discord Tags",&g_settings.strip_discord_tags, true,
+                   "Players who came to OpenCourse World from Discord can have a \"#\" or \"#0\" left at the end of their "
+                   "name (Discord's old name tag, e.g. \"name#0\"). On: that is taken off other players' names. Off: shown "
+                   "as OpenCourse World sends it. Tags with other numbers (\"name#1234\") are left alone. Applies to players "
+                   "the game loads from now on.")) settings_save();
+    if (opt_toggle("Fix Broken Miis",&g_settings.replace_bad_mii, true,
                    "Some OpenCourse World players have a blank or broken Mii, which shows up in the game wherever they "
                    "appear. On: it is replaced by a generated Mii that stays the same for that player until the app closes. Off: shown as "
                    "OpenCourse World sends it. Your own Mii is never changed. Applies to players the game loads from now "

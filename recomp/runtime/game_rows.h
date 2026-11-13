@@ -79,6 +79,9 @@ int game_current_style(void);
 // off, or it is the player's own). maker: the 9 characters of the maker code without dashes ("" if the answer has none);
 // name: the maker's name there. runtime/game_hooks.c: false.
 bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]);  // runtime/game_hooks.c: nothing known
+// The player's own maker code, the 9 characters without dashes, for the flag they chose (runtime/services/ssl.c gives every maker in
+// the server's answers a flag): fills `out` and returns true, or false when it is not known yet. runtime/game_hooks.c: false.
+bool game_own_maker(char out[10]);
 // The secret rows go back to "set" / "not set" (runtime/ui/menu.cpp calls this when the menu closes; drawn and
 // defined by runtime/ui/mods_page.cpp, the Mods tab's Online page)
 void game_mod_rows_hide(void);

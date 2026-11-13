@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.11 "Maple Leaf" - 2026-11-13
+
+### Maker flags (#35)
+
+- **Makers have flags.** OpenCourse World does not store where a maker is from, so the game had no country to draw a flag from. With the
+  new **Maker Flags** setting (General tab, Players, on by default) every maker gets one as the server's answer reaches the game: a guess
+  from the language of their name (Japanese kana is Japan, Korean is Korea, and so on for Thai, Cyrillic, Greek, Hebrew, Devanagari,
+  Vietnamese and a few letters of Latin-script languages), otherwise a pick that is the same for that maker every time, most often the US
+  or Japan. **These flags are made up, not where anyone really is**; turn the setting off for none. Only flags the game has are used
+  (110; it has none for China, Taiwan or Saudi Arabia, so Chinese characters alone give Japan).
+- **Your Flag.** Pick the flag you are shown with, from the 110 countries by name. It starts on Canada. It only changes what you see:
+  nothing is sent to OpenCourse World, so other players see theirs for you.
+- Shown on the leaderboards that list makers (Course Makers) and on maker pages. The Players and Versus Players leaderboards use another
+  layout and do not have flags yet.
+
+### Names
+
+- **New setting: Strip Discord Tags** (General tab, Players, on by default). Makers who came from Discord can have the old name tag's `#` or
+  `#0` left on the end of their name; it is taken off. Other tags (`name#1234`) are left alone.
+
 ## 0.5.10 "Wall Clock" - 2026-11-13
 
 ### Leaderboards (#30)

@@ -63,6 +63,9 @@ typedef struct {
     int hearts;          // index into g_heart_colours (0 = Default red)
     char rando_seed[128];  // active randomizer seed (rando/<name>/), empty = vanilla
     bool clean_usernames;     // private-use symbols and line breaks are taken out of other players' names in OCW's answers: services/ssl.c
+    char own_flag[3];         // the player's own flag, a country code from nexcountry.h's NEXC_FLAGS (default CA)
+    bool maker_flags;         // makers get a flag (OCW has no country): a guess from the name's script, else a pick: services/ssl.c, nexcountry.h
+    bool strip_discord_tags;  // a "#" or "#0" left at the end of an imported Discord name is taken off in OCW's answers: services/ssl.c
     bool replace_bad_mii;     // another maker's blank / broken Mii from OCW is replaced by a generated one: games/smm2/mods/ocw.c
     bool show_recomp_version; // the title screen's Ver. box shows the recomp's version, not the game's: services/am.c
     bool skip_intro;     // skip the boot logo presentation animations

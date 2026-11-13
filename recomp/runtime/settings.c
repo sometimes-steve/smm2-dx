@@ -24,6 +24,9 @@ Settings g_settings = {
     .movie_audio = true,
     .skip_intro = false,
     .clean_usernames = true,
+    .own_flag = "CA",
+    .maker_flags = true,
+    .strip_discord_tags = true,
     .replace_bad_mii = true,
     .show_recomp_version = true,
     .skip_mode_select = false,
@@ -92,6 +95,9 @@ void settings_load(void) {
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
         else if (!strcmp(key, "skip_intro")) g_settings.skip_intro = atoi(val) != 0;
         else if (!strcmp(key, "clean_usernames")) g_settings.clean_usernames = atoi(val) != 0;
+        else if (!strcmp(key, "maker_flags")) g_settings.maker_flags = atoi(val) != 0;
+        else if (!strcmp(key, "own_flag")) { if (strlen(val) == 2) memcpy(g_settings.own_flag, val, 3); }  // (checked against the game's flags where it is used)
+        else if (!strcmp(key, "strip_discord_tags")) g_settings.strip_discord_tags = atoi(val) != 0;
         else if (!strcmp(key, "replace_bad_mii")) g_settings.replace_bad_mii = atoi(val) != 0;
         else if (!strcmp(key, "show_recomp_version")) g_settings.show_recomp_version = atoi(val) != 0;
         else if (!strcmp(key, "skip_mode_select")) g_settings.skip_mode_select = atoi(val) != 0;
@@ -173,6 +179,9 @@ void settings_save(void) {
     fprintf(f, "movie_audio = %d\n", g_settings.movie_audio);
     fprintf(f, "skip_intro = %d\n", g_settings.skip_intro);
     fprintf(f, "clean_usernames = %d\n", g_settings.clean_usernames);
+    fprintf(f, "maker_flags = %d\n", g_settings.maker_flags);
+    fprintf(f, "own_flag = %s\n", g_settings.own_flag);
+    fprintf(f, "strip_discord_tags = %d\n", g_settings.strip_discord_tags);
     fprintf(f, "replace_bad_mii = %d\n", g_settings.replace_bad_mii);
     fprintf(f, "show_recomp_version = %d\n", g_settings.show_recomp_version);
     fprintf(f, "skip_mode_select = %d\n", g_settings.skip_mode_select);

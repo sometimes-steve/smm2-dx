@@ -37,6 +37,7 @@
 #include "../kernel.h"
 #include "../net/netcfg.h"
 #include "../game_rows.h"
+#include "nexcountry.h"
 #include "../settings.h"
 #include "../net/roots.h"
 #include "bsd.h"
@@ -71,7 +72,10 @@ typedef struct {
     mbedtls_x509_crt ca;
     uint8_t *peek;          // Peek: read ahead, served first by Read
     size_t npeek;
-    bool hold;              // the tail of peek is a Mii that has not all arrived: not served yet
+    bool hold;              // the tail of peek is a Mii (or an answer to be given flags) that has not all arrived: not served yet
+    int ws;                 // maker flags: 0 not known yet, 1 a WebSocket (OCW's NEX), -1 something else (or given up): wire_country
+    size_t ws_done;         // ... the bytes at the front of peek that are final (whole frames, flags in)
+    bool ws_wait;           // ... the rest of peek is a frame or an answer that has not all arrived
     uint64_t sent, recvd;   // plaintext bytes (logs)
 } SslConn;
 
@@ -379,9 +383,22 @@ int username_clean(uint8_t *s, size_t len) {
     return dropped;
 }
 
-// Every user record in the plaintext (a maker code string, then the name): the names are cleaned in place. A record cut by the end
-// of what has arrived is held back until the rest comes (*safe, as for the Mii below).
-static int wire_clean_names(uint8_t *p, size_t n, size_t *safe) {
+// Strip Discord Tags: a maker imported from Discord can have its old name tag's "#" or "#0" left at the end of the name ("name#0").
+// That is taken off (a tag with other numbers, "#1234", is not); spaces after it (what username_clean leaves) do not count.
+// `s`: the name's UTF-8 bytes (no NUL), changed in place, the length kept: the tag becomes spaces. Returns 1 if one was taken off. A
+// name that would be left empty is not changed.
+int username_strip_tag(uint8_t *s, size_t len) {
+    size_t end = len;
+    while (end && s[end - 1] == ' ') end--;
+    size_t tag = end >= 1 && s[end - 1] == '#' ? 1 : end >= 2 && s[end - 2] == '#' && s[end - 1] == '0' ? 2 : 0;
+    if (!tag || end == tag) return 0;
+    memset(s + end - tag, ' ', tag);
+    return 1;
+}
+
+// Every user record in the plaintext (a maker code string, then the name): the names are cleaned in place (symbols: Clean Usernames;
+// tags: Strip Discord Tags). A record cut by the end of what has arrived is held back until the rest comes (*safe, as for the Mii below).
+static int wire_clean_names(uint8_t *p, size_t n, size_t *safe, bool symbols, bool tags) {
     int cleaned = 0;
     for (size_t i = 0; i + 12 <= n; i++) {
         if (p[i] != 10 || p[i + 1] != 0 || p[i + 11] != 0) continue;
@@ -394,7 +411,9 @@ static int wire_clean_names(uint8_t *p, size_t n, size_t *safe) {
         if (len < 2 || len > 200) continue;
         if (j + 2 + len > n) { if (i < *safe) *safe = i; break; }
         if (p[j + 2 + len - 1] != 0) continue;
-        if (username_clean(p + j + 2, len - 1)) cleaned++;
+        int changed = symbols ? username_clean(p + j + 2, len - 1) != 0 : 0;
+        if (tags && username_strip_tag(p + j + 2, len - 1)) changed = 1;
+        if (changed) cleaned++;
         i = j + 1 + len;
     }
     return cleaned;
@@ -481,6 +500,161 @@ static int wire_fix_server_time(uint8_t *p, size_t n) {
     return fixed;
 }
 
+// ---- maker flags (issue #35; nexcountry.h has what is chosen and how a country is put into an answer). OpenCourse World's NEX
+// connection is a WebSocket: after the HTTP upgrade answer, the server sends frames (0x82, a length, a PRUDP Lite packet: 12 bytes of
+// header with the payload size at 2 and the fragment id at 7, then the payload). An answer too big for one packet comes in several
+// (fragment ids 1, 2, ... and 0 on the last), and the RMC message is the payloads one after the other. Putting a country in makes the
+// message longer, so the packets that carry it are rebuilt: the same number of them, in the same places, with the same sequence
+// numbers, the payload cut again into packets of the size the server used, and the sizes in the headers and the frames made right.
+// An answer that does not look as expected is left as it was. peek[0 .. ws_done) is final; whole frames after that wait for the rest of
+// their answer (ws_wait), which conn_read waits for before it serves any of it.
+#define WS_MAX_FRAME (1u << 20)
+#define WS_MAX_FRAGS 255
+#define WS_MAX_MSG (1u << 20)
+
+static int ws_frame(const uint8_t *p, size_t n, size_t *hdr, size_t *len) {  // 1 a frame header, 0 need more, -1 not one we can follow
+    if (n < 2) return 0;
+    size_t l = p[1] & 0x7f, h = 2;
+    if (l == 126) {
+        if (n < 4) return 0;
+        l = (size_t)p[2] << 8 | p[3], h = 4;
+    } else if (l == 127) {
+        if (n < 10) return 0;
+        if (p[2] | p[3] | p[4] | p[5]) return -1;
+        l = (size_t)p[6] << 24 | (size_t)p[7] << 16 | (size_t)p[8] << 8 | p[9], h = 10;
+    }
+    if (p[1] & 0x80) h += 4;  // (a mask: the server does not send one)
+    if (l > WS_MAX_FRAME) return -1;
+    *hdr = h, *len = l;
+    return 1;
+}
+
+// A PRUDP Lite data packet that carries payload (not an acknowledgement): `f` is the frame's payload of `n` bytes.
+static bool prudp_data(const uint8_t *f, size_t n, size_t *opt, size_t *psize, unsigned *frag) {
+    if (n < 12 || f[0] != 0x80) return false;
+    size_t o = f[1], ps = (size_t)f[2] | (size_t)f[3] << 8;
+    if (!ps || 12 + o + ps != n) return false;
+    if ((f[8] & 0x0f) != 2 || ((f[8] >> 4) & 1)) return false;  // (type DATA, no ACK flag)
+    *opt = o, *psize = ps, *frag = f[7];
+    return true;
+}
+
+// Walks the packets of the answer that starts at `pos`. 1: whole (*end after its last frame, *nfr packets, *total payload bytes),
+// 0: not all here yet, -1: not one to change.
+static int ws_answer_extent(const uint8_t *p, size_t n, size_t pos, size_t *end, size_t *nfr, size_t *total) {
+    size_t q = pos, count = 0, sum = 0;
+    for (;;) {
+        size_t h, l, opt, ps;
+        unsigned frag;
+        int st = ws_frame(p + q, n - q, &h, &l);
+        if (st < 0) return -1;
+        if (st == 0 || q + h + l > n) return 0;
+        if (p[q] != 0x82 || (p[q + 1] & 0x80) || !prudp_data(p + q + h, l, &opt, &ps, &frag)) return -1;
+        if (count == 0 && frag != 0 && frag != 1) return -1;
+        if (count > 0 && frag != 0 && frag != (unsigned)(count + 1)) return -1;
+        count++, sum += ps;
+        q += h + l;
+        if (count > WS_MAX_FRAGS || sum > WS_MAX_MSG) return -1;
+        if (frag == 0) break;
+    }
+    *end = q, *nfr = count, *total = sum;
+    return 1;
+}
+
+static int wire_country(SslConn *c, size_t *safe) {
+    c->ws_wait = false;
+    if (!g_settings.maker_flags || c->ws < 0 || !c->npeek) return 0;
+    static const char UP[] = "HTTP/1.1 101";
+    if (c->ws == 0) {  // (the first bytes: is this a WebSocket upgrade?)
+        size_t k = c->npeek < sizeof UP - 1 ? c->npeek : sizeof UP - 1;
+        if (memcmp(c->peek, UP, k) != 0) { c->ws = -1; return 0; }
+        if (k < sizeof UP - 1) { c->ws_wait = true; *safe = 0; return 0; }
+        for (size_t i = 0; i + 4 <= c->npeek; i++) {
+            if (!memcmp(c->peek + i, "\r\n\r\n", 4)) { c->ws = 1, c->ws_done = i + 4; break; }
+        }
+        if (c->ws != 1) { c->ws_wait = true; *safe = 0; return 0; }
+    }
+    int changed_total = 0;
+    size_t pos = c->ws_done;
+    while (pos < c->npeek) {
+        uint8_t *p = c->peek;
+        size_t n = c->npeek, h, l, opt, ps;
+        unsigned frag;
+        int st = ws_frame(p + pos, n - pos, &h, &l);
+        if (st < 0) { c->ws = -1; pos = n; break; }  // (not something to follow: the rest goes as it is)
+        if (st == 0 || pos + h + l > n) { c->ws_wait = true; break; }
+        if (p[pos] == 0x82 && !(p[pos + 1] & 0x80) && prudp_data(p + pos + h, l, &opt, &ps, &frag) && frag <= 1) {
+            size_t end, nfr, total;
+            int ex = ws_answer_extent(p, n, pos, &end, &nfr, &total);
+            if (ex == 0) { c->ws_wait = true; break; }
+            if (ex == 1) {
+                uint8_t *msg = malloc(total + 1), *out = malloc(total + 1000 * NEXC_GROW + 16);
+                size_t maxp = 0, q = pos, w = 0;
+                for (size_t i = 0; i < nfr; i++) {  // (the payloads, one after the other)
+                    size_t fh, fl, fo, fp;
+                    unsigned ff;
+                    ws_frame(p + q, n - q, &fh, &fl);
+                    prudp_data(p + q + fh, fl, &fo, &fp, &ff);
+                    memcpy(msg + w, p + q + fh + 12 + fo, fp);
+                    w += fp, q += fh + fl;
+                    if (fp > maxp) maxp = fp;
+                }
+                int added = 0;
+                char own[10];
+                size_t nw = nexc_swap_in(msg, total, out, total + 1000 * NEXC_GROW + 16, game_own_maker(own) ? own : NULL, g_settings.own_flag, &added);
+                size_t per = nfr > 1 ? maxp : (maxp > 1300 ? maxp : 1300);  // (the size the server cut its packets to)
+                if (nw && nw <= per * nfr && (nfr == 1 || nw > per * (nfr - 1))) {  // (it fits the same number of packets, none empty)
+                    uint8_t *nf = malloc(nw + nfr * (14 + 255) + 16);
+                    size_t o = 0, off = 0;
+                    q = pos;
+                    for (size_t i = 0; i < nfr; i++) {  // (each packet again: its own header, its share of the new payload)
+                        size_t fh, fl, fo, fp;
+                        unsigned ff;
+                        ws_frame(p + q, n - q, &fh, &fl);
+                        prudp_data(p + q + fh, fl, &fo, &fp, &ff);
+                        size_t share = i + 1 < nfr ? per : nw - off;
+                        size_t flen = 12 + fo + share;
+                        nf[o++] = 0x82;
+                        if (flen < 126) nf[o++] = (uint8_t)flen;
+                        else nf[o++] = 126, nf[o++] = (uint8_t)(flen >> 8), nf[o++] = (uint8_t)flen;
+                        memcpy(nf + o, p + q + fh, 12 + fo);  // (the packet's header and options as they were ...)
+                        nf[o + 2] = (uint8_t)share, nf[o + 3] = (uint8_t)(share >> 8);  // (... with the payload size made right)
+                        memcpy(nf + o + 12 + fo, out + off, share);
+                        o += 12 + fo + share, off += share;
+                        q += fh + fl;
+                    }
+                    size_t old = end - pos;
+                    if (o != old) {
+                        uint8_t *np = realloc(c->peek, n + (o > old ? o - old : 0) + 1);
+                        if (np) {
+                            c->peek = np, p = np;
+                            memmove(p + pos + o, p + end, n - end);
+                            c->npeek = n = n - old + o;
+                        } else {
+                            o = 0;
+                        }
+                    }
+                    if (o) {
+                        memcpy(p + pos, nf, o);
+                        changed_total += added;
+                        end = pos + o;
+                    }
+                    free(nf);
+                }
+                free(msg);
+                free(out);
+            }
+            pos = ex == 1 ? end : pos + h + l;
+            if (ex == 1 && pos > c->npeek) pos = c->npeek;
+            continue;
+        }
+        pos += h + l;
+    }
+    c->ws_done = pos;
+    if (pos < c->npeek && c->ws_wait && pos < *safe) *safe = pos;
+    return changed_total;
+}
+
 static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
     IpcBuf *b = out_buf(req, 0);
     uint8_t *dst = b && b->size ? (uint8_t *)(uintptr_t)b->addr : NULL;
@@ -488,14 +662,18 @@ static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
     OUT(uint32_t, 0) = 0;
     resp_size(resp, 4);
     if (!c->done) { resp->result = R_INTERNAL; return; }
+  again:  // (repeated while all of what has arrived is held back for the rest of an answer)
     pthread_mutex_lock(&c->mu);
     size_t have = c->npeek;
     bool held = c->hold;
+    bool waiting = c->ws_wait;
     pthread_mutex_unlock(&c->mu);
     if ((!have || held) && cap) {
         uint8_t *tmp = malloc(cap);
         uint32_t res;
         int r = run(c, op_read, tmp, cap, &res);
+        if (held && waiting && r < 0 && res == R_WOULD_BLOCK) { free(tmp); resp->result = res; return; }  // (the rest of the answer has not come: the game asks again)
+        if (held && waiting && r <= 0) c->ws = -1, c->ws_wait = false, c->hold = false;  // (the connection ended in the middle of an answer: it goes to the game as it is)
         if (r < 0 && held) r = 0, c->hold = false;  // (the connection ended with a partial one held: it goes to the game as it is)
         if (r < 0) { free(tmp); resp->result = res; return; }
         pthread_mutex_lock(&c->mu);
@@ -508,19 +686,25 @@ static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
     }
     pthread_mutex_lock(&c->mu);
     size_t safe = c->npeek;
-    if (c->npeek && g_settings.clean_usernames) {
-        int cleaned = wire_clean_names(c->peek, c->npeek, &safe);
-        if (cleaned) LOG("[ssl] %d username(s) in the server's answer had symbols or line breaks taken out\n", cleaned);
+    int flagged = wire_country(c, &safe);
+    if (flagged) LOG("[ssl] maker flags: %d user record(s) in the server's answers were given a country\n", flagged);
+    if (c->npeek && (g_settings.clean_usernames || g_settings.strip_discord_tags)) {
+        int cleaned = wire_clean_names(c->peek, c->npeek, &safe, g_settings.clean_usernames, g_settings.strip_discord_tags);
+        if (cleaned) LOG("[ssl] %d username(s) in the server's answer were cleaned (symbols, line breaks, Discord tag)\n", cleaned);
     }
     size_t mii_safe = c->npeek;
     if (c->npeek && wire_fix_mii(c->peek, c->npeek, &mii_safe)) LOG("[ssl] a blank Mii in the server's answer was replaced\n");
     if (mii_safe < safe) safe = mii_safe;
     if (c->npeek && wire_fix_server_time(c->peek, c->npeek)) LOG("[ssl] the server's clock in the login answer was wrong: replaced by this machine's\n");
-    c->hold = safe < c->npeek && safe > 0;  // (the tail waits for the rest of a Mii; never everything: that would stall)
+    c->hold = safe < c->npeek && (safe > 0 || c->ws_wait);  // (the tail waits for the rest of a Mii or an answer; never everything of a Mii: that would stall)
     size_t avail = c->hold ? safe : c->npeek;
     size_t n = avail < cap ? avail : cap;
+    if (!n && c->hold && cap) { pthread_mutex_unlock(&c->mu); goto again; }  // (nothing can be served yet: read on until the answer is whole)
     if (n) memcpy(dst, c->peek, n);
-    if (!peek) memmove(c->peek, c->peek + n, c->npeek - n), c->npeek -= n, c->recvd += n;
+    if (!peek) {
+        memmove(c->peek, c->peek + n, c->npeek - n), c->npeek -= n, c->recvd += n;
+        c->ws_done = c->ws_done > n ? c->ws_done - n : 0;
+    }
     pthread_mutex_unlock(&c->mu);
     OUT(uint32_t, 0) = (uint32_t)n;
 }

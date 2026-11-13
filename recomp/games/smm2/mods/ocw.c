@@ -482,6 +482,16 @@ static void mii_generate(const char *maker, uint8_t out[0x58]) {
 // The server's answer is fixed before the game parses it (runtime/services/ssl.c): this decides for one record. The player's
 // own is left alone; the Mii is generated from the maker code (or the name when the answer gave none), so it is the same for
 // the whole session.
+bool game_own_maker(char out[10]) {
+    if (!g_ocw.active) return false;
+    pthread_mutex_lock(&g_mii.lock);
+    self_load_locked();
+    bool ok = g_self.have && strlen(g_self.maker) == 11;  // ("NRX-G48-CC8")
+    if (ok) snprintf(out, 10, "%.3s%.3s%.3s", g_self.maker, g_self.maker + 4, g_self.maker + 8);
+    pthread_mutex_unlock(&g_mii.lock);
+    return ok;
+}
+
 bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]) {
     if (!g_settings.replace_bad_mii || !g_ocw.active) return false;
     char id[12];
@@ -652,10 +662,12 @@ static bool fetch_profile(const char *maker, OnlineProfile *out) {
         out->first_clears = (unsigned)json_num(json_get(stats, "first_clears"), 0);
     }
     if (j) snprintf(out->name, sizeof out->name, "%s", json_str(json_get(j, "username"), ""));
-    if (g_settings.clean_usernames) {  // (the menu's font cannot draw the console's symbols either: cleaned as the game's names are)
+    if (g_settings.clean_usernames || g_settings.strip_discord_tags) {  // (the menu's font cannot draw the console's symbols either: cleaned as the game's names are)
         extern int username_clean(uint8_t *s, size_t len);  // runtime/services/ssl.c
+        extern int username_strip_tag(uint8_t *s, size_t len);
         size_t n = strlen(out->name);
-        username_clean((uint8_t *)out->name, n);
+        if (g_settings.clean_usernames) username_clean((uint8_t *)out->name, n);
+        if (g_settings.strip_discord_tags) username_strip_tag((uint8_t *)out->name, n);
         while (n && out->name[n - 1] == ' ') out->name[--n] = 0;
     }
     json_free(j);

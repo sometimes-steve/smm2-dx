@@ -41,6 +41,7 @@ WEAK void game_online_boards(OnlineBoards *out) { memset(out, 0, sizeof *out); }
 WEAK void game_online_boards_refresh(void) {}
 WEAK int game_current_character(void) { return -1; }
 WEAK int game_current_style(void) { return -1; }
+WEAK bool game_own_maker(char out[10]) { (void)out; return false; }
 WEAK bool game_replace_bad_mii(const char *maker, const char *name, uint8_t out[0x58]) { (void)maker, (void)name, (void)out; return false; }
 
 // ---- once per frame on the game's main thread (runtime/hle/input.c), and per presented frame (renderers)
