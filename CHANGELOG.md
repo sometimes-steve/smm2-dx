@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.2 "Zero Hero" - 2026-11-15
+
+### Window (#46)
+
+- **The mouse cursor is hidden over the game while the menu is closed.** Opening the menu shows it again, closing hides it. The
+  **Hide Mouse Cursor** option (Display, on by default) turns it off. It only affects the game's window, in windowed and fullscreen alike; other applications keep their cursor.
+
+### Search tab (#45)
+
+- **New filter: Exclude 0-Second Clear Checks.** On by default. When on, courses whose clear check time is exactly 0 are never picked.
+  It uses the time as OpenCourse World records it, so a course with a positive time under a second still counts, and it works together with
+  the other filters.
+
 ## 0.6.1 "Blackout" - 2026-11-13
 
 ### Search tab (#24)

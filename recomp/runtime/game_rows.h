@@ -100,6 +100,7 @@ typedef struct {
     int condition;        // 0 any, 1 none, 2 has a clear condition
     unsigned min_tries, max_tries;  // attempts by everyone; 0: no bound
     unsigned min_ms, max_ms;        // the clear check's time; 0: no bound
+    bool skip_zero_ms;              // drop courses whose clear check time is exactly 0 ms (a positive time is kept however small)
 } SearchFilter;
 typedef struct {
     bool online;          // an online service is set up (without one there is nothing to search)

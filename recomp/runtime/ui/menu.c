@@ -337,6 +337,13 @@ void menu_apply_window_requests(void *win) {
     }
 }
 
+// The mouse cursor over the game window: shown while the menu is open (mouse navigation works at once), hidden otherwise. SDL only
+// applies this over its own window, so other applications keep their cursor.
+void menu_cursor_update(void) {
+    if (atomic_load(&g_open) || !g_settings.hide_cursor) SDL_ShowCursor();  // (SDL does nothing when it is already so, so no state is kept here)
+    else SDL_HideCursor();
+}
+
 // ------------------------------------------------------------------ render thread
 static bool g_inited;
 static ImGuiContext *g_ctx;  // ours: the start screen (back to it after a reboot) has its own context
@@ -640,6 +647,7 @@ static void tab_display(void) {
         g_settings.fullscreen = fs;
         atomic_store(&g_want_fullscreen_apply, true);
     }
+    opt_toggle("Hide Mouse Cursor", &g_settings.hide_cursor, true, "Hides the mouse cursor over the game while this menu is closed.");
     opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.");
     opt_toggle("Show memory use", &g_settings.show_memory, false,
                "Shows how much memory the app uses in the top right corner, once a second.");
@@ -909,7 +917,7 @@ static void search_time(char *out, size_t cap, unsigned ms) {
 static const char *const search_themes[] = {"Any", "Overworld", "Underground", "Castle", "Airship", "Underwater", "Ghost House", "Snow", "Desert", "Sky", "Forest"};
 static const char *const search_tags[] = {"Any", "Standard", "Puzzle-Solving", "Speedrun", "Autoscroll", "Auto-Mario", "Short and Sweet", "Multiplayer Versus",
                                           "Themed", "Music", "Art", "Technical", "Shooter", "Boss Battle", "Single Player", "Link"};
-static bool s_uncleared = true, s_unplayed = true;
+static bool s_uncleared = true, s_unplayed = true, s_nozero = true;
 static int s_style, s_theme, s_tag, s_cond, s_tmin, s_tmax, s_cmin, s_cmax;
 static const unsigned s_tries_val[] = {0, 50, 100, 200, 500, 1000};
 static const unsigned s_time_val[] = {0, 30000, 60000, 120000, 240000};
@@ -917,7 +925,7 @@ static const unsigned s_time_val[] = {0, 30000, 60000, 120000, 240000};
 static SearchFilter search_filter(void) {
     return (SearchFilter){.uncleared = s_uncleared, .unplayed = s_unplayed, .style = s_style - 1, .theme = s_theme - 1, .tag = s_tag ? s_tag : -1,
                           .condition = s_cond, .min_tries = s_tries_val[s_tmin], .max_tries = s_tries_val[s_tmax],
-                          .min_ms = s_time_val[s_cmin], .max_ms = s_time_val[s_cmax]};
+                          .min_ms = s_time_val[s_cmin], .max_ms = s_time_val[s_cmax], .skip_zero_ms = s_nozero};
 }
 
 static void search_filters(void) {
@@ -940,6 +948,7 @@ static void search_filters(void) {
     opt_choice("Max. Attempts", &s_tmax, tries_names, 6, 0, "At most this many attempts by everyone together.", true);
     opt_choice("Min. Clear Check", &s_cmin, time_names, 5, 0, "The clear check (the course's maker clearing it before upload) took at least this long.", true);
     opt_choice("Max. Clear Check", &s_cmax, time_names, 5, 0, "The clear check took at most this long.", true);
+    opt_toggle("Exclude 0-Second Clear Checks", &s_nozero, true, "Hide courses whose clear check time is exactly 0 seconds.");
     opt_no_reset();
     opt_end();
     opt_in_column(false);

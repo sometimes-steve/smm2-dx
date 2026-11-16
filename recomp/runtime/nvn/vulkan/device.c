@@ -1084,7 +1084,10 @@ int ui_run(void) {
     ui_window_init();
     atomic_store(&ui_ready, true);
     for (;;) {
-        if (rt_reboot_requested()) return rt_reboot_requested();  // (runtime/main.c tears the game down)
+        if (rt_reboot_requested()) {  // (runtime/main.c tears the game down; the cursor is back for whatever shows next)
+            SDL_ShowCursor();
+            return rt_reboot_requested();
+        }
         SDL_Event e;
         while (SDL_WaitEventTimeout(&e, 16)) {
             if (e.type == SDL_EVENT_QUIT) {
@@ -1097,6 +1100,7 @@ int ui_run(void) {
             input_handle_event(&e);
         }
         menu_apply_window_requests(window);
+        menu_cursor_update();
         atomic_store(&g_display_hz, framegen_display_hz(window));  // (SDL's display state: read on this thread)
     }
 }

@@ -19,6 +19,7 @@ static const char *settings_file(void) {
 Settings g_settings = {
     .aspect = ASPECT_UNLOCKED,
     .fullscreen = false,
+    .hide_cursor = true,
     .volume = 1.0f,
     .reverb = true,
     .movie_audio = true,
@@ -90,6 +91,7 @@ void settings_load(void) {
         }
         if (!strcmp(key, "aspect")) g_settings.aspect = !strcmp(val, "original") ? ASPECT_ORIGINAL : ASPECT_UNLOCKED;
         else if (!strcmp(key, "fullscreen")) g_settings.fullscreen = atoi(val) != 0;
+        else if (!strcmp(key, "hide_cursor")) g_settings.hide_cursor = atoi(val) != 0;
         else if (!strcmp(key, "volume")) g_settings.volume = (float)atof(val);
         else if (!strcmp(key, "reverb")) g_settings.reverb = atoi(val) != 0;
         else if (!strcmp(key, "movie_audio")) g_settings.movie_audio = atoi(val) != 0;
@@ -173,6 +175,7 @@ void settings_save(void) {
     fprintf(f, "# " GAME_TITLE " settings (edited from the in-game menu: F1, Esc, or Minus+Plus on a controller)\n");
     fprintf(f, "aspect = %s\n", g_settings.aspect == ASPECT_ORIGINAL ? "original" : "unlocked");
     fprintf(f, "fullscreen = %d\n", g_settings.fullscreen);
+    fprintf(f, "hide_cursor = %d\n", g_settings.hide_cursor);
     fprintf(f, "volume = %.2f\n", g_settings.volume);
     fprintf(f, "mute = %d\n", g_settings.mute);
     fprintf(f, "reverb = %d\n", g_settings.reverb);

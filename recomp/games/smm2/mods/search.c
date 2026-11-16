@@ -125,6 +125,7 @@ static bool match(const Entry *e, const SearchFilter *f) {  // (under S.lock)
     if (f->condition == 2 && !e->has_cc) return false;
     if (f->min_tries && e->tries < f->min_tries) return false;
     if (f->max_tries && e->tries > f->max_tries) return false;
+    if (f->skip_zero_ms && e->ms == 0) return false;
     if (f->min_ms && e->ms < f->min_ms) return false;
     if (f->max_ms && e->ms > f->max_ms) return false;
     if (f->unplayed && S.np) {
