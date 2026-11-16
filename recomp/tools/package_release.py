@@ -18,14 +18,15 @@ ROOT = Path(__file__).resolve().parents[2]  # repo root (this file is in recomp/
 # Only these top-level folders of smm2-dx_data are skipped: a bare name match would also drop every nested folder
 # of that name (zig/lib/std/Build/Cache!).
 # (mods-generated: files made at run time from the player's own game files, e.g. the patched font chain; mods: the mods they installed)
-SKIP_DIRS = ("extracted", "cache", "work", "logs", "sysdata", "save", "mods-generated", "mods")
-# (smm2.ini: their settings; ocw-maker.txt: their maker code; ocw-config.json: their token; .cjk-checked: setup's note that it
+SKIP_DIRS = ("extracted", "cache", "work", "logs", "sysdata", "save", "mods-generated", "mods", "miis")
+# (miis, mii.charinfo: the Miis they made or imported, and the one they play as;
+# smm2.ini: their settings; ocw-maker.txt: their maker code; ocw-config.json: their token; .cjk-checked: setup's note that it
 # has looked for the Chinese and Korean fonts in the player's firmware, which a fresh install must not start with)
-SKIP_FILES = ("launcher.ini", "smm2.ini", "ocw-maker.txt", "ocw-boards.txt", "ocw-courses.bin", "ocw-config.json", ".cjk-checked", "playtime.txt", "character.txt", "history.txt", "*.bfttf", "*.log")
+SKIP_FILES = ("launcher.ini", "smm2.ini", "ocw-maker.txt", "ocw-boards.txt", "ocw-courses.bin", "ocw-config.json", ".cjk-checked", "playtime.txt", "character.txt", "history.txt", "mii.charinfo", "*.bfttf", "*.log")
 
 # Safety net: refuse to ship anything that looks like game or key material.
 BAD_EXT = {".nca", ".nsp", ".xci", ".nso", ".bfttf", ".keys"}
-BAD_NAMES = {"prod.keys", "title.keys", "launcher.ini", "smm2.ini", "ocw-maker.txt", "ocw-boards.txt", "ocw-config.json", ".cjk-checked", "playtime.txt", "character.txt", "history.txt"}
+BAD_NAMES = {"prod.keys", "title.keys", "launcher.ini", "smm2.ini", "ocw-maker.txt", "ocw-boards.txt", "ocw-config.json", ".cjk-checked", "playtime.txt", "character.txt", "history.txt", "mii.charinfo"}
 
 
 def main():

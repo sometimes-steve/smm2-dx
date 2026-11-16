@@ -20,9 +20,13 @@ import subprocess
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
+for _up in (os.path.join(_HERE, '..', '..'), os.path.join(_HERE, '..', '..', 'tools')):  # (extract_mii_icons.py: next to the recompiler's files, shipped or in the source tree)
+    sys.path.append(os.path.normpath(_up))
 from setup import HACTOOL_CRASHES, masked  # noqa: E402  (setup.py: the crash codes, output without key values)
 import mii_stub  # noqa: E402  (writes the Mii face-part archive)
+import extract_mii_icons  # noqa: E402  (the Mii editor's part icons)
 
 FONT_TITLES = {
     '0100000000000810',  # NintendoExtension (button glyphs): the game stops with a crash if it has none (see pl.c)
@@ -33,6 +37,9 @@ DATA_TITLES = {'0100000000000802'}  # MiiModel: the console's Mii face parts (nn
 # the firmware has them; the game runs without (runtime/hle/pl.c loads each the first time the game asks for it). 0811 Standard
 # (Latin + Japanese) is not taken: BIZ UDPGothic, bundled, stands in for it.
 OPTIONAL_FONT_TITLES = {'0100000000000812', '0100000000000813', '0100000000000814'}
+MII_EDIT = extract_mii_icons.APPLET  # the Mii editor: its icon atlas gives the part pictures of the in-game Mii editor (<data>/sysdata/miiicons)
+OPTIONAL_TITLES = OPTIONAL_FONT_TITLES | {MII_EDIT}
+ICONS_DONE = 'sysdata/miiicons/.done'  # written once the icons have been looked for (found or not), so setup asks once
 CJK_MARKER = 'fonts/.cjk-checked'  # written once the firmware has been looked through for them (found or not), so setup asks once
 FONT_FILE = 'nintendo_ext_003.bfttf'   # what has to be in <data>/fonts afterwards
 
@@ -121,7 +128,7 @@ def main():
     if not os.path.isdir(a.firmware):
         fail('NO_FIRMWARE', 'The firmware folder was not found',
              'Choose the folder of your console\'s system NCAs, e.g. Ryujinx\'s bis/system/Contents/registered.')
-    want = FONT_TITLES | OPTIONAL_FONT_TITLES | (set() if a.stub_mii else DATA_TITLES)
+    want = FONT_TITLES | OPTIONAL_TITLES | (set() if a.stub_mii else DATA_TITLES)
     found = {}
     ncas = sorted(n for n in os.listdir(a.firmware) if n.endswith('.nca'))
     if not ncas:
@@ -153,6 +160,14 @@ def main():
                 shutil.rmtree(out)
                 empty[tid] = ' / '.join([ln for ln in masked(r.stdout + r.stderr).splitlines() if ln.strip()][-2:])
             continue
+        if tid == MII_EDIT:
+            icons = os.path.join(a.data, 'sysdata', 'miiicons')
+            os.makedirs(icons, exist_ok=True)
+            try:
+                print(f'sysdata: {extract_mii_icons.extract(a.hactool, a.keys, p, icons)} Mii part icons')
+            except Exception as e:  # (the editor works without them: numbers only)
+                print(f'sysdata: no Mii part icons ({e})')
+            continue
         with tempfile.TemporaryDirectory() as tmp:
             run([a.hactool, '-k', a.keys, '--disablekeywarns', '-t', 'nca', '--romfsdir', tmp, p])
             for f in os.listdir(tmp):
@@ -160,6 +175,9 @@ def main():
                     shutil.copy(os.path.join(tmp, f), os.path.join(fonts, f))
                     nf += 1
     missing = sorted(want - set(found))
+    os.makedirs(os.path.join(a.data, 'sysdata', 'miiicons'), exist_ok=True)
+    with open(os.path.join(a.data, ICONS_DONE), 'w') as marker:
+        marker.write('the Mii editor icons were looked for in the firmware' + '\n')
     with open(os.path.join(a.data, CJK_MARKER), 'w') as marker:
         marker.write('the Chinese and Korean shared fonts were looked for in the firmware'+'\n')
     print(f'sysdata: {nf} font files'

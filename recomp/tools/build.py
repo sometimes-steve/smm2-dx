@@ -896,6 +896,9 @@ def get_units(cfg, version, lib_id, lib_srcs):
     for s in files_in('third_party/mbedtls/library', '*.c'):
         units.append(Unit(s, B / 'mbedtls' / (Path(s).stem + '.o'), 'cc', ['-O2', '-g'] + mbed_flags + os_flags,
                           mbed_dep, 'mbedtls'))
+    # quirc (the Mii editor's QR code reader)
+    for s in files_in('third_party/quirc', '*.c'):
+        units.append(Unit(s, B / 'quirc' / (Path(s).stem + '.o'), 'cc', ['-O2', '-g', '-w'] + os_flags, 0.0, 'mbedtls'))
     # the Vulkan backend
     for s in files_in('runtime/nvn/vulkan', '*.c'):
         units.append(Unit(s, B / 'rt' / 'nvn' / 'vulkan' / (Path(s).stem + '.o'), 'cc', rt_flags, rt_dep, 'backend'))
@@ -1123,6 +1126,7 @@ THIRD_PARTY = """Third-party components in this package and their licenses (the 
 - Mbed TLS 3.6 (built in: the game's TLS client): Apache-2.0, licenses/Apache-2.0.txt
 - Zstandard decoder (built in: the shader cache): BSD-3-Clause, licenses/LICENSE-zstd.txt
 - bcdec (built in: BC texture decoding where the GPU lacks it): MIT / Unlicense, licenses/LICENSE-bcdec.txt
+- quirc (built in: reads the QR code of a Mii): ISC, licenses/LICENSE-quirc.txt
 - zig (zig/, the compiler the game code is built with): MIT, zig/LICENSE; its clang / lld: Apache-2.0 with
   LLVM exception (licenses/Apache-2.0.txt)
 - Python 3.12 (python/, python-build-standalone): PSF License and its components' own: python/README-LICENSES.txt
@@ -1179,7 +1183,8 @@ def copy_support(dest, cfg):
     copy_tree(PY_DIR, dest / 'python', ('__pycache__',))
 
     # the recompiler and the setup scripts
-    for f in ('gen.py', 'lifter.py', 'analyze.py', 'nso.py', 'passes.py', 'patches.py', 'simd_c.py'):
+    for f in ('gen.py', 'lifter.py', 'analyze.py', 'nso.py', 'passes.py', 'patches.py', 'simd_c.py',
+              'extract_mii_icons.py'):  # (the last: sysdata.py's Mii part icons)
         shutil.copy(RECOMP / 'tools' / f, dest / 'tools')
     for f in ('setup.py', 'sysdata.py', 'ocw_identity.py', 'ocw_leaderboards.py', 'mii_stub.py', 'mini_head.json', 'BIZUDPGothic-Regular.ttf',
               'BIZUDPGothic-OFL.txt', 'versions.py'):
@@ -1207,6 +1212,7 @@ def copy_support(dest, cfg):
         shutil.copy(RECOMP / 'third_party' / 'smaa' / 'LICENSE.txt', lic / 'LICENSE-smaa.txt')
     shutil.copy(RECOMP / 'third_party' / 'zstd' / 'LICENSE', lic / 'LICENSE-zstd.txt')
     shutil.copy(RECOMP / 'third_party' / 'bcdec' / 'LICENSE', lic / 'LICENSE-bcdec.txt')
+    shutil.copy(RECOMP / 'third_party' / 'quirc' / 'LICENSE', lic / 'LICENSE-quirc.txt')
     shutil.copy(dest / 'hactool' / 'mbedtls-LICENSE.txt', lic / 'Apache-2.0.txt')
     write_text(dest / 'THIRD-PARTY.txt', THIRD_PARTY, crlf=True)
 
@@ -1308,7 +1314,7 @@ def main(argv):
     copy_runtime_dlls()
     build_game_lib(cfg, lib_id, imp_lib, game_lib, jobs)
     g = RECOMP / 'games' / 'smm2'
-    update_staging(cfg, version, lib_srcs + [g / f for f in ('setup.py', 'sysdata.py', 'ocw_identity.py', 'ocw_leaderboards.py', 'mii_stub.py', 'mini_head.json',
+    update_staging(cfg, version, lib_srcs + [RECOMP / 'tools' / 'extract_mii_icons.py'] + [g / f for f in ('setup.py', 'sysdata.py', 'ocw_identity.py', 'ocw_leaderboards.py', 'mii_stub.py', 'mini_head.json',
                                                             'BIZUDPGothic-Regular.ttf', 'BIZUDPGothic-OFL.txt',
                                                             'versions.py')])
 

@@ -220,6 +220,14 @@ static void card_close(void) {
 
 static void section(const char *title, bool line);
 void opt_section(const char *title) { section(title, true); }
+static const char *g_sec_link_tip;  // (opt_section_link: set while its section is drawn)
+static bool g_sec_link_hit;
+bool opt_section_link(const char *title, const char *tip) {
+    g_sec_link_tip = tip, g_sec_link_hit = false;
+    section(title, true);
+    g_sec_link_tip = NULL;
+    return g_sec_link_hit;
+}
 static void section(const char *title, bool line) {
     char t[TXT_CAP];
     snprintf(t, sizeof t, "%s", title);
@@ -231,10 +239,38 @@ static void section(const char *title, bool line) {
     card_open(g_flat ? flat_layout(av0.x, NULL) : av0.x);
     float inset = g_card.open ? 16 * g_scale : 0;  // (the heading sits in from the card's edge, as the rows' text does)
     if (g_card.open) igDummy(IM_VEC2(0, 6 * g_scale));
+    ImVec2 left;
+    igGetCursorScreenPos(&left);
     igSetCursorPosX(igGetCursorPosX() + inset);
     igPushStyleColor_U32(ImGuiCol_Text, menu_muted());
     igTextUnformatted(t, NULL);
     igPopStyleColor(1);
+    if (g_sec_link_tip) {  // a link button at the heading's right end: an arrow out of a box
+        ImVec2 tmin, tmax, after;
+        igGetItemRectMin(&tmin);
+        igGetItemRectMax(&tmax);
+        igGetCursorScreenPos(&after);
+        float sz = tmax.y - tmin.y + 4 * g_scale, cw = g_flat ? flat_layout(av0.x, NULL) : av0.x;
+        igSetCursorScreenPos(IM_VEC2(left.x + cw - 14 * g_scale - sz, tmin.y - 2 * g_scale));
+        igPushID_Str("##seclink");
+        g_sec_link_hit = igInvisibleButton("##link", IM_VEC2(sz, sz), 0);
+        bool hov = igIsItemHovered(0);
+        igPopID();
+        ImVec2 a, b;
+        igGetItemRectMin(&a);
+        igGetItemRectMax(&b);
+        float s = sz * 0.5f, cx = (a.x + b.x) * 0.5f, cy = (a.y + b.y) * 0.5f, l = cx - s * 0.5f, t0 = cy - s * 0.5f, r = cx + s * 0.5f, bt = cy + s * 0.5f;
+        ImU32 col = hov ? menu_accent(255) : menu_muted();
+        float th = fmaxf(1.5f, sz * 0.07f);
+        ImDrawList *dl = igGetWindowDrawList();
+        ImVec2 box[5] = {IM_VEC2(l + s * 0.45f, t0), IM_VEC2(l, t0), IM_VEC2(l, bt), IM_VEC2(r, bt), IM_VEC2(r, t0 + s * 0.45f)};
+        ImDrawList_AddPolyline(dl, box, 5, col, 0, th);
+        ImDrawList_AddLine(dl, IM_VEC2(cx - s * 0.05f, cy + s * 0.05f), IM_VEC2(r, t0), col, th);  // (the arrow out of it)
+        ImVec2 head[3] = {IM_VEC2(r - s * 0.4f, t0), IM_VEC2(r, t0), IM_VEC2(r, t0 + s * 0.4f)};
+        ImDrawList_AddPolyline(dl, head, 3, col, 0, th);
+        if (hov) igSetTooltip("%s", g_sec_link_tip);
+        igSetCursorScreenPos(after);
+    }
     if (line) {
         ImVec2 p, avail;  // (a hairline under the heading, as Ship of Harkinian's separator text)
         igGetCursorScreenPos(&p);
@@ -250,6 +286,8 @@ static void section(const char *title, bool line) {
 // arrows: ◀ value ▶ (a choice of several, or a stepper): left / right step it, and the arrows click too
 // (callers pass upper = true, arrows = false unless they need otherwise)
 static bool g_row_has_def;  // (set by the opt_* that take a default, just before row())
+static float g_next_row_h;  // (opt_next_row_height)
+void opt_next_row_height(float h) { g_next_row_h = h; }
 static int row(const char *label, const char *value, bool changed, const char *desc, bool upper, bool arrows) {
     const bool has_def = g_row_has_def;
     g_row_has_def = false;
@@ -262,6 +300,8 @@ static int row(const char *label, const char *value, bool changed, const char *d
     ImVec2 availv;
     igGetContentRegionAvail(&availv);
     float vcol = 0, w = availv.x, h = igGetFontSize() * (g_touch || nes ? 2.5f : 1.9f);
+    if (g_next_row_h > h) h = g_next_row_h;
+    g_next_row_h = 0;
     if (g_flat) {  // (one-pane pages: as wide as the page needs)
         char t0[TXT_CAP], s0[TXT_CAP];
         snprintf(t0, sizeof t0, "%s", label);
@@ -602,7 +642,13 @@ bool opt_text(const char *label, char *buf, size_t cap, const char *hint, const 
     // owner, 2026-10-30: an OpenCourse World token couldn't be pasted)
     const char *paste_label = "Paste";
     float pw = text_w(paste_label) + igGetStyle()->FramePadding.x * 2;
-    igSetNextItemWidth(-(pw + igGetStyle()->ItemSpacing.x));
+    if (g_flat) {  // (one-pane pages: the field and Paste stay inside the section's card, as the rows do)
+        ImVec2 av;
+        igGetContentRegionAvail(&av);
+        float inset = 16 * g_scale, cw = flat_layout(av.x, NULL);
+        igSetCursorPosX(igGetCursorPosX() + inset);
+        igSetNextItemWidth(fmaxf(60 * g_scale, cw - 2 * inset - pw - igGetStyle()->ItemSpacing.x));
+    } else igSetNextItemWidth(-(pw + igGetStyle()->ItemSpacing.x));
     if (focus > 0) igSetKeyboardFocusHere(0), focus--;
     bool done = ui_input_text("##text", buf, cap, ImGuiInputTextFlags_EnterReturnsTrue, hint, label);
     bool active = igIsItemActive();

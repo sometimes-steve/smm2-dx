@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.0 "Character Select" - 2026-11-16
+
+### Mii Editor (#23)
+
+- **New Player > Mii Editor: a library of Miis, and an editor for each.** Make a new Mii, import one, duplicate, rename or delete it (deleting asks
+  first), and **Play as This Mii** to make it the one the game uses. Edits are saved as you make them, in the `miis` folder of `smm2-dx_data`. The Mii you
+  play as is the one the game reads at its start, so restart the game after changing it.
+- **Import from MiiCharacters.com.** Paste the link of a Mii (`miicharacters.com/mii/23844`) and it is added to the library, exact: the Mii's own
+  QR picture on the page is read and decoded, so every part, colour and position comes across, along with the name. The Mii's picture is kept
+  and shown in the library. The link button at the right of the heading opens the site. 3DS and Wii U Mii QR codes only.
+- **A live preview** beside the fields, drawn by [Arian's Mii Renderer](https://mii-unsecure.ariankordi.net/) a moment after each change (the Mii's
+  88 bytes are sent there, nothing else).
+- **Pick parts from pictures.** Hair, eyebrows, eyes, nose, mouth, face shape, wrinkles and make-up open a grid of the console's own icons, with
+  your current choice marked. The icons are taken from your firmware, so the next time the program starts it runs the firmware step once
+  more to get them; without them the parts are numbers.
+- **Add the Mii in Use** puts the Mii you play as now (`mii.charinfo`) into the library.
+
+### Menu
+
+- **The menu has a sidebar.** Prelaunch, Settings, Mods, OpenCourse World, Player and Quit are on the left, and their tabs sit within the page on the right.
+- **Link buttons.** A small link icon at the right of a heading opens a web page: MiiCharacters.com above, and the OpenCourse World Account heading
+  (in place of the Get Your Config row) opens opencourse.world/account.
+- The Search tab's two cards start at the same height.
+
+### Release package
+
+- **The Miis you made or imported (`miis`) and the one you play as (`mii.charinfo`) are left out** of the release zip, as the rest of your own data is.
+
 ## 0.6.2 "Zero Hero" - 2026-11-15
 
 ### Window (#46)

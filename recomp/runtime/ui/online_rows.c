@@ -99,15 +99,14 @@ void online_rows(void) {
             opt_action("Maker Code", pr.maker, "Your maker code. Others find you with it.", true);
         }
     }
-    opt_section("OpenCourse World Account");
+    if (opt_section_link("OpenCourse World Account", "Open opencourse.world/account in your browser. Sign in there to download your config "
+                                                      "file (ocw-config.json), then use Change Config File."))
+        SDL_OpenURL(ACCOUNT_URL);
     if (opt_action("Change Config File...", "", "Pick the ocw-config.json you downloaded from opencourse.world/account. "
                    "It replaces the domain and token below. The game uses it from the next start.", true)) {
         static const SDL_DialogFileFilter filter[] = {{"OpenCourse World config", "json"}, {"All files", "*"}};
         SDL_ShowOpenFileDialog(picked, NULL, ui_window(), filter, 2, NULL, false);
     }
-    if (opt_action("Get Your Config", "opencourse.world/account", "Opens opencourse.world/account in your browser. Sign "
-                   "in there to download your config file (ocw-config.json), then use Change Config File.", true))
-        SDL_OpenURL(ACCOUNT_URL);
 }
 
 // The game asked to go online and the runtime is offline (runtime/services/nifm.c): say why and what to do, at most

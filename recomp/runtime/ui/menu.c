@@ -12,6 +12,8 @@
 #include <time.h>
 
 #include "option_rows.h"
+#include "mii_import.h"
+#include "mii_render.h"
 #include "theme_draw.h"
 #include "osk.h"
 #include "character.h"
@@ -85,6 +87,7 @@ static void set_open(bool open) {
         static bool opened;  // the controller's cursor: the first tab (Controls) the first time this session, later the
         menu_tabs_focus(!opened);  // selected one
         if (opened) opt_remember_arm();  // (scroll and selected row of every page come back: opt_cursor_restored)
+        if (!opened && getenv("LARECOMP_MENU_TAB")) { extern int g_tab_request_ext; g_tab_request_ext = atoi(getenv("LARECOMP_MENU_TAB")); }  // (test hook: the first opening, by F1 too)
         opened = true;
     }
     // (game_mod_rows_hide: a game's secret settings rows go back to "set" / "not set")
@@ -1127,7 +1130,6 @@ static void tab_search(void) {
         search_filters();
         igTableNextColumn();
         igBeginChild_Str("##find", IM_VEC2(0, 0), ImGuiChildFlags_NavFlattened, 0);
-        igDummy(IM_VEC2(1, fs * 0.2f));
         search_find();
         igEndChild();
     }
@@ -1416,45 +1418,702 @@ static void footer_draw(ImVec2 at, float w, float h, bool popup) {
     }
 }
 
-static float g_tabs_w;  // the width the tab row needs (measured last frame: the same whichever tab is open)
+static float g_tabs_w;  // the width the menu's body needs (measured last frame: the same whichever page is open)
+
+// The Mii editor's page (the library and the editor come into it; the part icons are read from the player's firmware, tools/extract_mii_icons.py)
+// The Miis are 88-byte CharInfo files in miis/ (miiNNN.charinfo); "Play as This Mii" copies one to mii.charinfo, which the game
+// reads live (services/mii.c). Every change is saved to its file at once; when the Mii being edited is the one in use, the in-use
+// file follows it. The values are the game's own numbers (the part icons come later, tools/extract_mii_icons.py).
+#include <dirent.h>
+#include <sys/stat.h>
+#include "../services/mii_charinfo_file.h"
+#include "../../third_party/stb/stb_image.h"
+void mii_default_charinfo(uint8_t out[0x58], const char *nickname);  // services/mii.c
+
+#define MII_DIR "miis"
+#define MII_MAX 64
+typedef struct { char file[32]; char name[48]; bool in_use; } MiiEntry;
+static MiiEntry g_miis[MII_MAX];
+static int g_mii_n, g_mii_open = -1;
+static bool g_mii_scan = true, g_mii_ask_delete;
+static uint8_t g_mii_cur[0x58];
+static int g_mii_pick = -1;  // the field whose pictures are being chosen from (an index into k_mii_fields), else -1
+
+uint64_t vk_imgui_texture_rgba(const void *rgba, int w, int h);  // runtime/nvn/vulkan/imgui_glue.c
+uint64_t vk_imgui_texture_mii(const void *rgba, int w, int h);   // (the Mii editor's preview: one streamed image)
+// The pictures of a part (sysdata/miiicons/<name>.png, set up from the firmware), 78 x 66 each: all of a kind are put in one
+// texture when first wanted (the UI has a small pool of textures, so one each would run out), 12 to a row. The texture, and
+// the corner coordinates of picture idx (0 when there are none); fmt names the pictures (IconHair%03d), count how many.
+#define MII_ICON_W 78
+#define MII_ICON_H 66
+#define MII_SHEET_COLS 12
+static uint64_t mii_icon(const char *fmt, int count, int idx, ImVec2 *uv0, ImVec2 *uv1) {
+    static struct { const char *fmt; uint64_t tid; int rows; } sheets[10];
+    static int n;
+    int k = 0;
+    for (; k < n; k++)
+        if (sheets[k].fmt == fmt) break;  // (the table's own strings: the same pointer)
+    if (k == n) {
+        if (n >= 10) return 0;
+        sheets[n].fmt = fmt;
+        int rows = (count + MII_SHEET_COLS - 1) / MII_SHEET_COLS, W = MII_SHEET_COLS * MII_ICON_W, H = rows * MII_ICON_H, loaded = 0;
+        unsigned char *sheet = calloc((size_t)W * H, 4);
+        static unsigned char buf[65536];  // (an icon is a few KB)
+        for (int i = 0; sheet && i < count; i++) {
+            char name[28], path[96];
+            snprintf(name, sizeof name, fmt, i);
+            snprintf(path, sizeof path, "sysdata/miiicons/%s.png", name);
+            FILE *f = fopen(path, "rb");  // (stb is built without file reading)
+            if (!f) continue;
+            size_t len = fread(buf, 1, sizeof buf, f);
+            fclose(f);
+            int w, h, c;
+            unsigned char *px = stbi_load_from_memory(buf, (int)len, &w, &h, &c, 4);
+            if (!px) continue;
+            if (w == MII_ICON_W && h == MII_ICON_H) {
+                for (int y = 0; y < h; y++)
+                    memcpy(sheet + ((size_t)((i / MII_SHEET_COLS) * MII_ICON_H + y) * W + (i % MII_SHEET_COLS) * MII_ICON_W) * 4,
+                           px + (size_t)y * w * 4, (size_t)w * 4);
+                loaded++;
+            }
+            stbi_image_free(px);
+        }
+        sheets[n].tid = loaded ? vk_imgui_texture_rgba(sheet, W, H) : 0;
+        sheets[n].rows = rows;
+        free(sheet);
+        k = n++;
+    }
+    if (!sheets[k].tid || idx < 0 || idx >= count) return 0;
+    float W = MII_SHEET_COLS * MII_ICON_W, H = (float)sheets[k].rows * MII_ICON_H;
+    float x = (float)(idx % MII_SHEET_COLS) * MII_ICON_W, y = (float)(idx / MII_SHEET_COLS) * MII_ICON_H;
+    *uv0 = IM_VEC2((x + 0.5f) / W, (y + 0.5f) / H);  // (half a texel in: the next picture does not bleed in)
+    *uv1 = IM_VEC2((x + MII_ICON_W - 0.5f) / W, (y + MII_ICON_H - 0.5f) / H);
+    return sheets[k].tid;
+}
+
+typedef struct { const char *sec, *label; uint8_t off, lo, hi; const char *icon; } MiiField;  // (sec: the section this row starts, else NULL; icon: the picture names of its values, if it has them)
+static const MiiField k_mii_fields[] = {
+    {"Basics", "Favorite Color", 0x27, 0, 11}, {NULL, "Height", 0x29, 0, 127}, {NULL, "Build", 0x2A, 0, 127},
+    {"Face", "Face Shape", 0x2D, 0, 11, "IconFaceline%02d"}, {NULL, "Skin Color", 0x2E, 0, 9}, {NULL, "Wrinkles", 0x2F, 0, 11, "IconFaceT_line%02d"}, {NULL, "Makeup", 0x30, 0, 11, "IconFaceT_make%02d"},
+    {"Hair", "Hair Style", 0x31, 0, 131, "IconHair%03d"}, {NULL, "Hair Color", 0x32, 0, 99}, {NULL, "Hair Flip", 0x33, 0, 1},
+    {"Eyes", "Eye Type", 0x34, 0, 59, "IconEye%02d"}, {NULL, "Eye Color", 0x35, 0, 99}, {NULL, "Eye Size", 0x36, 0, 7}, {NULL, "Eye Stretch", 0x37, 0, 6},
+    {NULL, "Eye Rotation", 0x38, 0, 7}, {NULL, "Eye Spacing", 0x39, 0, 12}, {NULL, "Eye Height", 0x3A, 0, 18},
+    {"Eyebrows", "Eyebrow Type", 0x3B, 0, 23, "IconEyebrow%02d"}, {NULL, "Eyebrow Color", 0x3C, 0, 99}, {NULL, "Eyebrow Size", 0x3D, 0, 8},
+    {NULL, "Eyebrow Stretch", 0x3E, 0, 6}, {NULL, "Eyebrow Rotation", 0x3F, 0, 11}, {NULL, "Eyebrow Spacing", 0x40, 0, 12},
+    {NULL, "Eyebrow Height", 0x41, 3, 18},
+    {"Nose", "Nose Type", 0x42, 0, 17, "IconNose%02d"}, {NULL, "Nose Size", 0x43, 0, 8}, {NULL, "Nose Height", 0x44, 0, 18},
+    {"Mouth", "Mouth Type", 0x45, 0, 35, "IconMouth%02d"}, {NULL, "Mouth Color", 0x46, 0, 99}, {NULL, "Mouth Size", 0x47, 0, 8},
+    {NULL, "Mouth Stretch", 0x48, 0, 6}, {NULL, "Mouth Height", 0x49, 0, 18},
+    {"Facial Hair", "Beard Color", 0x4A, 0, 99}, {NULL, "Beard", 0x4B, 0, 5}, {NULL, "Mustache", 0x4C, 0, 5},
+    {NULL, "Mustache Size", 0x4D, 0, 8}, {NULL, "Mustache Height", 0x4E, 0, 16},
+    {"Glasses", "Glasses Type", 0x4F, 0, 19}, {NULL, "Glasses Color", 0x50, 0, 99}, {NULL, "Glasses Size", 0x51, 0, 7},
+    {NULL, "Glasses Height", 0x52, 0, 20},
+    {"Mole", "Mole Type", 0x53, 0, 1}, {NULL, "Mole Size", 0x54, 0, 8}, {NULL, "Mole X", 0x55, 0, 16}, {NULL, "Mole Y", 0x56, 0, 30},
+};
+
+static const char *mii_in_use_path(void) {
+    const char *p = getenv("RECOMP_MII_CHARINFO");
+    return p && *p ? p : "mii.charinfo";
+}
+
+static void mii_name_get(const uint8_t d[0x58], char *out, size_t n) {  // the nickname: UTF-16 -> UTF-8
+    size_t o = 0;
+    for (int i = 0; i < 10; i++) {
+        unsigned c = d[16 + 2 * i] | d[17 + 2 * i] << 8;
+        if (!c) break;
+        if (c < 0x80 && o + 1 < n) out[o++] = (char)c;
+        else if (c < 0x800 && o + 2 < n) out[o++] = (char)(0xC0 | c >> 6), out[o++] = (char)(0x80 | (c & 0x3F));
+        else if (c >= 0x800 && o + 3 < n) out[o++] = (char)(0xE0 | c >> 12), out[o++] = (char)(0x80 | (c >> 6 & 0x3F)), out[o++] = (char)(0x80 | (c & 0x3F));
+    }
+    out[o] = 0;
+}
+
+static void mii_name_set(uint8_t d[0x58], const char *s) {  // UTF-8 -> UTF-16, up to 10 characters
+    memset(d + 16, 0, 22);
+    const unsigned char *p = (const unsigned char *)s;
+    for (int n = 0; *p && n < 10; n++) {
+        unsigned cp = *p++;
+        if (cp >= 0xC0) {
+            int extra = cp >= 0xF0 ? 3 : cp >= 0xE0 ? 2 : 1;
+            cp &= 0x3F >> extra;
+            while (extra-- && (*p & 0xC0) == 0x80) cp = cp << 6 | (*p++ & 0x3F);
+            if (cp > 0xFFFF) cp = '?';
+        }
+        d[16 + 2 * n] = (uint8_t)cp, d[17 + 2 * n] = (uint8_t)(cp >> 8);
+    }
+}
+
+static bool mii_write(const char *path, const uint8_t d[0x58]) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    bool ok = fwrite(d, 1, 0x58, f) == 0x58;
+    return fclose(f) == 0 && ok;
+}
+
+static void mii_path(char *out, size_t n, int i) { snprintf(out, n, MII_DIR "/%s", g_miis[i].file); }
+
+static void mii_rescan(void) {
+    uint8_t use[0x58];
+    bool have = mii_read_charinfo_file(mii_in_use_path(), use) == 1;
+    g_mii_n = 0;
+    DIR *d = opendir(MII_DIR);
+    if (!d) return;
+    struct dirent *e;
+    while ((e = readdir(d)) && g_mii_n < MII_MAX) {
+        size_t len = strlen(e->d_name);
+        if (len < 10 || len >= sizeof g_miis[0].file || strcmp(e->d_name + len - 9, ".charinfo")) continue;
+        char path[64];
+        uint8_t data[0x58];
+        snprintf(path, sizeof path, MII_DIR "/%s", e->d_name);
+        if (mii_read_charinfo_file(path, data) != 1) continue;
+        MiiEntry *m = &g_miis[g_mii_n++];
+        snprintf(m->file, sizeof m->file, "%s", e->d_name);
+        mii_name_get(data, m->name, sizeof m->name);
+        if (!*m->name) snprintf(m->name, sizeof m->name, "(no name)");
+        m->in_use = have && !memcmp(use, data, 0x58);
+    }
+    closedir(d);
+    for (int i = 1; i < g_mii_n; i++)  // (by file name = the order they were made; few entries)
+        for (int j = i; j > 0 && strcmp(g_miis[j - 1].file, g_miis[j].file) > 0; j--) {
+            MiiEntry t = g_miis[j];
+            g_miis[j] = g_miis[j - 1], g_miis[j - 1] = t;
+        }
+}
+
+// Saves a new Mii to the library under the first free name; the index of its entry, or -1.
+static int mii_add(const uint8_t data[0x58]) {
+    mkdir(MII_DIR, 0755);
+    for (int k = 1; k < 1000; k++) {
+        char path[64];
+        snprintf(path, sizeof path, MII_DIR "/mii%03d.charinfo", k);
+        FILE *f = fopen(path, "rb");
+        if (f) { fclose(f); continue; }
+        if (!mii_write(path, data)) return -1;
+        mii_rescan();
+        char want[32];
+        snprintf(want, sizeof want, "mii%03d.charinfo", k);
+        for (int i = 0; i < g_mii_n; i++) if (!strcmp(g_miis[i].file, want)) return i;
+        return -1;
+    }
+    return -1;
+}
+
+static void mii_fresh_id(uint8_t d[0x58]) {  // a new create id (byte 8 keeps its "valid" bits 10xxxxxx)
+    static bool seeded;
+    if (!seeded) srand((unsigned)time(NULL)), seeded = true;
+    for (int i = 0; i < 16; i++) d[i] = (uint8_t)(rand() >> 3);
+    d[8] = (uint8_t)((d[8] & 0x3F) | 0x80);
+}
+
+// A saved Mii's picture: miis/<file>.jpg, kept when it was imported from MiiCharacters.com. 96 pixels at most, one texture each
+// (the descriptor pool is small: only the first MII_PHOTOS Miis shown get one).
+static void mii_photo_path(char *out, size_t n, const char *file) {
+    char stem[32];
+    snprintf(stem, sizeof stem, "%s", file);
+    char *dot = strrchr(stem, '.');
+    if (dot) *dot = 0;
+    snprintf(out, n, MII_DIR "/%s.jpg", stem);
+}
+#define MII_PHOTOS 12
+static struct { char file[32]; uint64_t tid; bool tried; } g_photo[MII_PHOTOS];
+static void mii_photo_forget(const char *file) {  // (the file changed or went: looked at again next time)
+    for (int k = 0; k < MII_PHOTOS; k++)
+        if (!strcmp(g_photo[k].file, file)) g_photo[k].tried = false, g_photo[k].tid = 0;
+}
+static uint64_t mii_photo(const char *file) {
+    int k = 0;
+    while (k < MII_PHOTOS && g_photo[k].file[0] && strcmp(g_photo[k].file, file)) k++;
+    if (k == MII_PHOTOS) return 0;
+    if (!g_photo[k].file[0]) snprintf(g_photo[k].file, sizeof g_photo[k].file, "%s", file);
+    if (g_photo[k].tried) return g_photo[k].tid;
+    g_photo[k].tried = true;
+    char path[64];
+    mii_photo_path(path, sizeof path, file);
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    unsigned char *buf = len > 0 && len < 4000000 ? malloc((size_t)len) : NULL;
+    if (buf && fread(buf, 1, (size_t)len, f) != (size_t)len) free(buf), buf = NULL;
+    fclose(f);
+    if (!buf) return 0;
+    int w, h, c;
+    unsigned char *px = stbi_load_from_memory(buf, (int)len, &w, &h, &c, 4);
+    free(buf);
+    if (!px) return 0;
+    int fct = w / 96 > h / 96 ? w / 96 : h / 96;  // (a box average down to about 96)
+    if (fct < 1) fct = 1;
+    int w2 = w / fct, h2 = h / fct;
+    unsigned char *small = malloc((size_t)w2 * h2 * 4);
+    if (small) {
+        for (int y = 0; y < h2; y++)
+            for (int x = 0; x < w2; x++)
+                for (int ch = 0; ch < 4; ch++) {
+                    int sum = 0;
+                    for (int dy = 0; dy < fct; dy++)
+                        for (int dx = 0; dx < fct; dx++) sum += px[(((y * fct + dy) * w) + x * fct + dx) * 4 + ch];
+                    small[((size_t)y * w2 + x) * 4 + ch] = (unsigned char)(sum / (fct * fct));
+                }
+        g_photo[k].tid = vk_imgui_texture_rgba(small, w2, h2);
+        free(small);
+    }
+    stbi_image_free(px);
+    return g_photo[k].tid;
+}
+static void mii_photo_draw(uint64_t tid, ImVec2 a, float size) {
+    ImDrawList_AddImage(igGetWindowDrawList(), (ImTextureID)tid, a, IM_VEC2(a.x + size, a.y + size), IM_VEC2(0, 0), IM_VEC2(1, 1),
+                        IM_COL32(255, 255, 255, 255));
+}
+
+static void tab_mii(void) {
+    if (g_mii_scan) mii_rescan(), g_mii_scan = false;
+    if (g_mii_open >= g_mii_n) g_mii_open = g_mii_pick = -1;
+    if (g_mii_open < 0) g_mii_pick = -1;
+    static bool tested;  // test hook: LARECOMP_MII_TEST=<n> opens a new Mii's editor, with the pictures of field n (-1: none) open
+    if (!tested && g_mii_open < 0 && getenv("LARECOMP_MII_TEST")) {
+        tested = true;
+        uint8_t d[0x58];
+        mii_default_charinfo(d, "Test");
+        mii_fresh_id(d);
+        int at = mii_add(d);
+        if (at >= 0) g_mii_open = at, memcpy(g_mii_cur, d, 0x58), g_mii_pick = atoi(getenv("LARECOMP_MII_TEST"));
+    }
+    static char imp_link[160], imp_msg[160];  // Import from a Link: the pasted text, and what came of it
+    static bool imp_busy;
+    static bool imp_tested;  // test hook: LARECOMP_MII_IMPORT=<link> imports it as soon as this tab shows
+    if (!imp_tested && getenv("LARECOMP_MII_IMPORT")) {
+        imp_tested = true;
+        char why[160] = "";
+        if (mii_import_start(getenv("LARECOMP_MII_IMPORT"), why, sizeof why)) imp_busy = true;
+        else snprintf(imp_msg, sizeof imp_msg, "%s", why);
+    }
+    if (imp_busy) {
+        uint8_t d[0x58], *img = NULL;
+        size_t img_len = 0;
+        char nm[48] = "", why[160] = "";
+        MiiImportState s = mii_import_poll(d, nm, why, &img, &img_len);
+        if (s == MII_IMP_ERROR) imp_busy = false, snprintf(imp_msg, sizeof imp_msg, "%s", why);
+        if (s == MII_IMP_DONE) {
+            imp_busy = false;
+            mii_name_set(d, nm[0] ? nm : "Mii");
+            mii_fresh_id(d);
+            int at = g_mii_n < MII_MAX ? mii_add(d) : -1;
+            if (at >= 0) {
+                g_mii_open = at, memcpy(g_mii_cur, d, 0x58), g_mii_ask_delete = false, g_mii_pick = -1, imp_link[0] = 0, imp_msg[0] = 0;
+                if (img) {  // (its picture, kept beside it)
+                    char pp[64];
+                    mii_photo_path(pp, sizeof pp, g_miis[at].file);
+                    FILE *pf = fopen(pp, "wb");
+                    if (pf) fwrite(img, 1, img_len, pf), fclose(pf);
+                    mii_photo_forget(g_miis[at].file);
+                }
+            } else snprintf(imp_msg, sizeof imp_msg, "The library is full (%d Miis).", MII_MAX);
+        }
+        free(img);
+    }
+    if (g_mii_open < 0) {
+        opt_flat_begin("##mii", igGetFontSize() / 34);
+        opt_no_reset();
+        if (opt_section_link("Import from MiiCharacters.com", "Open MiiCharacters.com in your browser, to find a Mii and copy its link"))
+            SDL_OpenURL("https://www.miicharacters.com/");
+        if (opt_text("Mii Link", imp_link, sizeof imp_link, "miicharacters.com/mii/23844",
+                     "Paste the link of a Mii from miicharacters.com: it is added to the library, read from the page's QR picture.")) {
+            char why[160] = "";
+            imp_msg[0] = 0;
+            if (!imp_link[0]) snprintf(imp_msg, sizeof imp_msg, "Paste a link first.");
+            else if (mii_import_start(imp_link, why, sizeof why)) imp_busy = true;
+            else snprintf(imp_msg, sizeof imp_msg, "%s", why);
+        }
+        if (imp_busy) opt_action("Reading the page...", "", "Fetching the Mii from miicharacters.com.", false);
+        else if (imp_msg[0]) opt_action(imp_msg, "", "", false);
+        opt_section("Your Miis");
+        for (int i = 0; i < g_mii_n; i++) {
+            igPushID_Int(i);
+            uint64_t ph = mii_photo(g_miis[i].file);
+            float sz = 120 * igGetFontSize() / 34;
+            if (ph) opt_next_row_height(sz + 8);  // (a row with a picture is tall enough for it: its box goes round it)
+            if (opt_action(g_miis[i].name, g_miis[i].in_use ? "Playing as" : "", "Edit this Mii, or choose it to play as.", false)) {
+                char path[64];
+                mii_path(path, sizeof path, i);
+                if (mii_read_charinfo_file(path, g_mii_cur) == 1) g_mii_open = i, g_mii_ask_delete = false;
+            }
+            ImVec2 ra, rb;
+            igGetItemRectMin(&ra);
+            igGetItemRectMax(&rb);
+            if (ph) mii_photo_draw(ph, IM_VEC2(rb.x - sz - 8, (ra.y + rb.y) * 0.5f - sz * 0.5f), sz);  // (at the row's right edge)
+            igPopID();
+        }
+        if (!g_mii_n)
+            opt_action("No Miis saved yet", "", "Paste a miicharacters.com link above, or make a new one.", false);
+        uint8_t use[0x58];
+        bool have = mii_read_charinfo_file(mii_in_use_path(), use) == 1, listed = false;
+        for (int i = 0; i < g_mii_n; i++) listed |= g_miis[i].in_use;
+        if (g_mii_n < MII_MAX) {
+            opt_section("Add");
+            if (opt_action("New Mii", "", "A new Mii, to change as you like.", true)) {
+                uint8_t d[0x58];
+                mii_default_charinfo(d, "New Mii");
+                mii_fresh_id(d);
+                int at = mii_add(d);
+                if (at >= 0) g_mii_open = at, memcpy(g_mii_cur, d, 0x58), g_mii_ask_delete = false;
+            }
+            if (have && !listed &&
+                opt_action("Add the Mii in Use", "", "Saves the Mii you are playing as now (mii.charinfo) to the library.", true))
+                mii_add(use);
+        }
+        opt_end();
+        return;
+    }
+    MiiEntry *m = &g_miis[g_mii_open];
+    char path[64], name[48];
+    mii_path(path, sizeof path, g_mii_open);
+    uint8_t old[0x58];
+    memcpy(old, g_mii_cur, 0x58);
+    bool changed = false;
+    if (g_mii_pick >= 0) {  // choosing a part from its pictures
+        const MiiField *f = &k_mii_fields[g_mii_pick];
+        igText("%s", f->label);
+        igSameLine(0, igGetFontSize());
+        if (igButton("Done", IM_VEC2(0, 0))) g_mii_pick = -1;
+        igSeparator();
+        igBeginChild_Str("##miipick", IM_VEC2(0, 0), 0, 0);
+        float w = igGetFontSize() * 4.4f, h = w * 66 / 78, gap = igGetStyle()->ItemSpacing.x;
+        ImVec2 avail;
+        igGetContentRegionAvail(&avail);
+        int cols = (int)((avail.x + gap) / (w + gap));
+        if (cols < 1) cols = 1;
+        static int scrolled = -2;  // (the pick the scroll was last set for: the chosen picture comes into view when it opens)
+        ImVec2 cur_at = {0, 0};
+        for (int i = f->lo; i <= f->hi; i++) {
+            if ((i - f->lo) % cols) igSameLine(0, -1);
+            igPushID_Int(i);
+            ImVec2 uv0, uv1;
+            uint64_t tex = mii_icon(f->icon, f->hi + 1, i, &uv0, &uv1);
+            bool cur = g_mii_cur[f->off] == i;
+            ImVec4 bg = {0, 0, 0, 0};
+            igPushStyleColor_Vec4(ImGuiCol_Button, cur ? (ImVec4){0.95f, 0.74f, 0.16f, 1.0f} : (ImVec4){0.80f, 0.82f, 0.86f, 1.0f});
+            if (cur) igGetCursorPos(&cur_at);
+            bool hit = tex ? igImageButton("##i", (ImTextureID)tex, IM_VEC2(w, h), uv0, uv1, bg, (ImVec4){1, 1, 1, 1})
+                           : igButton("...", IM_VEC2(w + igGetStyle()->FramePadding.x * 2, h + igGetStyle()->FramePadding.y * 2));
+            igPopStyleColor(1);
+            if (hit) g_mii_cur[f->off] = (uint8_t)i, changed = true;
+            if (igIsItemHovered(0)) igSetTooltip("%d", i);
+            igPopID();
+        }
+        static int settle;  // (the first frames lay the grid out in a window not yet its width: the scroll is set once it has settled)
+        if (scrolled != g_mii_pick && ++settle >= 3) igSetScrollY_Float(cur_at.y - avail.y * 0.35f), scrolled = g_mii_pick, settle = 0;
+        igEndChild();
+        if (g_mii_pick < 0) scrolled = -2;
+    } else {
+    opt_flat_begin("##mii", igGetFontSize() / 34);
+    opt_no_reset();
+    if (opt_action("Back to the Library", "", "Your changes are already saved.", true)) {
+        g_mii_open = -1, g_mii_scan = true;
+        opt_end();
+        return;
+    }
+    {  // the preview: the Mii as a public renderer draws it, again a moment after each change (its saved picture meanwhile)
+        mii_render_want(g_mii_cur);
+        int rw = 0, rh = 0, rstate = 0;
+        unsigned rseq = 0;
+        char rwhy[96];
+        const uint8_t *rp = mii_render_get(&rw, &rh, &rseq, &rstate, rwhy);
+        static unsigned shown_seq;
+        static uint64_t render_tid;
+        if (rp && (rseq != shown_seq || !render_tid)) render_tid = vk_imgui_texture_mii(rp, rw, rh), shown_seq = rseq;
+        uint64_t tid = rp ? render_tid : mii_photo(g_miis[g_mii_open].file);
+        // at the page's right side and not scrolling with the fields (drawn at the window's own position, not the cursor's)
+        ImVec2 wp, ws;
+        igGetWindowPos(&wp);
+        igGetWindowSize(&ws);
+        float fs = igGetFontSize(), sz = fminf(320 * fs / 34, ws.x * 0.5f - 40 * fs / 34);
+        ImVec2 a = IM_VEC2(wp.x + ws.x - sz - 28 * fs / 34, wp.y + 16 * fs / 34);
+        ImDrawList *dl = igGetWindowDrawList();
+        if (tid) mii_photo_draw(tid, a, sz);
+        else ImDrawList_AddRectFilled(dl, a, IM_VEC2(a.x + sz, a.y + sz), IM_COL32(255, 255, 255, 14), 6, 0);
+        const char *note = rstate == 1 ? "Drawing the preview..." : rstate == 2 ? rwhy : NULL;
+        char nb[128];
+        if (rstate == 2) snprintf(nb, sizeof nb, "No preview: %s", rwhy), note = nb;
+        if (note) ImDrawList_AddText_Vec2(dl, IM_VEC2(a.x, a.y + sz + 6 * fs / 34), menu_muted(), note, NULL);
+    }
+    opt_section("Mii");
+    if (!opt_text_editing("Name")) mii_name_get(g_mii_cur, name, sizeof name);
+    else snprintf(name, sizeof name, "%s", m->name);
+    if (opt_text("Name", name, 11 * 4, "Name", "Up to 10 characters.")) {
+        mii_name_set(g_mii_cur, name);
+        changed = true;
+    }
+    if (opt_action("Play as This Mii", m->in_use ? "Playing as" : "", "Makes this the Mii the game shows for you.", true)) {
+        if (mii_write(mii_in_use_path(), g_mii_cur)) g_mii_scan = true;
+    }
+    int gender = g_mii_cur[0x28];
+    static const char *const genders[] = {"Male", "Female"};
+    if (opt_choice("Gender", &gender, genders, 2, 0, "The Mii's gender.", true)) g_mii_cur[0x28] = (uint8_t)gender, changed = true;
+    for (size_t i = 0; i < sizeof k_mii_fields / sizeof *k_mii_fields; i++) {
+        const MiiField *f = &k_mii_fields[i];
+        if (f->sec) opt_section(f->sec);
+        int v = g_mii_cur[f->off];
+        ImVec2 uv0, uv1;
+        uint64_t tex = f->icon ? mii_icon(f->icon, f->hi + 1, v, &uv0, &uv1) : 0;
+        if (f->icon && tex) {  // a part with pictures: A / click opens them all; its own is shown beside the value
+            char val[16];
+            snprintf(val, sizeof val, "%d", v);
+            bool open = opt_action(f->label, val, "Choose from the pictures.", true);
+            ImVec2 lo, hi, tw;
+            igGetItemRectMin(&lo);
+            igGetItemRectMax(&hi);
+            igCalcTextSize(&tw, val, NULL, false, -1.0f);
+            float ih = (hi.y - lo.y) - 4, iw = ih * MII_ICON_W / MII_ICON_H, x = hi.x - tw.x - igGetFontSize() * 2.6f - iw;
+            ImDrawList_AddImage(igGetWindowDrawList(), (ImTextureID)tex, IM_VEC2(x, lo.y + 2), IM_VEC2(x + iw, lo.y + 2 + ih), uv0, uv1,
+                                IM_COL32(255, 255, 255, 255));
+            if (open) g_mii_pick = (int)i;
+        } else if (opt_int(f->label, &v, f->lo, f->hi, 1, f->lo, "%d", "The game's number for this part.", NULL)) {
+            g_mii_cur[f->off] = (uint8_t)v, changed = true;
+        }
+    }
+    opt_section("Manage");
+    if (opt_action("Duplicate", "", "A copy of this Mii in the library.", true)) {
+        uint8_t d[0x58];
+        memcpy(d, g_mii_cur, 0x58);
+        mii_fresh_id(d);
+        char from[64];
+        mii_photo_path(from, sizeof from, m->file);
+        int at = mii_add(d);
+        if (at >= 0) {
+            g_mii_open = at, memcpy(g_mii_cur, d, 0x58);
+            FILE *src = fopen(from, "rb");  // (the picture goes with the copy)
+            if (src) {
+                char to[64];
+                mii_photo_path(to, sizeof to, g_miis[at].file);
+                FILE *dst = fopen(to, "wb");
+                char chunk[4096];
+                size_t n;
+                while (dst && (n = fread(chunk, 1, sizeof chunk, src)) > 0) fwrite(chunk, 1, n, dst);
+                if (dst) fclose(dst);
+                fclose(src);
+                mii_photo_forget(g_miis[at].file);
+            }
+        }
+        opt_end();
+        return;
+    }
+    if (!g_mii_ask_delete) {
+        if (opt_action("Delete", "", "Removes this Mii from the library.", true)) g_mii_ask_delete = true;
+    } else {
+        if (opt_action("Yes, Delete This Mii", "", "It cannot be brought back.", true)) {
+            remove(path);
+            char pp[64];
+            mii_photo_path(pp, sizeof pp, m->file);
+            remove(pp), mii_photo_forget(m->file);
+            g_mii_open = -1, g_mii_scan = true, g_mii_ask_delete = false;
+            opt_end();
+            return;
+        }
+        if (opt_action("Cancel", "", "Keeps the Mii.", true)) g_mii_ask_delete = false;
+    }
+    opt_end();
+    }
+    if (changed && mii_charinfo_valid(g_mii_cur)) {
+        bool was_in_use = false;
+        uint8_t use[0x58];
+        if (mii_read_charinfo_file(mii_in_use_path(), use) == 1) was_in_use = !memcmp(use, old, 0x58);
+        mii_write(path, g_mii_cur);
+        if (was_in_use) mii_write(mii_in_use_path(), g_mii_cur);
+        mii_name_get(g_mii_cur, m->name, sizeof m->name);
+        if (!*m->name) snprintf(m->name, sizeof m->name, "(no name)");
+        g_mii_scan = true;  // (the list's "in use" marks)
+    } else if (changed) {
+        memcpy(g_mii_cur, old, 0x58);  // (not a Mii the game accepts: back to what it was)
+    }
+}
+
+// The pages are in groups: the groups are big buttons down the left, and a group with more than one page has a row of tabs for them at
+// the top of the frame on the right. A page's id is what g_tab, g_tab_request and the test hooks hold (-1 = Prelaunch); a group's button
+// has the id GROUP_ID + its number here, for the controller's cursor.
+typedef struct { const char *name; int n; int pages[4]; } TabGroup;
+enum { GROUP_ID = 100 };
+static const char *const k_page_names[] = {"Video", "Audio", "Mods", "Online", "Stats", "General", "Achievements", "Search", "Controls", "Quit", "Mii Editor"};
+static const TabGroup k_groups[] = {
+    {"Prelaunch", 1, {-1}},
+    {"Settings", 4, {5, 8, 0, 1}},  // General, Controls, Video, Audio
+    {"Mods", 1, {2}},
+    {"OpenCourse World", 2, {3, 7}},  // Online, Search
+    {"Player", 3, {10, 4, 6}},        // Mii Editor, Stats, Achievements
+    {"Quit", 1, {9}},
+};
+enum { N_GROUPS = sizeof k_groups / sizeof k_groups[0] };
+
+static const char *page_name(int id) { return id == -1 ? "Prelaunch" : k_page_names[id]; }
+static int group_of_page(int id) {
+    for (int g = 0; g < N_GROUPS; g++)
+        for (int i = 0; i < k_groups[g].n; i++)
+            if (k_groups[g].pages[i] == id) return g;
+    return 0;
+}
+static int s_focused_tab = -99;  // the tab or button the controller's cursor is on (a page's id, or GROUP_ID + a group's number; from the frame before; -99: none)
+
+static float tab_width(const char *name) {
+    char lbl[64];
+    ImVec2 ts;
+    snprintf(lbl, sizeof lbl, "  %s  ", name);
+    igCalcTextSize(&ts, lbl, NULL, false, -1.0f);
+    return ts.x + igGetStyle()->FramePadding.x * 2 + igGetStyle()->ItemInnerSpacing.x;
+}
+
+// The controller's cursor landing on an item (g_focus_tab: its id, or -100 for "the selected one", which `selected` says): the item
+// just drawn takes the focus; a few frames, as the page's child window appearing makes ImGui pick its first widget once it's laid out
+static void focus_item(int id, bool selected) {
+    if (!(g_focus_tab == id || (g_focus_tab == -100 && selected))) return;
+    igSetFocusID(igGetItemID(), igGetCurrentWindow());  // (SetKeyboardFocusHere skips tabs: no tab stop)
+    igSetNavCursorVisible(true);
+    if (++g_focus_frames >= 4) g_focus_tab = -99, g_focus_frames = 0;
+    else g_focus_tab = id;
+}
+
+// One tab of a group's row: the gold focus bar instead of ImGui's outline (it sits 4 px outside the tab and the tab bar's clipping could
+// cut its top off). Returns whether its page is the one showing.
+static bool nav_tab(const char *name, int id, bool request, float scale) {
+    char lbl[64];
+    snprintf(lbl, sizeof lbl, "  %s  ", name);
+    // (s_focused_tab: from the frame before - colours go in before the tab is drawn)
+    bool lit = s_focused_tab == id && igGetCurrentContext()->NavCursorVisible;
+    igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));
+    if (lit) {
+        igPushStyleColor_Vec4(ImGuiCol_Tab, theme_palette()->tab_alt);
+        igPushStyleColor_Vec4(ImGuiCol_TabHovered, theme_palette()->tab_alt);
+    }
+    bool open = igBeginTabItem(lbl, NULL, request ? ImGuiTabItemFlags_SetSelected : 0);
+    igPopStyleColor(lit ? 3 : 1);
+    focus_item(id, false);
+    if (lit) {
+        ImVec2 a, b;
+        igGetItemRectMin(&a), igGetItemRectMax(&b);
+        float h = 4 * scale > 2 ? 4 * scale : 2;
+        ImDrawList_AddRectFilled(igGetWindowDrawList(), IM_VEC2(a.x + 2, b.y - h), IM_VEC2(b.x - 2, b.y), menu_accent(255), 0, 0);
+    }
+    if (igIsItemFocused()) s_focused_tab = id;
+    else if (s_focused_tab == id) s_focused_tab = -99;
+    return open;
+}
+
+// A group's button down the left: the selected one filled with the theme's accent, the cursor's with a gold bar along its left edge.
+// Returns true when it is used.
+static bool group_button(const char *name, int id, bool selected, float w, float h, float scale) {
+    char lbl[80];
+    snprintf(lbl, sizeof lbl, "  %s##group%d", name, id);
+    bool lit = s_focused_tab == id && igGetCurrentContext()->NavCursorVisible;
+    igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));
+    igPushStyleColor_U32(ImGuiCol_Header, menu_accent(selected ? 120 : 0));
+    igPushStyleColor_U32(ImGuiCol_HeaderHovered, menu_accent(selected ? 150 : 50));
+    igPushStyleColor_U32(ImGuiCol_HeaderActive, menu_accent(170));
+    igPushStyleVar_Vec2(ImGuiStyleVar_SelectableTextAlign, IM_VEC2(0.0f, 0.5f));
+    bool clicked = igSelectable_Bool(lbl, selected || lit, 0, IM_VEC2(w, h));
+    igPopStyleVar(1);
+    igPopStyleColor(4);
+    focus_item(id, selected);
+    if (lit) {
+        ImVec2 a, b;
+        igGetItemRectMin(&a), igGetItemRectMax(&b);
+        ImDrawList_AddRectFilled(igGetWindowDrawList(), a, IM_VEC2(a.x + (4 * scale > 2 ? 4 * scale : 2), b.y), menu_accent(255), 0, 0);
+    }
+    if (igIsItemFocused()) s_focused_tab = id;
+    else if (s_focused_tab == id) s_focused_tab = -99;
+    return clicked;
+}
+
+typedef struct {
+    float scale;
+    bool in_game, down_from_tab;
+    void (*prelaunch)(float);
+} PageCtx;
+
+// The open page: its child window (what is left of the frame) and the page in it
+static void page_draw(PageCtx *c, int id) {
+    igSpacing();
+    igBeginChild_Str("##page", IM_VEC2(0, 0), ImGuiChildFlags_NavFlattened, 0);
+    // Down from the tab row, pages that aren't option rows (Prelaunch, Controls, Stats, Achievements): their first control
+    // (option-row pages: opt_focus_first)
+    if (c->down_from_tab && (id == -1 || id == 8 || id == 4 || id == 6)) {
+        opt_focus_first(false);
+        igSetKeyboardFocusHere(0);
+        igSetNavCursorVisible(true);
+    }
+    switch (id) {
+    case -1: c->prelaunch(c->scale); break;
+    case 0: tab_display(); break;
+    case 1: tab_audio(); break;
+    case 2: tab_mods(); break;
+    case 3: tab_online(); break;
+    case 4: tab_stats(); break;
+    case 6: tab_achievements(); break;
+    case 7: tab_search(); break;
+    case 5: tab_general(); break;
+    case 8: tab_about(); break;
+    case 9: tab_quit(c->scale, c->in_game); break;
+    case 10: tab_mii(); break;
+    }
+    if (opt_cursor_restored()) g_focus_tab = -99, g_focus_frames = 0;  // (a row took the cursor back: not the tab)
+    static const char *scroll_test;  // test hook: page scroll, 0..1
+    static bool scroll_test_read;
+    if (!scroll_test_read) scroll_test = getenv("LARECOMP_MENU_SCROLL"), scroll_test_read = true;
+    if (scroll_test) igSetScrollY_Float(igGetScrollMaxY() * (float)atof(scroll_test));
+    igEndChild();
+}
+
+static bool page_shown(int id, bool prelaunch, bool have_mods) {  // (Quit: in game only; Mods: when the game has some; Online: when it has rows)
+    if (id == 9) return !prelaunch;
+    if (id == 2) return have_mods;
+    if (id == 3) return online_rows_available() || launcher_has_settings();
+    if (id == -1) return prelaunch;
+    return true;
+}
+
 static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
-    // (id: the page; -1 = Prelaunch)
-    typedef struct Tab { const char *name; int id; bool on; } Tab;
-    Tab tabs[11];
-    int ntabs = 0;
-    if (prelaunch) tabs[ntabs++] = (Tab){"Prelaunch", -1, true};
-    // (LAS Recomp's game tabs - Save Editor, Randomizer, Warp, Cheats, Gameplay, Cosmetics - are not part of the
-    // shared runtime; their ids stay unused so the test hooks keep their numbers)
-    static const char *names[] = {"Video", "Audio", "Mods", "Online", "Stats", "General", "Achievements", "Search", "Controls", "Quit"};
-    static const int order[] = {5, 8, 0, 1, 2, 3, 7, 4, 6, 9};  // General, Controls, Video, Audio, Mods, Online, Search, Stats, Achievements, Quit
     const GameModRow *mrows;
     bool have_mods = game_mod_rows(&mrows) > 0 || launcher_has_settings() || online_rows_available();
-    for (size_t oi = 0; oi < sizeof order / sizeof order[0]; oi++) {  // (Quit: in game only; Mods: when the game has some)
-        int i = order[oi];
-        if ((i != 9 || !prelaunch) && (i != 2 || have_mods) && (i != 3 || online_rows_available() || launcher_has_settings()))
-            tabs[ntabs++] = (Tab){names[i], i, true};
+    bool pre = prelaunch != NULL;
+    // what is shown: the groups with a page to show, and in them the pages (flat, in order: L / R go through it)
+    int vg[N_GROUPS], nvg = 0;  // (the groups' numbers in k_groups)
+    int flat[16], nflat = 0;
+    int shown_pages[N_GROUPS][4], shown_n[N_GROUPS] = {0};
+    for (int g = 0; g < N_GROUPS; g++) {
+        for (int i = 0; i < k_groups[g].n; i++) {
+            int pid = k_groups[g].pages[i];
+            if (page_shown(pid, pre, have_mods)) flat[nflat++] = pid, shown_pages[g][shown_n[g]++] = pid;
+        }
+        if (shown_n[g]) vg[nvg++] = g;
     }
-    int cur = 0;  // g_tab / g_tab_request hold ids
-    for (int i = 0; i < ntabs; i++) if (tabs[i].id == g_tab) cur = i;
-    if (!tabs[cur].on) cur = 0;
-    // L/R (or Q/E) switch tabs, skipping greyed-out ones (not while typing: Q / E are letters then, and the on-screen
-    // keyboard has the controller)
-    if (g_tab_request_ext >= 0) { g_tab_request = g_tab_request_ext; g_tab_request_ext = -1; }
+    static int last_pre = -1;  // (the first page: Prelaunch at the start screen, else the first of Settings)
+    if (last_pre != pre) last_pre = pre, g_tab = flat[0];
+    int cur = -1;  // g_tab / g_tab_request hold ids
+    for (int i = 0; i < nflat; i++) if (flat[i] == g_tab) cur = i;
+    if (cur < 0) cur = 0, g_tab = flat[0];
+    // L/R (or Q/E) switch pages, going on into the next group (not while typing: Q / E are letters then, and the on-screen keyboard has
+    // the controller)
+    if (g_tab_request_ext >= 0) { g_tab_request = g_tab_request_ext, g_tab_request_ext = -1, g_focus_tab = -99; }  // (test hook: no cursor on another tab)
+    static int request_frames;  // (a request waits for its tab to be drawn, which can take a frame or two)
+    if (g_tab_request != -2 && ++request_frames > 6) g_tab_request = -2;
+    if (g_tab_request == -2) request_frames = 0;
     bool any_popup = igIsPopupOpen_Str("", ImGuiPopupFlags_AnyPopupId), typing = ui_text_busy();
-    static int focused_tab = -99;  // the tab the controller's cursor is on (from the frame before; -99: none)
     if (!any_popup && !typing) {
         int step = igIsKeyPressed_Bool(ImGuiKey_GamepadR1, false) || igIsKeyPressed_Bool(ImGuiKey_E, false) ? 1
                  : igIsKeyPressed_Bool(ImGuiKey_GamepadL1, false) || igIsKeyPressed_Bool(ImGuiKey_Q, false) ? -1 : 0;
         if (step) {
-            int i = cur;
-            do i = (i + step + ntabs) % ntabs; while (!tabs[i].on);
-            g_tab_request = tabs[i].id;
-            // the cursor on the tab bar goes along (left behind, A on it switched straight back; user 2026-10-11)
-            if (focused_tab != -99) g_focus_tab = tabs[i].id, g_focus_frames = 0;
+            int to = flat[(cur + step + nflat) % nflat];
+            g_tab_request = to, request_frames = 0;
+            // the cursor goes along (left behind, A on it switched straight back; user 2026-10-11)
+            if (s_focused_tab != -99) g_focus_tab = s_focused_tab >= GROUP_ID ? GROUP_ID + group_of_page(to) : to, g_focus_frames = 0;
         }
     }
-    // Down with the cursor on the tab bar: the page's first row (option rows; other pages keep ImGui's own pick)
-    bool down_from_tab = focused_tab != -99 && igGetCurrentContext()->NavCursorVisible && !any_popup &&
+    if (g_tab_request != -2) {  // (a request for a page that is not shown is dropped; one that is, is taken at once, its tab selecting it)
+        bool ok = false;
+        for (int i = 0; i < nflat; i++) ok |= flat[i] == g_tab_request;
+        if (ok) g_tab = g_tab_request;
+        else g_tab_request = -2;
+    }
+    // Down with the cursor on a page's tab: the page's first row (option rows; other pages keep ImGui's own pick)
+    bool down_from_tab = s_focused_tab != -99 && s_focused_tab < GROUP_ID && igGetCurrentContext()->NavCursorVisible && !any_popup &&
                          (igIsKeyPressed_Bool(ImGuiKey_GamepadDpadDown, true) || igIsKeyPressed_Bool(ImGuiKey_GamepadLStickDown, true) ||
                           igIsKeyPressed_Bool(ImGuiKey_DownArrow, true));
     opt_focus_first(down_from_tab);
@@ -1462,107 +2121,63 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
     bool touch = g_touch_ui;
     if (touch) igPushStyleVar_Vec2(ImGuiStyleVar_FramePadding, IM_VEC2(igGetStyle()->FramePadding.x * 1.6f,
                                                                        igGetStyle()->FramePadding.y * 2.2f));
-    const float footer_h = touch ? 0 : igGetFontSize() * 2.0f;  // (a finger has no buttons to name)
-    ImVec2 foot_at = IM_VEC2(0, 0);
-    float foot_w = 0;
-    bool have_foot = false;
-    if (igBeginTabBar("##tabs", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
-        float tabs_w = 0;
-        for (int k = 0; k < ntabs; k++) {
-            const Tab *tp = &tabs[k];
-            const Tab t = *tp;
-            ImGuiTabItemFlags f = g_tab_request == t.id && t.on ? ImGuiTabItemFlags_SetSelected : 0;
-            char lbl[64];
-            snprintf(lbl, sizeof lbl, prelaunch ? " %s " : "  %s  ", t.name);  // (ten tabs: tighter, so none is cut short)
-            {
-                ImVec2 ts;
-                igCalcTextSize(&ts, lbl, NULL, false, -1.0f);
-                tabs_w += ts.x + igGetStyle()->FramePadding.x * 2 + igGetStyle()->ItemInnerSpacing.x;
-            }
-            igBeginDisabled(!t.on);  // (out of the game: Save Editor, Warp, Cheats)
-            // focus (controller / keyboard): the tab lights up a little with a gold bar along its bottom, instead of
-            // ImGui's outline (it sits 4 px outside the tab and the tab bar's clipping could cut its top off)
-            // (focused_tab: from the frame before - colours go in before the tab is drawn)
-            bool lit = focused_tab == t.id && igGetCurrentContext()->NavCursorVisible;
-            igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));
-            if (lit) {
-                igPushStyleColor_Vec4(ImGuiCol_Tab, theme_palette()->tab_alt);
-                igPushStyleColor_Vec4(ImGuiCol_TabHovered, theme_palette()->tab_alt);
-            }
-            if (g_focus_tab == -1 && !prelaunch) g_focus_tab = 5;  // (no Prelaunch in game: General, the first tab)
-            bool focus_here = g_focus_tab == t.id || (g_focus_tab == -100 && t.id == g_tab);
-            bool open = igBeginTabItem(lbl, NULL, f);
-            igPopStyleColor(lit ? 3 : 1);
-            if (focus_here) {  // the controller's cursor starts on this tab (SetKeyboardFocusHere skips tabs: no tab stop)
-                igSetFocusID(igGetItemID(), igGetCurrentWindow());
-                igSetNavCursorVisible(true);
-                // a few frames: the page's child window appearing makes ImGui pick its first widget once it's laid out
-                if (++g_focus_frames >= 4) g_focus_tab = -99, g_focus_frames = 0;
-                else g_focus_tab = t.id;
-            }
-            if (lit) {
-                ImVec2 a, b;
-                igGetItemRectMin(&a), igGetItemRectMax(&b);
-                float h = 4 * scale > 2 ? 4 * scale : 2;
-                ImDrawList_AddRectFilled(igGetWindowDrawList(), IM_VEC2(a.x + 2, b.y - h), IM_VEC2(b.x - 2, b.y),
-                                         menu_accent(255), 0, 0);  // (the theme's accent)
-            }
-            if (igIsItemFocused()) focused_tab = t.id;
-            else if (focused_tab == t.id) focused_tab = -99;
-            igEndDisabled();
-            if (open) {
-                g_tab = t.id;
-                igSpacing();
-                {
-                    ImVec2 pp, pa;
-                    igGetCursorScreenPos(&pp);
-                    igGetContentRegionAvail(&pa);
-                    foot_at = IM_VEC2(pp.x, pp.y + pa.y - footer_h), foot_w = pa.x, have_foot = footer_h > 0;
-                }
-                igBeginChild_Str("##page", IM_VEC2(0, -footer_h), ImGuiChildFlags_NavFlattened,  // (the rest of the window, less the footer)
-                                 0);
-                // Down from the tab bar, pages that aren't option rows (Prelaunch, Controls, Warp): their first control
-                // (option-row pages: opt_focus_first)
-                if (down_from_tab && (t.id == -1 || t.id == 8 || t.id == 4 || t.id == 6)) {
-                    opt_focus_first(false);
-                    igSetKeyboardFocusHere(0);
-                    igSetNavCursorVisible(true);
-                }
-                // Down from the tab bar, pages that aren't option rows (Prelaunch, Controls, Warp): their first control
-                // (option-row pages: opt_focus_first)
-                if (down_from_tab && (t.id == -1 || t.id == 8 || t.id == 4 || t.id == 6)) {
-                    opt_focus_first(false);
-                    igSetKeyboardFocusHere(0);
-                    igSetNavCursorVisible(true);
-                }
-                switch (t.id) {
-                case -1: prelaunch(scale); break;
-                case 0: tab_display(); break;
-                case 1: tab_audio(); break;
-                case 2: tab_mods(); break;
-                case 3: tab_online(); break;
-                case 4: tab_stats(); break;
-                case 6: tab_achievements(); break;
-                case 7: tab_search(); break;
-                case 5: tab_general(); break;
-                case 8: tab_about(); break;
-                case 9: tab_quit(scale, in_game); break;
-                }
-                if (opt_cursor_restored()) g_focus_tab = -99, g_focus_frames = 0;  // (a row took the cursor back: not the tab)
-                static const char *scroll_test;  // test hook: page scroll, 0..1
-                static bool scroll_test_read;
-                if (!scroll_test_read) scroll_test = getenv("LARECOMP_MENU_SCROLL"), scroll_test_read = true;
-                if (scroll_test) igSetScrollY_Float(igGetScrollMaxY() * (float)atof(scroll_test));
-                igEndChild();
-                igEndTabItem();
-            }
-        }
-        g_tab_request = -2;
-        g_tabs_w = tabs_w;
-        opt_focus_first(false);  // (a page without option rows: nothing took it)
-        igEndTabBar();
+    PageCtx pc = {.scale = scale, .in_game = in_game, .down_from_tab = down_from_tab, .prelaunch = prelaunch};
+    const float fs = igGetFontSize(), footer_h = touch ? 0 : fs * 2.0f;  // (a finger has no buttons to name)
+    ImVec2 at, avail;
+    igGetCursorScreenPos(&at);
+    igGetContentRegionAvail(&avail);
+    const float body_h = avail.y - footer_h;
+    // the left column as wide as its longest name needs; the window is wide enough for it and the widest row of tabs
+    float lw = 0, sub_w = 0;
+    for (int k = 0; k < nvg; k++) {
+        float w = tab_width(k_groups[vg[k]].name) + fs * 0.8f;
+        if (w > lw) lw = w;
+        float row = 0;
+        for (int i = 0; i < shown_n[vg[k]]; i++) row += tab_width(page_name(shown_pages[vg[k]][i]));
+        if (shown_n[vg[k]] > 1 && row > sub_w) sub_w = row;
     }
-    if (have_foot) footer_draw(foot_at, foot_w, footer_h, any_popup);
+    g_tabs_w = lw + sub_w + fs * 1.5f;
+    static int last_page[N_GROUPS];  // (each group's page when it was last open: its button goes back to it)
+    if (g_focus_tab == -1) g_focus_tab = GROUP_ID + group_of_page(g_tab);  // (the cursor starts on the open group's button)
+    igBeginChild_Str("##groups", IM_VEC2(lw, body_h), ImGuiChildFlags_NavFlattened, 0);
+    const float row_h = fs * (touch ? 2.6f : 1.9f);
+    for (int k = 0; k < nvg; k++) {
+        int gi = vg[k];
+        if (group_button(k_groups[gi].name, GROUP_ID + gi, gi == group_of_page(g_tab), lw, row_h, scale)) {
+            int to = shown_pages[gi][0];
+            for (int i = 0; i < shown_n[gi]; i++) if (shown_pages[gi][i] == last_page[gi]) to = last_page[gi];
+            g_tab = g_tab_request = to, request_frames = 0;
+        }
+    }
+    igEndChild();
+    ImDrawList_AddLine(igGetWindowDrawList(), IM_VEC2(at.x + lw + fs * 0.3f, at.y), IM_VEC2(at.x + lw + fs * 0.3f, at.y + body_h), menu_accent(70), 1.0f);
+    igSameLine(0, fs * 0.6f);
+    igBeginChild_Str("##frame", IM_VEC2(0, body_h), ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    {
+        const int ag = group_of_page(g_tab), np = shown_n[ag];
+        if (np == 1) {  // (one page: no row of tabs)
+            last_page[ag] = g_tab;
+            page_draw(&pc, g_tab);
+        } else {
+            igPushID_Int(ag);  // (each group's row of tabs keeps its own selection)
+            if (igBeginTabBar("##pages", ImGuiTabBarFlags_NoTabListScrollingButtons)) {
+                for (int i = 0; i < np; i++) {
+                    int pid = shown_pages[ag][i];
+                    if (nav_tab(page_name(pid), pid, g_tab_request == pid, scale)) {
+                        g_tab = pid, last_page[ag] = pid;
+                        if (g_tab_request == pid) g_tab_request = -2;
+                        page_draw(&pc, pid);
+                        igEndTabItem();
+                    }
+                }
+                igEndTabBar();
+            }
+            igPopID();
+        }
+    }
+    igEndChild();
+    opt_focus_first(false);  // (a page without option rows: nothing took it)
+    if (footer_h > 0) footer_draw(IM_VEC2(at.x, at.y + body_h), avail.x, footer_h, any_popup);
     restart_popup(scale, in_game);
     if (touch) igPopStyleVar(1);
 }
@@ -1856,14 +2471,13 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImFont *keep_big = g_font_big;  // (the window in the menu's font; header() uses g_font_big)
         g_font_big = menu_font_big();
         igPushFont(menu_font());
-        // header as on the start screen's Settings: the title, and a close X in the corner (B / Esc too). ("Title
+        // a close X in the top right corner (B / Esc too), over the body rather than in a row of its own: no title ("Title
         // screen" - rt_request_reboot(RT_REBOOT_TITLE) - is to find a new home; user 2026-10-11.)
-        igPushFont(g_font_big);
-        igTextColored(accent_vec(), "Settings");
-        igPopFont();
         {
             float bx = (g_touch_ui ? 64 : 44) * scale;
-            igSameLine(igGetWindowWidth() - igGetStyle()->WindowPadding.x - bx, -1);
+            ImVec2 body_at;
+            igGetCursorPos(&body_at);
+            igSetCursorPos(IM_VEC2(igGetWindowWidth() - igGetStyle()->WindowPadding.x - bx, igGetStyle()->WindowPadding.y));
             ImVec2 p;
             igGetCursorScreenPos(&p);
             igPushStyleColor_Vec4(ImGuiCol_NavCursor, IM_VEC4(0, 0, 0, 0));
@@ -1885,6 +2499,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
                 ImDrawList_AddLine(dl, IM_VEC2(p.x + bx - m, p.y + m), IM_VEC2(p.x + m, p.y + bx - m), col, t);
             }
             if (close) set_open(false);
+            igSetCursorPos(body_at);
         }
 
         bool any_popup = igIsPopupOpen_Str("", ImGuiPopupFlags_AnyPopupId), typing = ui_text_busy();  // (before the

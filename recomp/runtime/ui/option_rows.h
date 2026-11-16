@@ -11,6 +11,10 @@
 
 void opt_begin(const char *id, float scale);
 void opt_section(const char *title);
+// a section with a link button at the right end of its heading (an arrow out of a box): true when it is clicked; tip says where it goes
+bool opt_section_link(const char *title, const char *tip);
+// the next row is at least this tall (pixels; for a row with a picture beside it): the box, the text and the pointer follow
+void opt_next_row_height(float h);
 // the page being drawn has no "Reset Page to Defaults" row at its end (the Quit tab: nothing there is a setting to reset)
 void opt_no_reset(void);
 // a section that folds (A / click on its heading): true when open, so its rows are drawn: if (opt_section_fold("X")) { rows }
