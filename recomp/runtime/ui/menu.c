@@ -19,6 +19,7 @@
 #include "character.h"
 #include "history.h"
 #include "playtime.h"
+#include "clock.h"
 #include "cards.h"
 bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 
@@ -652,6 +653,8 @@ static void tab_display(void) {
     }
     opt_toggle("Hide Mouse Cursor", &g_settings.hide_cursor, true, "Hides the mouse cursor over the game while this menu is closed.");
     opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.");
+    opt_toggle("Show Clock", &g_settings.show_clock, true,
+               "Shows the computer's current time at the bottom of the menu, in the time zone and 12 / 24-hour format Windows uses.");
     opt_toggle("Show memory use", &g_settings.show_memory, false,
                "Shows how much memory the app uses in the top right corner, once a second.");
 
@@ -871,6 +874,11 @@ static void tab_audio(void) {
     if (opt_slider("Volume", &pct, 0, 200, 5, 100, "%g%%",
                    "The game's volume. 100% is the game's own level; above it, louder."))
         g_settings.volume = pct / 100.0f;
+    if (opt_toggle("Mute in Background", &g_settings.mute_in_background, true,
+                   "Fades the game's sound out when you switch to another window or minimize this one, and back in when you "
+                   "return. Mute and Volume keep their values. The game keeps running. Opening this menu does not count as leaving.")) {
+        settings_save();
+    }
     opt_toggle("Reverb", &g_settings.reverb, true, "The game's reverb effect.");
     opt_toggle("Movie audio", &g_settings.movie_audio, true,
                "Sound in the game's movies. Applies the next time a movie starts.");
@@ -1401,7 +1409,19 @@ static void footer_draw(ImVec2 at, float w, float h, bool popup) {
     ImVec2 pw;
     igCalcTextSize(&pw, played_label, NULL, false, -1.0f);
     ImDrawList_AddText_Vec2(dl, IM_VEC2(at.x + w - pw.x - fs * 0.1f, cy - pw.y * 0.5f), menu_muted(), played_label, NULL);
-    const float room = w - pw.x - fs * 1.5f;  // (what is left of the line for the hints)
+    // the time of day (issue #56), just left of the played time; the hints give way to it first
+    float clock_w = 0;
+    char now_label[24];
+    if (g_settings.show_clock && clock_format(now_label, sizeof now_label)) {
+        ImVec2 cw2;
+        igCalcTextSize(&cw2, now_label, NULL, false, -1.0f);
+        float cx = at.x + w - pw.x - fs * 0.1f - fs * 1.4f - cw2.x;
+        if (cx > at.x + fs * 0.4f) {  // (a window too narrow for both: the clock is left out)
+            ImDrawList_AddText_Vec2(dl, IM_VEC2(cx, cy - cw2.y * 0.5f), menu_muted(), now_label, NULL);
+            clock_w = cw2.x + fs * 1.4f;
+        }
+    }
+    const float room = w - pw.x - clock_w - fs * 1.5f;  // (what is left of the line for the hints)
     for (int i = 0; i < n; i++) {
         ImVec2 kw, ww;
         igCalcTextSize(&kw, items[i].key, NULL, false, -1.0f);
@@ -2310,6 +2330,8 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     {   // play time (issue #15): this frame counts when the game is being looked at and played
         extern SDL_Window *ui_window(void);  // runtime/nvn/vulkan/device.c
         SDL_Window *w = ui_window();
+        extern volatile int g_app_inactive;  // services/audio.c
+        g_app_inactive = !w || !(SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS) || (SDL_GetWindowFlags(w) & SDL_WINDOW_MINIMIZED);
         playtime_tick(!open && !kbd && !splash && w && (SDL_GetWindowFlags(w) & SDL_WINDOW_INPUT_FOCUS) &&
                       !(SDL_GetWindowFlags(w) & SDL_WINDOW_MINIMIZED));
         history_tick();

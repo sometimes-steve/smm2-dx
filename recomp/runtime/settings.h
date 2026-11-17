@@ -33,6 +33,7 @@ typedef struct {
     bool reverb;         // room reverb effect
     bool movie_audio;
     bool show_fps;
+    bool show_clock;  // the menu footer shows the local time of day: ui/clock.h
     float menu_scale;  // General tab > Menu size: the in-game menu's size relative to its default (1 = 100%)
     bool show_memory;  // the app's memory use in the corner (menu.mm, platform.h plat_memory_used)
     bool dpad_move;      // the d-pad (and arrow keys) move Link like the stick
@@ -71,6 +72,7 @@ typedef struct {
     bool show_recomp_version; // the title screen's Ver. box shows the recomp's version, not the game's: services/am.c
     bool skip_intro;     // skip the boot logo presentation animations
     bool mute;           // no sound at all; Volume keeps its value: Audio > Sound
+    bool mute_in_background;  // the sound fades out while the window is not in the foreground or is minimized: services/audio.c
     bool keep_obj_cache;  // keep the game code's compiled objects (~800 MB) so a rebuild after an update is quicker: General > Game
     bool skip_mode_select;  // SMM2: press L+R on the title screen and open Course World by itself (games/smm2/mods/skip_intro.c)
     int theme;           // THEME_*: the look of the menu (General tab > Theme)

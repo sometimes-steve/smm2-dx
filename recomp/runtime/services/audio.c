@@ -750,11 +750,24 @@ static void render_frame(Renderer *r, float *stereo) {
 }
 
 // Output gain: menu volume times LARECOMP_AUDIO_GAIN (applied live).
+volatile int g_app_inactive;  // the window has lost the focus or is minimized (set each frame by ui/menu.c)
 volatile int g_audio_muted;  // a mod silences the output for a while (games/smm2/mods/skip_intro.c: the hidden start)
 static void apply_gain(SDL_AudioStream *st) {
     static double env = -1;
     if (env < 0) env = getenv("LARECOMP_AUDIO_GAIN") ? atof(getenv("LARECOMP_AUDIO_GAIN")) : 1.0;
-    float g = g_audio_muted || g_settings.mute ? 0.0f : (float)(env * g_settings.volume);
+    // Mute in Background (issue #51): the output fades out over a quarter of a second when the window loses the focus or is
+    // minimized, and back in when it returns. It is a factor of its own, on top of Mute and Volume, which keep their values.
+    static float bg = 1.0f;
+    static uint64_t last_ms;
+    uint64_t now = SDL_GetTicks();
+    if (now != last_ms) {
+        float step = (float)(now - last_ms) / 250.0f;
+        if (last_ms == 0 || step > 1.0f) step = 1.0f;  // (the first call, or a long gap: no slow start)
+        float to = g_settings.mute_in_background && g_app_inactive ? 0.0f : 1.0f;
+        bg = bg < to ? fminf(bg + step, to) : fmaxf(bg - step, to);
+        last_ms = now;
+    }
+    float g = g_audio_muted || g_settings.mute ? 0.0f : (float)(env * g_settings.volume * bg);
     if (st && SDL_GetAudioStreamGain(st) != g) SDL_SetAudioStreamGain(st, g);
 }
 

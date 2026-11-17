@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.1 "Time Check" - 2026-11-17
+
+### Audio
+
+- **Mute in Background (#51).** Settings > Audio > **Mute in Background** fades the game's sound out over a quarter of a second when you switch to
+  another window or minimize the app, and back in when you return. On by default. Mute and Volume keep their values (a muted game stays muted),
+  the game keeps running, and opening the menu does not count as leaving. It covers all of the game's sound, movies included.
+
+### Menu
+
+- **A clock in the menu (#56).** The computer's local time is shown at the bottom of every menu page, beside the time played, in the time zone and
+  12 / 24-hour format Windows is set to. It follows the system clock as the menu stays open. Settings > Display > **Show Clock** turns it off (on
+  by default). On a narrow window the button hints give way to it.
+
 ## 0.7.0 "Character Select" - 2026-11-16
 
 ### Mii Editor (#23)
