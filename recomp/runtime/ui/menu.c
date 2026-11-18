@@ -22,6 +22,7 @@
 #include "clock.h"
 #include "cards.h"
 #include "webview.h"
+#include "../support_report.h"
 bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 
 #include "../game_rows.h"
@@ -339,6 +340,18 @@ bool menu_handle_event(const SDL_Event *e) {
 void menu_apply_window_requests(void *win) {
     SDL_Window *w = (SDL_Window *)win;
     g_pixel_density = SDL_GetWindowPixelDensity(w);
+    static bool offered;  // (the last run ended on an error: the report is offered once, a few seconds in, when a notice is seen)
+    if (!offered && SDL_GetTicks() > 6000) {
+        offered = true;
+        if (getenv("RECOMP_SUPPORT_REPORT_TEST")) {  // (test) save a report now
+            extern const char *menu_app_version(void);
+            char m[700], p[700];
+            support_report_export(menu_app_version(), p, sizeof p, m, sizeof m);
+            LOG("[support] %s\n", m);
+        }
+        if (support_last_run_failed())
+            menu_notice("The last run ended on an error. Quit > Support can copy or save a support report for a bug report.", 15);
+    }
     static bool text_input;
     bool want_text = capturing();
     if (want_text != text_input) {
@@ -771,22 +784,17 @@ static void tab_general(void) {
         settings_save();
         restart_changed_mark(RESTART_SKIP_INTRO);
     }
-    if (is_smm2 &&  // (Super Mario Maker 2's: mods/skip_intro.c)
-        opt_toggle("Skip mode select (restart)", &g_settings.skip_mode_select, false,
-                   "Replaces Skip intro: a combo of no intro video and no mode select. Goes from launch straight into "
-                   "Course World, with no logos, no L+R and no choosing a mode, all hidden behind a loading screen. "
-                   "Applies the next time the game starts (Quit > Restart the Game does it too). Because it includes "
-                   "Skip intro, Skip intro is unavailable while this is on.")) {
-        settings_save();
-        restart_changed_mark(RESTART_SKIP_MODE_SELECT);
-    }
-    if (is_smm2) {  // (where Skip mode select goes: read when the game starts)
-        static const char *const to[N_SKIP_TO] = {"Course World", "Make"};
-        if (!g_settings.skip_mode_select) opt_disable_next();
-        if (opt_choice("Skip mode select goes to (restart)", &g_settings.skip_mode_select_to, to, N_SKIP_TO, SKIP_TO_COURSE_WORLD,
-                       "Where Skip mode select lands. Course World: the Play side's Course World. Make: the Course Maker, one "
-                       "press from the title screen's L+R. Only used while Skip mode select is on. Applies the next time the game "
-                       "starts (Quit > Restart the Game does it too).", true)) {
+    if (is_smm2) {  // (Super Mario Maker 2's: mods/skip_intro.c) Off, or where it lands: two settings kept (the file's keys are unchanged), one row
+        static const char *const modes[] = {"Off", "Course World", "Make"};
+        int mode = !g_settings.skip_mode_select ? 0 : g_settings.skip_mode_select_to == SKIP_TO_MAKE ? 2 : 1;
+        if (opt_choice("Skip mode select (restart)", &mode, modes, 3, 0,
+                       "Replaces Skip intro: a combo of no intro video and no mode select. Goes from launch straight into "
+                       "the mode you pick, with no logos, no L+R and no choosing a mode, all hidden behind a loading screen. "
+                       "Off: the game starts as usual. Course World: the Play side's Course World. Make: the Course Maker. "
+                       "Applies the next time the game starts (Quit > Restart the Game does it too). Because it includes "
+                       "Skip intro, Skip intro is unavailable while this is on.", true)) {
+            g_settings.skip_mode_select = mode != 0;
+            if (mode) g_settings.skip_mode_select_to = mode == 2 ? SKIP_TO_MAKE : SKIP_TO_COURSE_WORLD;
             settings_save();
             restart_changed_mark(RESTART_SKIP_MODE_SELECT);
         }
@@ -1183,7 +1191,11 @@ void rt_request_reboot(int kind);  // runtime/main.c (RT_REBOOT_TITLE = 2: the s
 #ifndef RECOMP_VERSION
 #define RECOMP_VERSION "dev"  // (the build passes the tag or git's description)
 #endif
+const char *menu_app_version(void);
 static const char *app_version(void) {
+    return menu_app_version();
+}
+const char *menu_app_version(void) {
     static char v[64];
     if (!v[0]) {
         snprintf(v, sizeof v, "%s", RECOMP_VERSION);
@@ -1204,6 +1216,26 @@ static void tab_quit(float scale, bool in_game) {
     opt_section("About");
     opt_action("Version", app_version(), "This program's version. Please include it in bug reports.", false);
     launcher_settings_rows();  // (Check for updates, New version available)
+    opt_section("Support");  // (issue #55)
+    {
+        static const char *const what =
+            "Gathers what is needed to look into a crash or a graphics problem: this program's version, your PC (Windows, CPU, memory, "
+            "graphics), the settings that matter (graphics, sound, input, start-up, language), the mods that are on and their order, "
+            "this session's log and the last one's, and the crash log of a session that stopped on an error. Your name, folders, account "
+            "details and tokens are taken out. Never included: prod.keys and the firmware, the game's files, saves, OpenCourse World's "
+            "token and configuration. Nothing is sent anywhere: you send it yourself.";
+        char desc[1100], m[700], path[700];
+        snprintf(desc, sizeof desc, "Copies the report to the clipboard. %s", what);
+        if (opt_action("Copy Support Report", "", desc, true)) {
+            support_report_copy(app_version(), m, sizeof m);
+            menu_notice(m, 8);
+        }
+        snprintf(desc, sizeof desc, "Saves the report as a text file in the log folder (smm2-dx_log) and says where. %s", what);
+        if (opt_action("Export Support Report", "", desc, true)) {
+            support_report_export(app_version(), path, sizeof path, m, sizeof m);
+            menu_notice(m, 12);
+        }
+    }
     opt_no_reset();  // (Quit, Version, one update switch: nothing here to put back to defaults)
     opt_end();
 }

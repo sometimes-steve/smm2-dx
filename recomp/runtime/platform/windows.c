@@ -165,6 +165,8 @@ static void log_to_file_without_console(void) {
     if (!append) {  // (the last session's log is kept beside it: a crash's is gone otherwise at the next start)
         char prev[MAX_PATH + 16];
         snprintf(prev, sizeof prev, "%s" GAME_LOG ".previous.log", exe);
+        extern void support_crash_keep(const char *log, const char *dir);  // runtime/support_report.c
+        support_crash_keep(g_log_path, exe);  // (a session that ended on a fatal error: its log is kept apart, beyond the three the rotation holds)
         plat_keep_logs(prev);
         remove(prev);
         rename(g_log_path, prev);

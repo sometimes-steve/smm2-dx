@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.5 "Flight Recorder" - 2026-11-18
+
+### Game
+
+- **Skip mode select is one setting with three values.** General > Game > **Skip mode select (restart)** is now **Off**, **Course World** or
+  **Make**, in one row, in place of the switch and the "goes to" row 0.7.4 had. Your saved choice carries over.
+
+### Support
+
+- **Copy or save a support report (#55).** Quit > Support has **Copy Support Report** and **Export Support Report**. The report holds this
+  program's version, your PC (Windows, CPU, memory, graphics), the settings that matter (graphics, sound, input, start-up, language), the mods that
+  are on and their order, the end of this session's log and of the last one's, and the crash log of a session that stopped on an error. Your name,
+  your folders, your OpenCourse World domain, token and maker code, e-mail addresses, IP addresses and Course / Maker IDs are taken out before
+  anything is written, and `prod.keys`, the firmware, the game's files, saves and OpenCourse World's configuration are never part of it. Export
+  saves it as a text file in `smm2-dx_log` and says where; nothing is sent anywhere, you send it yourself. A session that ends on a fatal error now
+  keeps its log as `crash-<date>.log` in `smm2-dx_log` (the newest five), so it is not lost after the three sessions the log rotation holds, and the
+  next start offers the report with a notice. The frame-time sample #50 will add is not part of the report yet.
+
 ## 0.7.4 "Fast Track" - 2026-11-18
 
 ### Game
