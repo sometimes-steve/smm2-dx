@@ -553,7 +553,7 @@ static bool fonts_cjk_pending(void) {
     config_load();
     return g_cfg.firmware[0] && g_cfg.keys[0] && dir_exists(g_cfg.firmware) && file_exists(g_cfg.keys) &&
            (!file_exists("fonts/.cjk-checked") || !file_exists("sysdata/miiicons/.done") ||
-            !file_exists("sysdata/.ngword-checked"));
+            !file_exists("sysdata/.ngword-checked") || (g_cfg.game.n > 0 && !file_exists("manual/.checked")));
 }
 
 // The checks of what's chosen, at most every 2 s per path (the screen draws 60 times a second; files can appear).
@@ -889,6 +889,7 @@ static void *job_thread(void *arg) {
         av_push(&a, t.python), av_push(&a, t.sysdata);
         av_push(&a, "--firmware"), av_push(&a, g_cfg.firmware), av_push(&a, "--keys"), av_push(&a, g_cfg.keys);
         av_push(&a, "--data"), av_push(&a, rt_data_root());
+        for (int i = 0; i < g_cfg.game.n; i++) av_push(&a, "--game"), av_push(&a, g_cfg.game.v[i]);  // (the offline manual comes from the game's package)
         if (t.hactool[0]) av_push(&a, "--hactool"), av_push(&a, t.hactool);
         snprintf(logf, sizeof logf, "%s" SEP "sysdata.log", logs);
         bool ran = run_script(1, &a, logf, 0.2f, 0.25f);

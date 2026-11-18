@@ -16,6 +16,7 @@ hactool's output is never shown (it can echo key values), only whether each step
 import argparse
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -24,7 +25,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 for _up in (os.path.join(_HERE, '..', '..'), os.path.join(_HERE, '..', '..', 'tools')):  # (extract_mii_icons.py: next to the recompiler's files, shipped or in the source tree)
     sys.path.append(os.path.normpath(_up))
-from setup import HACTOOL_CRASHES, masked  # noqa: E402  (setup.py: the crash codes, output without key values)
+from setup import HACTOOL_CRASHES, SetupError, install_manual, masked  # noqa: E402  (setup.py: the crash codes, output without key values)
 import mii_stub  # noqa: E402  (writes the Mii face-part archive)
 import extract_mii_icons  # noqa: E402  (the Mii editor's part icons)
 
@@ -83,6 +84,45 @@ def install_ui_font(data):
     return len(UI_FONT_FILES)
 
 
+BFTTF_KEY = 0x49621806  # the console's font files: 8 bytes (magic, size), then the TTF with every u32 XORed with this (runtime/hle/pl.c)
+
+
+def decode_bfttf(raw):
+    """The TTF inside a .bfttf, or None when it isn't one."""
+    if len(raw) < 12:
+        return None
+    def bswap(v):
+        return int.from_bytes(v.to_bytes(4, 'little'), 'big')
+
+    for swap in (False, True):  # (the key's byte order differs between descriptions: both are tried, as pl.c does)
+        k = bswap(BFTTF_KEY) if swap else BFTTF_KEY
+        size = struct.unpack_from('<I', raw, 4)[0] ^ k
+        ver = struct.unpack_from('<I', raw, 8)[0] ^ k
+        if swap:
+            size = bswap(size)
+        if size == 0 or size > len(raw) - 8 or ver not in (0x100, 0x4F54544F):  # (sfnt 1.0 / OTTO)
+            continue
+        n = size // 4
+        return struct.pack(f'<{n}I', *[w ^ k for w in struct.unpack_from(f'<{n}I', raw, 8)])
+    return None
+
+
+def install_manual_glyphs(data):
+    """The button glyphs of the offline manual (its pages draw A / B / + as private-use characters of the console's NintendoExt
+    font, which the manual doesn't carry): the font from the firmware, as a plain TTF in <data>/manual/, which runtime/ui/webview.c's
+    page script uses for those characters. Never shipped: manual/ is not part of a release. 1 when written."""
+    src = os.path.join(data, 'fonts', 'nintendo_ext_003.bfttf')
+    if not (os.path.isfile(src) and os.path.isdir(os.path.join(data, 'manual'))):
+        return 0
+    with open(src, 'rb') as f:
+        ttf = decode_bfttf(f.read())
+    if not ttf:
+        return 0
+    with open(os.path.join(data, 'manual', 'NintendoExt.ttf'), 'wb') as f:
+        f.write(ttf)
+    return 1
+
+
 def install_mii_face(data):
     """Write the Mii face-part archive (a rounded-box head, nothing else) to <data>/sysdata/<MII_MODEL>/, replacing what is there."""
     out = os.path.join(data, 'sysdata', MII_MODEL)
@@ -120,11 +160,17 @@ def main():
     ap.add_argument('--keys', required=True)
     ap.add_argument('--data', required=True)
     ap.add_argument('--hactool', default=shutil.which('hactool') or os.path.expanduser('~/smm-work/tools/bin/hactool'))
+    ap.add_argument('--game', action='append', default=[], help="the game's NSP / XCI files or the folders they are in: the offline manual is taken from them")
     ap.add_argument('--stub-mii', action='store_true', help="write mii_stub.py's cube-head Mii data instead of the console's")
     a = ap.parse_args()
     if a.stub_mii:
         print(f'sysdata: {install_mii_face(a.data)} Mii files (mini head)')
     print(f'sysdata: {install_ui_font(a.data)} bundled font files')
+    if a.game:  # (the Play Guide's pages, from the game's own package, not the firmware: without them the button shows a notice, issue #19)
+        try:
+            print(f'sysdata: {install_manual(a.game, a.keys, a.hactool, a.data)} manual files')
+        except (SetupError, OSError) as e:
+            print(f'sysdata: no manual ({masked(str(getattr(e, "what", e)))})')
     if not a.hactool or not os.path.exists(a.hactool):
         fail('NO_HACTOOL', 'hactool was not found', 'It comes with this program: reinstall it, or pass --hactool.')
     if not os.path.isfile(a.keys):
@@ -178,6 +224,8 @@ def main():
                 if f.endswith('.bfttf'):
                     shutil.copy(os.path.join(tmp, f), os.path.join(fonts, f))
                     nf += 1
+    if install_manual_glyphs(a.data):
+        print('sysdata: manual button glyphs')
     missing = sorted(want - set(found))
     os.makedirs(os.path.join(a.data, 'sysdata', 'miiicons'), exist_ok=True)
     with open(os.path.join(a.data, ICONS_DONE), 'w') as marker:

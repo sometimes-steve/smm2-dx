@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]  # repo root (this file is in recomp/
 # Only these top-level folders of smm2-dx_data are skipped: a bare name match would also drop every nested folder
 # of that name (zig/lib/std/Build/Cache!).
 # (mods-generated: files made at run time from the player's own game files, e.g. the patched font chain; mods: the mods they installed)
-SKIP_DIRS = ("extracted", "cache", "work", "logs", "sysdata", "save", "mods-generated", "mods", "miis")
+SKIP_DIRS = ("extracted", "cache", "work", "logs", "sysdata", "manual", "webview2", "save", "mods-generated", "mods", "miis")
 # (miis, mii.charinfo: the Miis they made or imported, and the one they play as;
 # smm2.ini: their settings; ocw-maker.txt: their maker code; ocw-config.json: their token; .cjk-checked: setup's note that it
 # has looked for the Chinese and Korean fonts in the player's firmware, which a fresh install must not start with)

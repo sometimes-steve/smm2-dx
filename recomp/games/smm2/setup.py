@@ -327,8 +327,10 @@ def read_title(path, entries, hac, stage):
         if pname not in byname:
             raise SetupError('INCOMPLETE', f'{os.path.basename(path)} lacks its program ({pname})',
                              'The file is incomplete: dump it again.')
+        man = [c for c in meta['contents'] if c[2] == 4 and c[0] + '.nca' in byname]  # (content type 4: HtmlDocument, the offline manual)
         t = {'title_id': meta['title_id'], 'version': meta['version'], 'type': meta['type'],
-             'program': (pname, *byname[pname]), 'titlekey': None}
+             'program': (pname, *byname[pname]), 'titlekey': None,
+             'manual': (man[0][0] + '.nca', *byname[man[0][0] + '.nca']) if man else None}
         # the title key of an eShop title (a cartridge's has none): the ticket whose rights id names this title
         for tname, toff, tsize in entries:
             if not tname.endswith('.tik') or tsize < 0x2C0:
@@ -453,6 +455,54 @@ def extract_containers(files, hac, stage):
                          'prod.keys must hold the keys for the 3.0.3 update (dump them again with a current '
                          'Lockpick_RCM), and the update NSP must be complete, with its ticket.')
     return {'exefs': exefs, 'romfs': romfs}
+
+
+def install_manual(sources, keys, hactool, out):
+    """The game's offline manual (the pages its Play Guide button opens, issue #19) from the player's own NSP / XCI: the base
+    game's HtmlDocument archive with the update's over it, extracted to <out>/manual/html-document/htmlcontents.htdocs.
+    Returns the number of files, 0 when the containers have none. <out>/manual/.checked is written either way, so this is asked once."""
+    hac = Hactool(hactool, keys)
+    _, _, containers = scan_sources(sources, out)
+    stage = os.path.join(out, '.extract-manual')
+    dest, new = os.path.join(out, 'manual'), os.path.join(out, 'manual.new')
+    base = upd = None
+    n = 0
+    try:
+        shutil.rmtree(stage, ignore_errors=True)
+        os.makedirs(stage)
+        for path in containers:
+            for t in read_title(path, container_entries(path), hac, stage):
+                if t['title_id'] == versions.BASE_TITLE_ID and t['manual']:
+                    base = (path, t)
+                elif t['title_id'] == versions.UPDATE_TITLE_ID and t['manual'] and (upd is None or t['version'] > upd[1]['version']):
+                    upd = (path, t)
+        if base:
+            shutil.rmtree(new, ignore_errors=True)
+            bpath, bt = base
+            nca = os.path.join(stage, 'manual-base.nca')
+            copy_range(bpath, bt['manual'][1], bt['manual'][2], nca)
+            tk = [f'--titlekey={bt["titlekey"]}'] if bt['titlekey'] else []
+            if upd:  # (the update's archive is a patch over the base's section: its files over the base's)
+                raw = os.path.join(stage, 'manual-base.romfs')
+                hac.run(*tk, '-t', 'nca', '-r', f'--section0={raw}', nca, what='Extracting the manual')
+                upath, ut = upd
+                unca = os.path.join(stage, 'manual-update.nca')
+                copy_range(upath, ut['manual'][1], ut['manual'][2], unca)
+                utk = [f'--titlekey={ut["titlekey"]}'] if ut['titlekey'] else []
+                hac.run(*utk, '-t', 'nca', f'--baseromfs={raw}', f'--romfsdir={new}', unca, what="Applying the manual's update")
+            else:
+                hac.run(*tk, '-t', 'nca', f'--romfsdir={new}', nca, what='Extracting the manual')
+            n = sum(len(fs) for _, _, fs in os.walk(new))
+            if n:
+                shutil.rmtree(dest, ignore_errors=not os.path.isdir(dest))  # (a folder in use, e.g. by the game's web view: an error, not half a manual)
+                os.replace(new, dest)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(new, ignore_errors=True)
+    os.makedirs(dest, exist_ok=True)
+    with open(os.path.join(dest, '.checked'), 'w') as f:
+        f.write('the game files were looked through for the offline manual\n')
+    return n
 
 
 # ------------------------------------------------------------------ sources -> layout

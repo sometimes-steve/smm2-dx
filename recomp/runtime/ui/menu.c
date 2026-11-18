@@ -21,6 +21,7 @@
 #include "playtime.h"
 #include "clock.h"
 #include "cards.h"
+#include "webview.h"
 bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 
 #include "../game_rows.h"
@@ -163,7 +164,7 @@ static char g_kbd_text[400];  // (a comment: 75 characters of up to 4 bytes)
 static char g_kbd_title[200];  // the game's header or guide text, if it gives one
 static bool g_kbd_id;  // this prompt asks for a Course ID or a Maker ID (nine characters: runtime/ui/osk.h's rules)
 static int g_kbd_max = 8;
-static bool capturing(void) { return atomic_load(&g_open) || atomic_load(&g_kbd) == 1; }
+static bool capturing(void) { return atomic_load(&g_open) || atomic_load(&g_kbd) == 1 || webview_active(); }
 // The on-screen controller's menu button (runtime/ui/touchpad.cpp)
 void menu_toggle(void) { set_open(!atomic_load(&g_open)); }
 
@@ -206,6 +207,17 @@ bool menu_input_captured(void) { return capturing(); }
 
 bool menu_handle_event(const SDL_Event *e) {
     static bool back_down, start_down;
+    if (webview_active()) {  // the Play Guide's web view is up (runtime/ui/webview.c): the controller drives it, the game and the menu get nothing
+        if (e->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e->type == SDL_EVENT_GAMEPAD_BUTTON_UP) {
+            ImGuiKey k = key_from_pad(e->gbutton.button);
+            int b = k == ImGuiKey_GamepadDpadUp ? WV_PAD_UP : k == ImGuiKey_GamepadDpadDown ? WV_PAD_DOWN :
+                    k == ImGuiKey_GamepadDpadLeft ? WV_PAD_LEFT : k == ImGuiKey_GamepadDpadRight ? WV_PAD_RIGHT :
+                    k == ImGuiKey_GamepadFaceDown ? WV_PAD_CONFIRM : k == ImGuiKey_GamepadFaceRight ? WV_PAD_BACK : -1;
+            if (b >= 0) webview_gamepad(b, e->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+            return true;
+        }
+        if (e->type == SDL_EVENT_KEY_DOWN || e->type == SDL_EVENT_KEY_UP || e->type == SDL_EVENT_TEXT_INPUT) return true;
+    }
     if (atomic_load(&g_open) && bind_capture_event(e)) return true;  // Controls tab waiting for a new binding: it takes the press
     if (e->type == SDL_EVENT_KEY_DOWN) g_last_pad = false;
     if (e->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) g_last_pad = true;

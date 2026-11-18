@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.3 "Page Turner" - 2026-11-18
+
+### Play Guide (#19)
+
+- **The Play Guide's exclamation mark opens the game's own manual instead of crashing.** The game asks the Switch's web browser for its offline
+  manual and stopped when nothing answered. The manual's pages (the Play Guide: Course Maker, Course World, Coursebot, Q&A, Settings and more, in
+  the game's language) are in your own game files, so setup now takes them from your NSP / XCI, the update's pages over the base game's, into the
+  data folder. They are never shipped. They open in a web view over the game window (Microsoft's WebView2, which comes with Windows 11 and most
+  of Windows 10; WebView2Loader.dll comes with the program), and in your browser where that is not available. Hovering a part shows its text, as
+  the Switch's cursor does; Esc, the controller's back button or the guide's own back button closes it, and the controller's D-pad and confirm
+  button move and select. The button icons are drawn with the console's button font, which setup writes from your firmware next to the manual.
+  An install set up before this runs the font step once more to get the pages (a source checkout in dev mode skips that check: run
+  `games/smm2/sysdata.py --game <your game folder>` by hand there).
+
 ## 0.7.2 "Word Check" - 2026-11-18
 
 ### Fixes

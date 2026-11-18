@@ -1,8 +1,12 @@
 // Applet manager (appletOE), apm, and lm.
+#include <SDL3/SDL.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../hle.h"
+#include "../paths.h"
+#include "../ui/webview.h"
 #include "../ipc.h"
 #include "../net/netcfg.h"
 #include "../settings.h"
@@ -162,7 +166,9 @@ static Service *new_am_storage(const void *data, uint64_t size) {
 // type 2 (ApplicationErrorArg) error number u32 @8, the dialog message (UTF-8, 0x800) @0x14.
 #define APPLET_ERROR 0x0E
 
-typedef struct { uint32_t id; bool started; } AmApplet;
+#define APPLET_WEB 0x17  // (the offline web applet: the game's Play Guide page, issue #19)
+
+typedef struct { uint32_t id; bool started, popped; } AmApplet;
 
 // The notice: the game's error, with a hint about the network
 static void *explain_thread(void *arg) {
@@ -199,6 +205,47 @@ static void error_notice(const uint8_t *a, uint64_t n) {
     else free(copy);
 }
 
+// The web applet's argument holds the page the game wants, "htmlcontents.htdocs/html/<language>/index.html?ctrl=0" (the language is
+// the one the game was told, the Language setting): the game's offline manual, which setup took from the player's own package
+// (games/smm2/setup.py install_manual) into <data>/manual/html-document/. It is opened in the default browser; the applet
+// itself ends at once. Shown in a web view over the game window (runtime/ui/webview.c; the default browser where that can't start).
+// Without the pages: a notice.
+static void open_manual(const uint8_t *d, uint64_t n) {
+    static const char key[] = "htmlcontents.htdocs/";
+    extern void menu_notice(const char *text, double seconds);
+    char page[300] = "";
+    for (uint64_t i = 0; i + sizeof key < n; i++) {
+        if (memcmp(d + i, key, sizeof key - 1)) continue;
+        size_t k = 0;
+        for (; i + k < n && k + 1 < sizeof page && d[i + k] >= 0x20 && d[i + k] < 0x7f; k++) page[k] = (char)d[i + k];
+        page[k] = 0;
+        break;
+    }
+    if (!page[0]) return;
+    char path[1100], file[1100], url[1300];
+    snprintf(path, sizeof path, "%s/manual/html-document/%s", rt_data_root(), page);
+    snprintf(file, sizeof file, "%s", path);
+    char *q = strchr(file, '?');
+    if (q) *q = 0;
+    FILE *f = strstr(page, "..") ? NULL : fopen(file, "rb");
+    if (!f) {
+        LOG("[am] web applet: %s is not in the data folder's manual\n", page);
+        menu_notice("The Play Guide pages aren't set up. Set up the game files again (Settings > Game files): they come from your game.", 8);
+        return;
+    }
+    fclose(f);
+    size_t u = 0;
+    u += (size_t)snprintf(url, sizeof url, "file:///");
+    for (const char *p = path; *p && u + 4 < sizeof url; p++) {
+        if (*p == '\\') url[u++] = '/';
+        else if (*p == ' ') u += (size_t)snprintf(url + u, sizeof url - u, "%%20");
+        else url[u++] = *p;
+    }
+    url[u] = 0;
+    LOG("[am] web applet: opening %s\n", url);
+    webview_open(url);
+}
+
 static void applet_accessor(Service *s, IpcReq *req, IpcResp *resp) {
     AmApplet *ap = s->state;
     switch (req->cmd) {
@@ -209,13 +256,39 @@ static void applet_accessor(Service *s, IpcReq *req, IpcResp *resp) {
     case 30: break;                                                             // GetResult: success
     case 100: case 103: {  // PushInData / PushInteractiveInData(IStorage)
         Service *st = ipc_in_object(req, 0);
+        if (st && st->handler == am_storage && ap->id != APPLET_ERROR) {  // (what an applet is asked, for the ones we don't draw: issue #19)
+            AmStorage *d = st->state;
+            char hex[3 * 96 + 1], txt[200];
+            size_t n = d->size < 96 ? d->size : 96, k = 0;
+            for (size_t i = 0; i < n; i++) snprintf(hex + i * 3, 4, "%02x ", d->data[i]);
+            hex[n * 3] = 0;
+            for (size_t i = 0; i < d->size && k + 1 < sizeof txt; i++) {  // (the strings in it: a document path or an address)
+                if (d->data[i] >= 0x20 && d->data[i] < 0x7f) txt[k++] = (char)d->data[i];
+                else if (k && txt[k - 1] != '|') txt[k++] = '|';
+            }
+            txt[k] = 0;
+            LOG("[am] applet %#x PushInData: %llu bytes: %s\n[am]   text: %s\n", ap->id, (unsigned long long)d->size, hex, txt);
+            if (ap->id == APPLET_WEB) open_manual(d->data, d->size);
+        }
         if (st && st->handler == am_storage && ap->id == APPLET_ERROR) {
             AmStorage *d = st->state;
             if (d->size >= 8 && d->data[0] <= 8 && d->size != 0x20) error_notice(d->data, d->size);  // (0x20: the common arguments)
         }
         break;
     }
-    case 101: case 104: resp->result = AM_NO_DATA; break;                      // PopOutData / PopInteractiveOutData
+    case 101:  // PopOutData
+        // The web applet (offline pages: SMM2's Play Guide) answers with a WebCommonReturnValue [obs: switchbrew]: exit reason u32 (0: the
+        // exit button), padding, last URL (0x1000 bytes), its length u64 = 0x1010 bytes. The game asserts in its AppletThread without
+        // it (issue #19). Once: a second pop finds nothing, as with any applet.
+        if (ap->id == APPLET_WEB && !ap->popped) {
+            static const uint8_t none[0x1010];
+            ap->popped = true;
+            ipc_return_object(resp, new_am_storage(none, sizeof none));
+            break;
+        }
+        resp->result = AM_NO_DATA;
+        break;
+    case 104: resp->result = AM_NO_DATA; break;                                 // PopInteractiveOutData
     case 105: case 106: resp->copy_handles[resp->ncopy++] = new_event(); break; // Get(Interactive)OutDataEvent
     default: LOG("[am] ILibraryAppletAccessor (applet %#x) cmd %u (ok)\n", ap->id, req->cmd);
     }

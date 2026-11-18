@@ -31,6 +31,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 
 if sys.platform != 'win32':
@@ -53,6 +54,11 @@ ZIG_SLIM_DIR = WORK / 'zig-x86_64-windows'      # what ships: only what compilin
 DEPS_DIR = WORK / 'deps-windows-x86_64'
 PY_DIR = WORK / 'python-windows-x86_64'
 HACTOOL_DIR = WORK / 'hactool-windows-x86_64'
+# Microsoft's WebView2 SDK (a NuGet package, a zip): the C header (runtime/ui/webview.c shows the game's Play Guide in a web view over the
+# game window) and WebView2Loader.dll, which finds the Edge WebView2 runtime that comes with Windows 11 and most of Windows 10
+WV2_VER = '1.0.2739.15'
+WV2_SHA = 'f13e5564de93c0d35064a6e3a65eb4fd501256cb394d00a52229eb4d446722db'
+WV2_DIR = WORK / 'webview2-windows-x86_64'
 PY_IMPORTS = ('import threading, subprocess, json, hashlib, capstone, unicorn, lz4.frame, '
               'anyio, anynet, OpenSSL, Crypto, multidict, netifaces, nintendo.nex.datastore_smm2')
 # PyPI source archives (MIT, pure Python) of the OpenCourse World lookup, pinned by hash: (name, version, url, sha256)
@@ -627,6 +633,23 @@ def install_deps():
     remove_tree(x)
 
 
+def install_webview2():
+    """The WebView2 header, loader and licence files out of Microsoft's NuGet package, pinned by sha256."""
+    need = ('WebView2.h', 'WebView2Loader.dll', 'LICENSE.txt', 'NOTICE.txt')
+    if all((WV2_DIR / n).exists() for n in need):
+        return
+    step('WebView2 SDK')
+    pkg = DL / f'Microsoft.Web.WebView2.{WV2_VER}.nupkg'
+    get_verified(f'https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/{WV2_VER}', pkg, WV2_SHA)
+    remove_tree(WV2_DIR)
+    WV2_DIR.mkdir(parents=True)
+    with zipfile.ZipFile(pkg) as z:
+        for member, name in (('build/native/include/WebView2.h', 'WebView2.h'),
+                             ('build/native/x64/WebView2Loader.dll', 'WebView2Loader.dll'),
+                             ('LICENSE.txt', 'LICENSE.txt'), ('NOTICE.txt', 'NOTICE.txt')):
+            (WV2_DIR / name).write_bytes(z.read(member))
+
+
 def test_python():
     if not (PY_DIR / 'README-LICENSES.txt').exists():
         return False
@@ -828,7 +851,8 @@ def get_units(cfg, version, lib_id, lib_srcs):
                 '-DNOMINMAX']
     gdefs = game_defs(cfg)
     rt_flags = ['-O2', '-g', '-fno-strict-aliasing', '-Wall', '-Wno-unused-function', '-Iruntime', '-Iruntime/nvn',
-                '-Ithird_party', '-DCIMGUI_NO_EXPORT', deps_inc] + os_flags + gdefs
+                '-Ithird_party', '-DCIMGUI_NO_EXPORT', deps_inc, '-I' + fwd(WV2_DIR),
+                '-Iruntime/ui/webview2_compat'] + os_flags + gdefs
     # (the ImGui backends are built with plain C names, so C code can call them: runtime/ui/ig.h)
     cxx_flags = ['-O2', '-g', '-std=c++17', '-Ithird_party', '-Ithird_party/imgui', '-Ithird_party/imgui/backends',
                  '-Iruntime', '-Iruntime/nvn', '-DCIMGUI_NO_EXPORT', '-DIMGUI_IMPL_API=extern "C"', deps_inc] + gdefs
@@ -1008,7 +1032,7 @@ def link_runtime(units, runtime_exe, imp_lib):
     # the Makefile's order: runtime, Mbed TLS, the Vulkan backend, the setup screen, ImGui (then the icon and the shim)
     order = [u.obj for g in ('rt', 'mbedtls', 'backend', 'ui', 'imgui') for u in units if u.group == g]
     ld = ['-Wl,--stack,16777216', f'-L{fwd(DEPS_DIR / "lib")}', '-lSDL3', '-lwinmm', '-lole32', '-lshell32',
-          '-lcomdlg32', '-luuid', '-lshaderc_shared', '-lws2_32', '-lbcrypt', '-Wl,--export-all-symbols',
+          '-lcomdlg32', '-lgdi32', '-luuid', '-lshaderc_shared', '-lws2_32', '-lbcrypt', '-Wl,--export-all-symbols',
           f'-Wl,--out-implib,{fwd(imp_lib)}']
     link_dir = WORK / 'link'
     link_dir.mkdir(parents=True, exist_ok=True)
@@ -1046,6 +1070,9 @@ def copy_runtime_dlls():
         s, t = DEPS_DIR / 'bin' / d, DX / d
         if not t.exists() or mtime(t) < mtime(s):
             shutil.copy2(s, t)
+    s, t = WV2_DIR / 'WebView2Loader.dll', DX / 'WebView2Loader.dll'
+    if not t.exists() or mtime(t) < mtime(s):
+        shutil.copy2(s, t)
 
 
 # ------------------------------------------------------------------ the dump-based pipeline
@@ -1136,6 +1163,8 @@ THIRD_PARTY = """Third-party components in this package and their licenses (the 
 - SDL3 (SDL3.dll): zlib license, https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt
 - shaderc, glslang, SPIRV-Tools (libshaderc_shared.dll): Apache-2.0 / BSD-3-Clause, licenses/Apache-2.0.txt
 - libiconv (libiconv-2.dll, used by SDL3): LGPL-2.1, an unmodified MSYS2 build (source: https://www.gnu.org/software/libiconv/)
+- Microsoft WebView2 SDK (WebView2Loader.dll: shows the game's Play Guide in the game window with the Edge WebView2 runtime of Windows):
+  Microsoft's license and notices, licenses/LICENSE-WebView2.txt and licenses/NOTICE-WebView2.txt
 """
 
 PLAYER_README = """Super Mario Maker 2 (recompiled) {version} (windows-x64)
@@ -1214,6 +1243,8 @@ def copy_support(dest, cfg):
     shutil.copy(RECOMP / 'third_party' / 'bcdec' / 'LICENSE', lic / 'LICENSE-bcdec.txt')
     shutil.copy(RECOMP / 'third_party' / 'quirc' / 'LICENSE', lic / 'LICENSE-quirc.txt')
     shutil.copy(dest / 'hactool' / 'mbedtls-LICENSE.txt', lic / 'Apache-2.0.txt')
+    shutil.copy(WV2_DIR / 'LICENSE.txt', lic / 'LICENSE-WebView2.txt')
+    shutil.copy(WV2_DIR / 'NOTICE.txt', lic / 'NOTICE-WebView2.txt')
     write_text(dest / 'THIRD-PARTY.txt', THIRD_PARTY, crlf=True)
 
 
@@ -1286,6 +1317,7 @@ def main(argv):
     # the toolchain
     install_zig()
     install_deps()
+    install_webview2()
     install_python()
 
     # what the game code library is built from: the generator, the headers it is compiled against, the flags
