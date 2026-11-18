@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.2 "Word Check" - 2026-11-18
+
+### Fixes
+
+- **Entering a comment no longer crashes the game (#44).** The game checks every comment against the console's text filter word lists (system
+  titles 0806 and 0823), and stopped with an assertion when they were missing. Setup takes them from your own firmware again, next to the fonts
+  (they are never shipped), and an install set up before this runs the font step once more to get them. If they are still missing, the error
+  now says so. A source checkout (dev mode) skips that check: run `games/smm2/sysdata.py` by hand there.
+
 ## 0.7.1 "Time Check" - 2026-11-17
 
 ### Audio

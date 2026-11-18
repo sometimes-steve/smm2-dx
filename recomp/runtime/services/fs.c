@@ -715,6 +715,9 @@ SERVICE("fsp-srv", fsp_srv) {
         if (IN(uint64_t, 8) == 0x0100000000000802ull)  // (games draw Miis with it: SMM2 stops at once without it)
             snprintf(g_fatal_hint, sizeof g_fatal_hint, "The Mii face data (system title 0100000000000802) is missing "
                      "from the data folder's sysdata: set the game up again (Settings > Game files); setup writes it.");
+        if (IN(uint64_t, 8) == 0x0100000000000823ull)  // (the text filter's word list: SMM2 stops with an assertion once a comment is entered)
+            snprintf(g_fatal_hint, sizeof g_fatal_hint, "The text filter's word list (system title 0100000000000823) is missing "
+                     "from the data folder's sysdata: set the game up again (Settings > Game files); setup writes it.");
         resp->result = MAKE_RESULT(2, 1001);
         break;
     }

@@ -36,8 +36,9 @@ title screen was checked against Ryujinx. Names and behaviour only: no game code
   `sysdata/<id>/`: the Mii face-part archive (MiiModel 0802) is extracted from the console's firmware by `sysdata.py`
   (the game stops at its first Mii if the archive is missing, issue #28). `sysdata.py --stub-mii` instead writes one made
   by `games/smm2/mii_stub.py` from nothing of the console's: a rounded-box head, the skin of one of Kenney's CC0 Mini Characters heads (`mii_stub.py --head cube` makes a cube, `--head round` draws a measured head
-  outline and a haircut, `--head none` no head). NgWord (0806 / 0823) and TimeZone (080e) are no longer extracted: the game ran, through Course World
-  and into a course, without them (only a short run: the text filter and time-zone data were not exercised).
+  outline and a haircut, `--head none` no head). NgWord (0806 / 0823, the text filter's word lists) is extracted again, also with `--stub-mii`: the game opens 0823 when a comment is
+  entered and stops with an assertion in ProfanityFilterMgr without it (issue #44). TimeZone (080e) is not extracted: the game ran, through Course World
+  and into a course, without it (only a short run: the time-zone data was not exercised).
 - RomFS is served from a folder through an in-memory index (`runtime/romfs_build.c`): the update's files over the
   base game's, as links, nothing copied.
 

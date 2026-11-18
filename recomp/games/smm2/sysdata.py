@@ -32,6 +32,10 @@ FONT_TITLES = {
     '0100000000000810',  # NintendoExtension (button glyphs): the game stops with a crash if it has none (see pl.c)
 }
 DATA_TITLES = {'0100000000000802'}  # MiiModel: the console's Mii face parts (nn::mii renders the players' Miis)
+# NgWord: the word lists of the text filter (0806, 0823). The game opens 0823 as soon as a comment is entered and stops with an
+# assertion in ProfanityFilterMgr if it is missing (issue #44). Always taken from the firmware, also with --stub-mii.
+NGWORD_TITLES = {'0100000000000806', '0100000000000823'}
+NGWORD_DONE = 'sysdata/.ngword-checked'  # written once the firmware has been looked through for them (found or not), so setup asks once
 # The shared fonts the game falls back to for characters the Standard stand-in lacks (a maker named with simplified
 # Chinese characters showed one of them as a "?" box): 0812 Korean, 0813 Chinese (Traditional), 0814 Chinese (Simplified). Taken when
 # the firmware has them; the game runs without (runtime/hle/pl.c loads each the first time the game asks for it). 0811 Standard
@@ -128,7 +132,7 @@ def main():
     if not os.path.isdir(a.firmware):
         fail('NO_FIRMWARE', 'The firmware folder was not found',
              'Choose the folder of your console\'s system NCAs, e.g. Ryujinx\'s bis/system/Contents/registered.')
-    want = FONT_TITLES | OPTIONAL_TITLES | (set() if a.stub_mii else DATA_TITLES)
+    want = FONT_TITLES | OPTIONAL_TITLES | NGWORD_TITLES | (set() if a.stub_mii else DATA_TITLES)
     found = {}
     ncas = sorted(n for n in os.listdir(a.firmware) if n.endswith('.nca'))
     if not ncas:
@@ -150,7 +154,7 @@ def main():
     nf = 0
     empty = {}
     for tid, p in sorted(found.items()):
-        if tid in DATA_TITLES:
+        if tid in DATA_TITLES or tid in NGWORD_TITLES:
             out = os.path.join(a.data, 'sysdata', tid)
             if os.path.isdir(out):
                 shutil.rmtree(out)
@@ -178,6 +182,8 @@ def main():
     os.makedirs(os.path.join(a.data, 'sysdata', 'miiicons'), exist_ok=True)
     with open(os.path.join(a.data, ICONS_DONE), 'w') as marker:
         marker.write('the Mii editor icons were looked for in the firmware' + '\n')
+    with open(os.path.join(a.data, NGWORD_DONE), 'w') as marker:
+        marker.write('the text filter word lists were looked for in the firmware' + '\n')
     with open(os.path.join(a.data, CJK_MARKER), 'w') as marker:
         marker.write('the Chinese and Korean shared fonts were looked for in the firmware'+'\n')
     print(f'sysdata: {nf} font files'

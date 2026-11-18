@@ -547,12 +547,13 @@ static bool ocw_config_ready(void) {
 // The Chinese and Korean shared fonts (games/smm2/sysdata.py takes them from the firmware when it has them: a maker named in
 // simplified Chinese showed a "?" box for the characters the Standard stand-in lacks). An install set up before they were taken
 // has none and has never looked, so the font step runs once more; sysdata.py leaves a marker once it has looked through the
-// firmware (found or not), so this is asked once. The same goes for the Mii editor's part icons (sysdata/miiicons/.done). Only with a
+// firmware (found or not), so this is asked once. The same goes for the Mii editor's part icons (sysdata/miiicons/.done) and the text filter's word lists (sysdata/.ngword-checked: the game stops without them once a comment is entered, #44). Only with a
 // firmware folder and keys still there to look in.
 static bool fonts_cjk_pending(void) {
     config_load();
     return g_cfg.firmware[0] && g_cfg.keys[0] && dir_exists(g_cfg.firmware) && file_exists(g_cfg.keys) &&
-           (!file_exists("fonts/.cjk-checked") || !file_exists("sysdata/miiicons/.done"));
+           (!file_exists("fonts/.cjk-checked") || !file_exists("sysdata/miiicons/.done") ||
+            !file_exists("sysdata/.ngword-checked"));
 }
 
 // The checks of what's chosen, at most every 2 s per path (the screen draws 60 times a second; files can appear).
