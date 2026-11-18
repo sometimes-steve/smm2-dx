@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.4 "Fast Track" - 2026-11-18
+
+### Game
+
+- **Skip mode select can go to the Course Maker (#20).** General > Game > **Skip mode select goes to (restart)** picks where Skip mode select
+  lands: **Course World** (what it did, and the default) or **Make**, the Course Maker, which is one `A` after `L+R` on the title screen. It is
+  read when the game starts, like the setting itself, and is greyed out while Skip mode select is off. The loading screen says "Opening Make" for
+  it. Course World is checked against the game and pressed again if it did not open; Make has nothing to check it by (the Course Maker opens
+  without the scene manager changing), so its sequence ends 5 seconds after the last press and does not press anything more.
+
 ## 0.7.3 "Page Turner" - 2026-11-18
 
 ### Play Guide (#19)

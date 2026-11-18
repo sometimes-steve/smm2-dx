@@ -11,6 +11,7 @@ enum { AA_OFF = 0, AA_SMAA = 1 };
 enum { FRAMEGEN_OFF = 0, FRAMEGEN_120 = 1, FRAMEGEN_REPLAY = 2 };  // runtime/nvn/framegen.h; REPLAY: the same as 120
 // Menu colour themes (runtime/ui/menu.cpp kThemes: the palettes, in this order; names are the ini values)
 enum { THEME_DEFAULT = 0, THEME_NES = 1, N_THEMES = 2 };
+enum { SKIP_TO_COURSE_WORLD = 0, SKIP_TO_MAKE = 1, N_SKIP_TO = 2 };  // where Skip mode select lands (games/smm2/mods/skip_intro.c)
 extern const char *const g_theme_names[N_THEMES];  // the ini's value and the menu's label: "Default", "NES"
 enum { PROMPTS_AUTO = 0, PROMPTS_NINTENDO = 1, PROMPTS_XBOX = 2, PROMPTS_PLAYSTATION = 3 };
 enum { CHAOS_LETTERS_OFF = 0, CHAOS_LETTERS_EXPLORED = 1, CHAOS_LETTERS_MAP = 2 /* explored, all with the Map */ };
@@ -75,6 +76,7 @@ typedef struct {
     bool mute_in_background;  // the sound fades out while the window is not in the foreground or is minimized: services/audio.c
     bool keep_obj_cache;  // keep the game code's compiled objects (~800 MB) so a rebuild after an update is quicker: General > Game
     bool skip_mode_select;  // SMM2: press L+R on the title screen and open Course World by itself (games/smm2/mods/skip_intro.c)
+    int skip_mode_select_to;  // SKIP_TO_*: where it goes (read when the game starts)
     int theme;           // THEME_*: the look of the menu (General tab > Theme)
     bool ahead_fast;     // prepare shaders at full speed (all cores, no waiting for quiet moments): Video > Shaders
 } Settings;

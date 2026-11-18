@@ -31,6 +31,7 @@ Settings g_settings = {
     .replace_bad_mii = true,
     .show_recomp_version = true,
     .skip_mode_select = false,
+    .skip_mode_select_to = SKIP_TO_COURSE_WORLD,
     .keep_obj_cache = false,
     .mute = false,
     .mute_in_background = true,
@@ -105,6 +106,7 @@ void settings_load(void) {
         else if (!strcmp(key, "replace_bad_mii")) g_settings.replace_bad_mii = atoi(val) != 0;
         else if (!strcmp(key, "show_recomp_version")) g_settings.show_recomp_version = atoi(val) != 0;
         else if (!strcmp(key, "skip_mode_select")) g_settings.skip_mode_select = atoi(val) != 0;
+        else if (!strcmp(key, "skip_mode_select_to")) g_settings.skip_mode_select_to = !strcmp(val, "make") ? SKIP_TO_MAKE : SKIP_TO_COURSE_WORLD;
         else if (!strcmp(key, "keep_obj_cache")) g_settings.keep_obj_cache = atoi(val) != 0;
         else if (!strcmp(key, "mute")) g_settings.mute = atoi(val) != 0;
         else if (!strcmp(key, "mute_in_background")) g_settings.mute_in_background = atoi(val) != 0;
@@ -170,6 +172,8 @@ void settings_load(void) {
     if (si) g_settings.skip_intro = atoi(si) != 0;
     const char *sm = getenv("RECOMP_SKIP_MODE_SELECT");
     if (sm) g_settings.skip_mode_select = atoi(sm) != 0;
+    const char *st = getenv("RECOMP_SKIP_MODE_SELECT_TO");  // ("make" or "course_world": for testing)
+    if (st) g_settings.skip_mode_select_to = !strcmp(st, "make") ? SKIP_TO_MAKE : SKIP_TO_COURSE_WORLD;
     LOG("[settings] loaded %s\n", SETTINGS_FILE);
 }
 
@@ -193,6 +197,7 @@ void settings_save(void) {
     fprintf(f, "replace_bad_mii = %d\n", g_settings.replace_bad_mii);
     fprintf(f, "show_recomp_version = %d\n", g_settings.show_recomp_version);
     fprintf(f, "skip_mode_select = %d\n", g_settings.skip_mode_select);
+    fprintf(f, "skip_mode_select_to = %s\n", g_settings.skip_mode_select_to == SKIP_TO_MAKE ? "make" : "course_world");
     fprintf(f, "keep_obj_cache = %d\n", g_settings.keep_obj_cache);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
     fprintf(f, "show_clock = %d\n", g_settings.show_clock);

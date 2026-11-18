@@ -780,6 +780,17 @@ static void tab_general(void) {
         settings_save();
         restart_changed_mark(RESTART_SKIP_MODE_SELECT);
     }
+    if (is_smm2) {  // (where Skip mode select goes: read when the game starts)
+        static const char *const to[N_SKIP_TO] = {"Course World", "Make"};
+        if (!g_settings.skip_mode_select) opt_disable_next();
+        if (opt_choice("Skip mode select goes to (restart)", &g_settings.skip_mode_select_to, to, N_SKIP_TO, SKIP_TO_COURSE_WORLD,
+                       "Where Skip mode select lands. Course World: the Play side's Course World. Make: the Course Maker, one "
+                       "press from the title screen's L+R. Only used while Skip mode select is on. Applies the next time the game "
+                       "starts (Quit > Restart the Game does it too).", true)) {
+            settings_save();
+            restart_changed_mark(RESTART_SKIP_MODE_SELECT);
+        }
+    }
     if (opt_toggle("Keep build cache", &g_settings.keep_obj_cache, false,
                    "Off: the compiled game code is thrown away once it is built, so it takes no extra space. On: about "
                    "800 MB is kept next to the game files, and a new version of " GAME_TITLE " that changes only some of the "
