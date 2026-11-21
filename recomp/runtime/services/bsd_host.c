@@ -24,6 +24,7 @@
 #include "../ipc.h"
 #include "../net/hostsock.h"
 #include "../net/netcfg.h"
+#include "../net/ocwproxy.h"
 #include "../platform.h"
 
 #define MAX_FDS 128
@@ -41,7 +42,42 @@ struct BsdSock {
     uint32_t peer_ip;
     uint16_t peer_port;
     int64_t rcvtimeo_ms, sndtimeo_ms;  // SO_RCVTIMEO / SO_SNDTIMEO (0: none)
+    // timing for the log (issue #3), SDL_GetTicks ms, 0 = has not happened: when the game connected, first sent, first got something, and last moved
+    uint64_t t_conn, t_first_tx, t_first_rx, t_last, tx, rx;
+    char req[72];  // the first request's method and path, no query (an HTTP request line: what the game fetched)
 };
+
+extern uint64_t SDL_GetTicks(void);  // (the clock of the [vk] t= lines)
+static void stat_tx(BsdSock *s, long n, const void *data) {
+    if (n <= 0) return;
+    uint64_t now = SDL_GetTicks();
+    if (!s->t_first_tx) {
+        const char *d = data;
+        if (d && n >= 6 && (!memcmp(d, "GET ", 4) || !memcmp(d, "POST ", 5) || !memcmp(d, "PUT ", 4) || !memcmp(d, "HEAD ", 5))) {
+            size_t k = 0;
+            while (k < (size_t)n && k < sizeof s->req - 1 && d[k] != '?' && d[k] != '\r' && d[k] != '\n') s->req[k] = d[k], k++;
+            s->req[k] = 0;
+        }
+    }
+    if (!s->t_first_tx) s->t_first_tx = now;
+    s->t_last = now, s->tx += (uint64_t)n;
+}
+static void stat_rx(BsdSock *s, long n) {
+    if (n <= 0) return;
+    uint64_t now = SDL_GetTicks();
+    if (!s->t_first_rx) s->t_first_rx = now;
+    s->t_last = now, s->rx += (uint64_t)n;
+}
+// A stream socket that moved data, when it is let go: how long each step took
+static void stat_log(const BsdSock *s) {
+    if (s->type != 1 || !s->t_conn || !(s->tx + s->rx)) return;
+    char ip[16];
+    ip_to_str(s->peer_ip, ip);
+    LOG("[net] t=%.1f socket to %s:%u%s%s: sent %llu bytes, got %llu; connected to first send %lld ms, first send to first byte %lld ms, first byte to last %lld ms, open %lld ms\n",
+        s->t_conn / 1000.0, ip, s->peer_port, s->req[0] ? " " : "", s->req, (unsigned long long)s->tx, (unsigned long long)s->rx,
+        s->t_first_tx ? (long long)(s->t_first_tx - s->t_conn) : -1LL, s->t_first_tx && s->t_first_rx ? (long long)(s->t_first_rx - s->t_first_tx) : -1LL,
+        s->t_first_rx ? (long long)(s->t_last - s->t_first_rx) : -1LL, (long long)(SDL_GetTicks() - s->t_conn));
+}
 
 static BsdSock *table[MAX_FDS];
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -107,6 +143,7 @@ void bsd_sock_unref(BsdSock *s) {
     bool last = --s->refs == 0, kept = last && park(s);
     pthread_mutex_unlock(&lock);
     if (last) {
+        stat_log(s);
         if (kept) NLOG("[bsd] UDP port %u parked (%d s)\n", s->guest_port, PARK_SECONDS);
         else hsock_close(s->h);
         free(s);
@@ -177,13 +214,13 @@ int bsd_sock_wait(BsdSock *s, bool write, int timeout_ms) { return wait_events(s
 
 int bsd_sock_send(BsdSock *s, const void *data, size_t len) {
     long n = send(s->h, (const char *)data, HSOCK_IOLEN(len), MSG_NOSIGNAL);
-    if (n >= 0) return (int)n;
+    if (n >= 0) return stat_tx(s, n, data), (int)n;
     return hsock_would_block(hsock_errno()) ? -1 : -2;
 }
 
 int bsd_sock_recv(BsdSock *s, void *data, size_t len) {
     long n = recv(s->h, (char *)data, HSOCK_IOLEN(len), 0);
-    if (n >= 0) return (int)n;
+    if (n >= 0) return stat_rx(s, n), (int)n;
     return hsock_would_block(hsock_errno()) ? -1 : -2;
 }
 
@@ -434,6 +471,7 @@ static void do_send(BsdSock *s, int fd, IpcReq *req, IpcResp *resp) {
         long n = has_to ? sendto(s->h, data, HSOCK_IOLEN(len), hflags, (struct sockaddr *)&to, sizeof to)
                         : send(s->h, data, HSOCK_IOLEN(len), hflags);
         if (n >= 0) {
+            stat_tx(s, n, data);
             NLOG("[bsd] send %d: %ld bytes\n", fd, n);
             result(resp, (int32_t)n, 0);
             return;
@@ -463,6 +501,7 @@ static void do_recv(BsdSock *s, int fd, IpcReq *req, IpcResp *resp) {
             uint32_t sip = ntohl(from.sin_addr.s_addr);
             if (s->type == 2 && !net_dest_allowed_udp(sip)) continue;  // (a datagram from outside: dropped)
             got += (size_t)n;
+            stat_rx(s, n);
             if (all && n > 0 && got < cap) continue;
             uint32_t alen = 0;
             if (req->cmd == 9) alen = put_addr(out_buf(req, 1), s->type == 2 ? sip : s->peer_ip, s->type == 2 ? ntohs(from.sin_port) : s->peer_port);
@@ -560,8 +599,12 @@ static void do_connect(BsdSock *s, int fd, IpcReq *req, IpcResp *resp) {
     if (!dest_ok(s, ip)) { log_refused("connect to", ip, port); result(resp, -1, BSD_ENETUNREACH); return; }
     struct sockaddr_in a;
     uint16_t hport = net_dest_port(ip, port);
-    host_addr(&a, ip, hport);
+    uint32_t rip;
+    uint16_t rport;
+    if (s->type == 1 && ocwproxy_route(ip, port, &rip, &rport)) host_addr(&a, rip, rport);  // (OCW's port 80: through the early-download proxy)
+    else host_addr(&a, ip, hport);
     s->peer_ip = ip, s->peer_port = port;
+    if (!s->t_conn) s->t_conn = SDL_GetTicks();
     int r = connect(s->h, (struct sockaddr *)&a, sizeof a);
     uint32_t err = r == 0 ? 0 : hsock_bsd_errno(hsock_errno());
     if (r != 0 && (err == BSD_EINPROGRESS || err == BSD_EAGAIN) && !s->nonblock) {

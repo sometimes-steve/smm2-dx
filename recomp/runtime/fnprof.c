@@ -91,7 +91,51 @@ static int cmp(const void *x, const void *y) {
     return a < b ? 1 : a > b ? -1 : 0;
 }
 
+static int cmp(const void *x, const void *y);
+
+// The counts so far, most called first, to a file (addr count per line). Returns the functions written.
+static int write_counts(const char *path) {
+    uint64_t (*rows)[2] = malloc(sizeof(uint64_t[2]) * NSLOT);
+    int n = 0;
+    for (int i = 0; i < NSLOT; i++)
+        if (slots[i].addr) { rows[n][0] = slots[i].addr; rows[n][1] = slots[i].count; n++; }
+    qsort(rows, n, sizeof rows[0], cmp);
+    FILE *f = fopen(path, "w");
+    for (int i = 0; f && i < n; i++) fprintf(f, "%llx %llu\n", (unsigned long long)rows[i][0], (unsigned long long)rows[i][1]);
+    if (f) fclose(f);
+    free(rows);
+    return f ? n : -1;
+}
+
+// LARECOMP_FNPROF_LONG=<ms>: count guest function entries frame by frame; a frame that took longer than <ms> since the last one (a hitch: a
+// course restart, issue #3) is written to fnprof-long-<frame>.txt, and one ordinary frame to fnprof-norm.txt, in the working directory. The hook
+// is on the whole time, so everything runs slower than it does without it: the shape of the hitch is what counts, not its length.
+static void long_frame(uint64_t frame) {
+    static double thr = -2;
+    static uint64_t last;
+    static bool norm_done;
+    if (thr == -2) {
+        const char *e = getenv("LARECOMP_FNPROF_LONG");
+        thr = e ? atof(e) : -1;
+    }
+    if (thr <= 0) return;
+    uint64_t now = plat_now_ns();
+    double ms = last ? (double)(now - last) / 1e6 : 0;
+    last = now;
+    char path[64];
+    if (ms > thr) {
+        snprintf(path, sizeof path, "fnprof-long-%llu.txt", (unsigned long long)frame);
+        LOG("[fnprof] frame %llu took %.0f ms: %d functions written to %s\n", (unsigned long long)frame, ms, write_counts(path), path);
+    } else if (!norm_done && frame > 900 && ms < 40) {
+        norm_done = true;
+        LOG("[fnprof] frame %llu took %.0f ms: %d functions written to fnprof-norm.txt\n", (unsigned long long)frame, ms, write_counts("fnprof-norm.txt"));
+    }
+    for (int i = 0; i < NSLOT; i++) slots[i].addr = 0, slots[i].count = 0;  // (the next frame starts from nothing; a thread racing this loses a count)
+    for (int i = 0; i < 256; i++) bt_done[i] = 0;  // (LARECOMP_FNPROF_BT: the first entry of each frame, not of the whole run)
+}
+
 void fnprof_frame(uint64_t frame) {
+    long_frame(frame);
     static long from = -2, to;
     if (from == -2) {
         from = -1;
@@ -120,5 +164,6 @@ void fnprof_frame(uint64_t frame) {
 __attribute__((constructor)) static void fnprof_early(void) {
     const char *e = getenv("LARECOMP_FNPROF");
     if (e && e[0] == '0' && e[1] == ':') g_fnprof = 1;
+    if (getenv("LARECOMP_FNPROF_LONG")) g_fnprof = 1;
     if (getenv("RECOMP_CALL_RING")) g_fnprof = 1;
 }

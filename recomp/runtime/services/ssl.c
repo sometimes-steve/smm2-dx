@@ -40,6 +40,8 @@
 #include "nexcountry.h"
 #include "../settings.h"
 #include "../net/roots.h"
+#include "../net/nextap.h"
+#include "../net/ocwproxy.h"
 #include "bsd.h"
 
 #define SSL_RESULT(d) MAKE_RESULT(123, d)
@@ -77,7 +79,73 @@ typedef struct {
     size_t ws_done;         // ... the bytes at the front of peek that are final (whole frames, flags in)
     bool ws_wait;           // ... the rest of peek is a frame or an answer that has not all arrived
     uint64_t sent, recvd;   // plaintext bytes (logs)
+    // the traffic in bursts (net_burst): a stretch of game writes and server answers with no pause of BURST_GAP_MS, timed for the log
+    bool b_open;
+    uint64_t b_start, b_last, b_first_rx;  // (ms: SDL_GetTicks, the clock of the [vk] lines; b_first_rx 0 until the server answers)
+    uint64_t b_tx, b_rx;
+    int b_nw, b_nr;
+    bool b_server_first;
+    NexTap tap;             // what the server answers (nextap.h): the next course's id is in the answer to DataStore method 79
 } SslConn;
+
+// ---- timing of the traffic (issue #3: where do the waits between courses go?). The game's own client talks to OpenCourse World over one TLS
+// connection (a WebSocket carrying PRUDP), so what can be seen here is its bursts: the game sends a request (or the server pushes), the answer
+// comes, then a pause. One line per burst that moved real data or took a while, on the clock of the [vk] t= lines: when it began, how
+// much went each way, how long the first answer byte took (the round trip and the server's own time) and how long until the last one (the
+// download).
+extern uint64_t SDL_GetTicks(void);
+#define BURST_GAP_MS 400
+#define BURST_LOG_BYTES 2048
+#define BURST_LOG_MS 250
+
+// (c->mu held)
+static void burst_flush(SslConn *c) {
+    if (!c->b_open) return;
+    c->b_open = false;
+    uint64_t span = c->b_last - c->b_start;
+    if (c->b_tx + c->b_rx < BURST_LOG_BYTES && span < BURST_LOG_MS) return;  // (keep-alives, acknowledgements)
+    if (c->b_server_first)
+        LOG("[net] t=%.1f %s: the server sent %llu bytes in %d reads over %llu ms (the game wrote %llu bytes in %d writes)\n", c->b_start / 1000.0,
+            c->sni[0] ? c->sni : "?", (unsigned long long)c->b_rx, c->b_nr, (unsigned long long)span, (unsigned long long)c->b_tx, c->b_nw);
+    else if (c->b_first_rx)
+        LOG("[net] t=%.1f %s: the game wrote %llu bytes in %d writes, the server answered %llu bytes in %d reads: first byte after %llu ms, last after %llu ms\n",
+            c->b_start / 1000.0, c->sni[0] ? c->sni : "?", (unsigned long long)c->b_tx, c->b_nw, (unsigned long long)c->b_rx, c->b_nr,
+            (unsigned long long)(c->b_first_rx - c->b_start), (unsigned long long)span);
+    else
+        LOG("[net] t=%.1f %s: the game wrote %llu bytes in %d writes over %llu ms and got no answer\n", c->b_start / 1000.0,
+            c->sni[0] ? c->sni : "?", (unsigned long long)c->b_tx, c->b_nw, (unsigned long long)span);
+}
+
+// The server answered a call (nextap.h). DataStore method 79 is how the game asks for its next course: the answer names the course's data
+// id, about 0.6 s before the game opens its download of it, and that download starts now instead (net/ocwproxy.h, issue #3). The id is a
+// 64-bit number at byte 9 of the parameters; anything that does not look like one is left alone.
+static void tap_answer(void *user, unsigned proto, unsigned method, uint32_t call, const uint8_t *p, size_t n) {
+    (void)user, (void)call;
+    if (proto != 0x73 || method != 79 || n < 17) return;
+    uint32_t id = (uint32_t)p[9] | (uint32_t)p[10] << 8 | (uint32_t)p[11] << 16 | (uint32_t)p[12] << 24;
+    uint32_t hi = (uint32_t)p[13] | (uint32_t)p[14] << 8 | (uint32_t)p[15] << 16 | (uint32_t)p[16] << 24;
+    if (hi || id < 1000) return;
+    ocwproxy_prefetch(id);
+}
+
+// Bytes moved just now: tx written by the game, rx read from the server (one of them)
+static void net_burst(SslConn *c, size_t tx, size_t rx) {
+    if (!tx && !rx) return;
+    uint64_t now = SDL_GetTicks();
+    pthread_mutex_lock(&c->mu);
+    if (c->b_open && now - c->b_last >= BURST_GAP_MS) burst_flush(c);
+    if (!c->b_open) {
+        c->b_open = true, c->b_start = now, c->b_first_rx = 0, c->b_tx = c->b_rx = 0, c->b_nw = c->b_nr = 0;
+        c->b_server_first = !tx;
+    }
+    c->b_last = now;
+    if (tx) c->b_tx += tx, c->b_nw++;
+    if (rx) {
+        c->b_rx += rx, c->b_nr++;
+        if (!c->b_first_rx && !c->b_server_first) c->b_first_rx = now;
+    }
+    pthread_mutex_unlock(&c->mu);
+}
 
 // ---- one random generator for every connection (Mbed TLS: not thread-safe on its own)
 static pthread_mutex_t rng_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -300,6 +368,9 @@ static int run(SslConn *c, SslOp op, void *buf, size_t n, uint32_t *res) {
 }
 
 static void conn_free(SslConn *c) {
+    pthread_mutex_lock(&c->mu);
+    burst_flush(c);  // (the last burst of a connection is said when it closes)
+    pthread_mutex_unlock(&c->mu);
     if (c->ready) {
         pthread_mutex_lock(&c->mu);
         if (c->done) mbedtls_ssl_close_notify(&c->ssl);
@@ -311,6 +382,7 @@ static void conn_free(SslConn *c) {
     if (c->sock) bsd_sock_unref(c->sock);
     if (c->ctx) c->ctx->conns--;
     free(c->peek);
+    nextap_free(&c->tap);
     pthread_mutex_destroy(&c->mu);
     NLOG("[ssl] connection to %s closed (%llu bytes out, %llu in)\n", c->sni[0] ? c->sni : "?",
          (unsigned long long)c->sent, (unsigned long long)c->recvd);
@@ -323,11 +395,12 @@ static void handshake(SslConn *c, IpcReq *req, IpcResp *resp) {
     if (!c->sock) { resp->result = R_NO_SOCKET; return; }
     if (!conn_setup(c)) { resp->result = R_VERIFY_FAILED; return; }
     uint32_t res;
+    uint64_t t0 = SDL_GetTicks();
     int r = run(c, op_handshake, NULL, 0, &res);
     if (r < 0) { resp->result = res; return; }
     c->done = true;
     const char *alpn = mbedtls_ssl_get_alpn_protocol(&c->ssl);
-    LOG("[ssl] %s: handshake done (%s, %s%s%s)\n", c->sni, mbedtls_ssl_get_version(&c->ssl),
+    LOG("[ssl] %s: handshake done in %llu ms (%s, %s%s%s)\n", c->sni, (unsigned long long)(SDL_GetTicks() - t0), mbedtls_ssl_get_version(&c->ssl),
         mbedtls_ssl_get_ciphersuite(&c->ssl), alpn ? ", ALPN " : "", alpn ? alpn : "");
     if (req->cmd == 9) {  // DoHandshakeGetServerCert -> buffer, u32 size, u32 count
         const mbedtls_x509_crt *crt = mbedtls_ssl_get_peer_cert(&c->ssl);
@@ -682,7 +755,7 @@ static void conn_read(SslConn *c, IpcReq *req, IpcResp *resp, bool peek) {
         c->npeek += (size_t)r;
         pthread_mutex_unlock(&c->mu);
         free(tmp);
-        if (r) log_data("->game", c, c->peek + c->npeek - r, (size_t)r);
+        if (r) log_data("->game", c, c->peek + c->npeek - r, (size_t)r), net_burst(c, 0, (size_t)r), nextap_feed(&c->tap, c->peek + c->npeek - r, (size_t)r, tap_answer, NULL);
     }
     pthread_mutex_lock(&c->mu);
     size_t safe = c->npeek;
@@ -725,6 +798,7 @@ static void conn_write(SslConn *c, IpcReq *req, IpcResp *resp) {
     int r = run(c, op_write, (void *)(uintptr_t)b->addr, (size_t)b->size, &res);
     if (r < 0) { resp->result = res; return; }
     c->sent += (uint64_t)r;
+    net_burst(c, (size_t)r, 0);
     OUT(uint32_t, 0) = (uint32_t)r;
 }
 

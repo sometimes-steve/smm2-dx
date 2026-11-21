@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.7 "Head Start" - 2026-11-21
+
+### Game
+
+- **A course starts downloading as soon as the server names it (#3).** When you skip, clear or start an Endless or Course World course, the game asks
+  OpenCourse World which course is next, makes two more calls, and only then opens its own connection to download it. The course is known from the
+  first answer, so it is now fetched in the background right away and handed to the game when the game asks for it, even while it is still arriving.
+  The game's own calls are unchanged (the same bytes go to the server and come back), so play history and challenge counts are what they were. In
+  measurements on Windows this saves about a second on a skip that needs the network; it is not the whole wait between courses: the game keeps a
+  reserve course (every other skip needs no network), and most of a skip that does is the game's own work after the download, about 8 of 12 seconds.
+  If an early download fails or the server answers in a way it does not follow, the game asks for the course itself, as before. `RECOMP_OCW_PREFETCH=0`
+  turns it off.
+
+### Support
+
+- **Network timing in the log.** The log says how long each burst of OpenCourse World traffic took (`[net] ... first byte after ... ms, last after ... ms`),
+  each course download (the request, how long to the first byte and to the last) and the TLS handshake, and what the early downloads did (`[ocw-http]`).
+  Only the request line and the names of the headers are logged, never a value: one of them is an id of yours.
+- **Finding what a hitch is doing.** `LARECOMP_FNPROF_LONG=<ms>` counts the game's function calls frame by frame and saves the counts of any frame
+  that took longer, with one ordinary frame to compare; `recomp/tools/fnprof_diff.py` names what the hitch ran extra from the game's symbols.
+- **Tests.** `recomp/tools/test_ocw_proxy.py` runs the early-download proxy in front of a fake, slow, chunked server and the reader of the server's
+  answers on synthetic WebSocket and PRUDP frames.
+
 ## 0.7.6 "Many Tongues" - 2026-11-21
 
 ### Game
