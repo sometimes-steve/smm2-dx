@@ -38,6 +38,17 @@ void vk_imgui_backend_shutdown(void) {
     ImGui_ImplVulkan_Shutdown();
 }
 
+// The font atlas is about to change (runtime/ui/menu.c fonts_rebuild): wait for the GPU to be done with the old font texture and drop it;
+// the backend makes the new one in the next ImGui_ImplVulkan_NewFrame. Between frames, on the thread that draws the UI.
+void vk_imgui_fonts_release(void) {
+    if (!igGetIO()->BackendRendererUserData) return;
+    vk_present_flush();
+    vk_queue_lock();
+    vkDeviceWaitIdle(g_vk.dev);
+    vk_queue_unlock();
+    ImGui_ImplVulkan_DestroyFontsTexture();
+}
+
 static VkImage g_last_image;  // (the image of the last vk_imgui_texture_rgba, for vk_imgui_texture_stream)
 // A static RGBA8 image for ImGui (start screen background). Returns the ImTextureID.
 uint64_t vk_imgui_texture_rgba(const void *rgba, int w, int h) {

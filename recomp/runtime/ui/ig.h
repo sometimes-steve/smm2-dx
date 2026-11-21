@@ -45,5 +45,6 @@ typedef struct ImGui_ImplVulkan_InitInfo_C {
 bool ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo_C *info);
 void ImGui_ImplVulkan_Shutdown(void);
 void ImGui_ImplVulkan_NewFrame(void);
+void ImGui_ImplVulkan_DestroyFontsTexture(void);
 void ImGui_ImplVulkan_RenderDrawData(ImDrawData *draw_data, VkCommandBuffer command_buffer, VkPipeline pipeline);
 VkDescriptorSet ImGui_ImplVulkan_AddTexture(VkSampler sampler, VkImageView image_view, VkImageLayout image_layout);

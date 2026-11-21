@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.6 "Many Tongues" - 2026-11-21
+
+### Game
+
+- **Japanese, Chinese, Korean and Cyrillic text draws in the name and comment dialogs (#53).** The overlay's keyboard dialog showed `?` for every
+  character outside Latin-1, even though the game received the text intact. The dialog now adds the characters it is shown to its font when they
+  appear, rebuilding the font once between frames, using Segoe UI where it has them and your own Windows fonts (Yu Gothic or MS Gothic, Microsoft
+  YaHei or SimSun, Microsoft JhengHei or MingLiU, Malgun Gothic) for the rest; no font is shipped. Kana or Hangul in the text, or your Windows display
+  language, decide which font a Han character comes from. The set is limited to 512 characters per session; one past that, or an emoji (the
+  overlay's font handles the basic plane only), stays a `?` instead of crashing. Pasting works; typing with an IME (composition, the candidate
+  window) and Japanese on the controller's on-screen keyboard are not done yet. Only the keyboard dialog's text is covered: the menu window's own font
+  and its other text fields still show `?`.
+- **The game gets stable text from a prompt.** A lone surrogate or invalid UTF-8 now becomes U+FFFD instead of junk bytes, and a name is never cut
+  inside a character or an emoji's surrogate pair.
+
+### Support
+
+- **Tests for the text prompts.** `recomp/tools/test_text_utf.py` builds the UTF-8 / UTF-16 conversion and the character limits
+  (`runtime/text_utf.c`) and checks them against Python's codecs, with Japanese, Chinese, Korean, emoji and broken input.
+- **`LARECOMP_KBD_AUTO` takes Unicode.** The test hook that answers a text prompt at once read the environment in the ANSI code page, which turned
+  any non-Latin text into `?`.
+
 ## 0.7.5 "Flight Recorder" - 2026-11-18
 
 ### Game

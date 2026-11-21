@@ -23,6 +23,7 @@
 #include "cards.h"
 #include "webview.h"
 #include "../support_report.h"
+#include "../text_utf.h"
 bool vk_imgui_backend_init(void);  // runtime/nvn/vulkan/imgui_glue.c
 
 #include "../game_rows.h"
@@ -503,26 +504,80 @@ static void style_init(void) {
 static const char *clipboard_get(ImGuiContext *ctx) { (void)ctx; return menu_clipboard(); }
 static void clipboard_set(ImGuiContext *ctx, const char *t) { (void)ctx; SDL_SetClipboardText(t); }
 
-static void init(void) {
-    igDebugCheckVersionAndDataLayout(igGetVersion(), sizeof(ImGuiIO), sizeof(ImGuiStyle), sizeof(ImVec2), sizeof(ImVec4),
-                                     sizeof(ImDrawVert), sizeof(ImDrawIdx));  // (IMGUI_CHECKVERSION)
-    g_ctx = igCreateContext(NULL);
-    igSetCurrentContext(g_ctx);
-    ImGuiIO *io = igGetIO();
-    io->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
-    io->BackendFlags |= ImGuiBackendFlags_HasGamepad;
-    io->IniFilename = NULL;
-    // the system clipboard for the text fields (Ctrl / Cmd+V, and their Paste button: option_rows.mm)
-    igGetPlatformIO_Nil()->Platform_GetClipboardTextFn = clipboard_get;
-    igGetPlatformIO_Nil()->Platform_SetClipboardTextFn = clipboard_set;
+// --- Text outside Latin-1 (Japanese, Chinese, Korean, Cyrillic, ...): ImGui 1.91's atlas is static, so the glyphs a font draws are chosen when
+// it is built. The prompts' text is scanned as it is drawn (font_want_text); a character the atlas lacks is added to a bounded set, and the
+// atlas is rebuilt once, between frames (fonts_rebuild), with exactly the characters seen so far. The base font (Segoe UI) supplies what it has
+// (Cyrillic, Greek); the player's own Windows CJK fonts are merged behind it for the rest. A character past the bound, or one no font has,
+// stays the font's "?".
+#define WANT_MAX 512
+static uint8_t g_want_bits[(IM_UNICODE_CODEPOINT_MAX + 1) / 8];
+static int g_want_n;
+static bool g_want_kana, g_want_hangul, g_fonts_dirty, g_want_full_logged;
+static ImWchar g_ranges[2 * WANT_MAX + 3];  // (Latin-1, then one pair per character wanted, then 0; kept for as long as the atlas is)
+
+static void font_want_text(const char *t) {
+    const unsigned char *p = (const unsigned char *)t;
+    while (p && *p) {
+        uint32_t c = *p++;
+        int more = c >= 0xf0 ? 3 : c >= 0xe0 ? 2 : c >= 0xc0 ? 1 : 0;
+        if (more) c &= 0x3f >> more;
+        for (; more && (*p & 0xc0) == 0x80; more--) c = c << 6 | (*p++ & 0x3f);
+        if (c < 0x100 || c > IM_UNICODE_CODEPOINT_MAX || (c >= 0x2000 && c < 0x2070) || (c >= 0xd800 && c < 0xe000) || c == 0xfffd) continue;
+        if (g_want_bits[c >> 3] & (1 << (c & 7))) continue;
+        if (g_want_n >= WANT_MAX) {
+            if (!g_want_full_logged) g_want_full_logged = true, LOG("[menu] font: %d characters wanted already, no more are added\n", WANT_MAX);
+            return;
+        }
+        g_want_bits[c >> 3] |= (uint8_t)(1 << (c & 7));
+        g_want_n++;
+        g_fonts_dirty = true;
+        if ((c >= 0x3040 && c < 0x3100) || (c >= 0x31f0 && c < 0x3200) || (c >= 0xff66 && c < 0xffa0)) g_want_kana = true;
+        if ((c >= 0xac00 && c < 0xd7b0) || (c >= 0x1100 && c < 0x1200) || (c >= 0x3130 && c < 0x3190)) g_want_hangul = true;
+    }
+}
+
+static void ranges_build(void) {
+    int k = 0;
+    g_ranges[k++] = 0x20, g_ranges[k++] = 0xff;
+    for (uint32_t c = 0x100; c <= IM_UNICODE_CODEPOINT_MAX && k < 2 * WANT_MAX + 1; c++) {
+        if (!(g_want_bits[c >> 3] & (1 << (c & 7)))) continue;
+        uint32_t e = c;
+        while (e < IM_UNICODE_CODEPOINT_MAX && (g_want_bits[(e + 1) >> 3] & (1 << ((e + 1) & 7)))) e++;
+        g_ranges[k++] = (ImWchar)c, g_ranges[k++] = (ImWchar)e;
+        c = e;
+    }
+    g_ranges[k] = 0;
+}
+
+// The system CJK fonts behind the font just added (cfg: its config; glyphs only from g_ranges)
+static void fonts_merge_cjk(ImFontAtlas *atlas, float px, ImFontConfig *cfg) {
+    if (!g_want_n) return;
+    cfg->MergeMode = true;
+    for (int i = 0; i < 4; i++) {
+        char path[1024];
+        int face = 0;
+        if (!ui_cjk_font(i, g_want_kana, g_want_hangul, path, sizeof path, &face)) break;
+        cfg->FontNo = face;
+        if (!ImFontAtlas_AddFontFromFileTTF(atlas, path, px, cfg, g_ranges)) LOG("[menu] font %s did not load\n", path);
+    }
+    cfg->MergeMode = false;
+    cfg->FontNo = 0;
+}
+
+// All the overlay's fonts (init, and again by fonts_rebuild with more characters wanted)
+static void fonts_add(ImGuiIO *io) {
+    ranges_build();
     ImFontConfig *cfg = ImFontConfig_ImFontConfig();  // (the C++ constructor's defaults; freed below)
     cfg->OversampleH = 2;
+    cfg->GlyphRanges = g_ranges;
     char sys[1024];
     int face = 0;
     if (ui_system_font(sys, sizeof sys, &face)) {  // (system_font.mm: an existing file; a missing one asserts in ImGui)
         cfg->FontNo = face;
-        g_font = ImFontAtlas_AddFontFromFileTTF(io->Fonts, sys, 34 * g_atlas_scale, cfg, NULL);
-        if (g_font) g_font_big = ImFontAtlas_AddFontFromFileTTF(io->Fonts, sys, 56 * g_atlas_scale, cfg, NULL);
+        g_font = ImFontAtlas_AddFontFromFileTTF(io->Fonts, sys, 34 * g_atlas_scale, cfg, g_ranges);
+        if (g_font) fonts_merge_cjk(io->Fonts, 34 * g_atlas_scale, cfg);
+        if (g_font) g_font_big = ImFontAtlas_AddFontFromFileTTF(io->Fonts, sys, 56 * g_atlas_scale, cfg, g_ranges);
+        if (g_font_big) fonts_merge_cjk(io->Fonts, 56 * g_atlas_scale, cfg);
         LOG("[menu] font %s\n", sys);
     }
     // the menu window itself: Baloo 2 SemiBold, as on the start screen (shipped, OFL), at its Settings window's sizes; the
@@ -531,6 +586,7 @@ static void init(void) {
     const char *menu_font_env = getenv("LARECOMP_MENU_FONT");
     if (menu_font_env) strlcpy(baloo, menu_font_env, sizeof baloo);  // (test) another weight / face
     if (getenv("LARECOMP_MENU_FONT") || rt_resource("Baloo2-SemiBold.ttf", "third_party/fonts/Baloo2/Baloo2-SemiBold.ttf", baloo, sizeof baloo)) {
+        cfg->GlyphRanges = NULL;  // (the menu window's own font keeps Latin-1)
         g_menu_font = ImFontAtlas_AddFontFromFileTTF(io->Fonts, baloo, 39 * g_atlas_scale, cfg, NULL);
         g_menu_font_big = ImFontAtlas_AddFontFromFileTTF(io->Fonts, baloo, 72 * g_atlas_scale, cfg, NULL);
     }
@@ -553,6 +609,35 @@ static void init(void) {
     if (!g_font_big) g_font_big = g_font;
     if (!g_menu_font || !g_menu_font_big) g_menu_font = g_font, g_menu_font_big = g_font_big;
     ImFontConfig_destroy(cfg);
+}
+
+// Between frames, on the thread that draws: more characters are wanted than the atlas has. The old font texture goes (after the GPU is done
+// with it), the atlas is cleared and built again; the backend uploads the new texture in its NewFrame.
+static void fonts_rebuild(void) {
+    extern void vk_imgui_fonts_release(void);  // runtime/nvn/vulkan/imgui_glue.c
+    g_fonts_dirty = false;
+    ImGuiIO *io = igGetIO();
+    vk_imgui_fonts_release();
+    ImFontAtlas_Clear(io->Fonts);
+    io->FontDefault = NULL;
+    g_font = g_font_big = g_menu_font = g_menu_font_big = g_nes_font = g_nes_font_big = NULL;
+    fonts_add(io);
+    LOG("[menu] fonts rebuilt for %d characters\n", g_want_n);
+}
+
+static void init(void) {
+    igDebugCheckVersionAndDataLayout(igGetVersion(), sizeof(ImGuiIO), sizeof(ImGuiStyle), sizeof(ImVec2), sizeof(ImVec4),
+                                     sizeof(ImDrawVert), sizeof(ImDrawIdx));  // (IMGUI_CHECKVERSION)
+    g_ctx = igCreateContext(NULL);
+    igSetCurrentContext(g_ctx);
+    ImGuiIO *io = igGetIO();
+    io->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    io->BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    io->IniFilename = NULL;
+    // the system clipboard for the text fields (Ctrl / Cmd+V, and their Paste button: option_rows.mm)
+    igGetPlatformIO_Nil()->Platform_GetClipboardTextFn = clipboard_get;
+    igGetPlatformIO_Nil()->Platform_SetClipboardTextFn = clipboard_set;
+    fonts_add(io);
     style_init();
     vk_imgui_backend_init();
     g_inited = true;
@@ -1387,11 +1472,7 @@ static void keyboard_draw(ImGuiIO *io, float scale) {
                     ImGuiInputTextFlags_CallbackCharFilter, kbd_char_filter, NULL);
         igPopFont();
         // (the game's limit is in characters: cut at the character boundary after the last one, never inside one)
-        int chars = 0;
-        for (char *p = g_kbd_text; *p; p++) {
-            if (((unsigned char)*p & 0xc0) == 0x80) continue;
-            if (chars++ == g_kbd_max) { *p = 0; chars--; break; }
-        }
+        int chars = text_utf8_clip(g_kbd_text, g_kbd_max);
         kbd_hints(chars);
     } else {  // controller: on-screen keyboard (osk.mm, shared with our menus' text fields)
         osk_set_id_mode(g_kbd_id);  // (an ID: the keys an ID can't hold are greyed out)
@@ -1399,6 +1480,8 @@ static void keyboard_draw(ImGuiIO *io, float scale) {
         osk_set_id_mode(false);
         if (r) g_kbd = r > 0 ? 2 : 3;  // (Start / + confirms in menu_handle_event too)
     }
+    font_want_text(g_kbd_title);
+    font_want_text(g_kbd_text);
     igEnd();
     if (atomic_load(&g_kbd) != 1) was_open = false;
 }
@@ -1424,7 +1507,9 @@ int menu_keyboard_run(const char *initial, int max_len, char *out, int cap) {
     input_reset();
     g_kbd = 1;
     // (test) LARECOMP_KBD_AUTO=<text>: answer at once
-    if (getenv("LARECOMP_KBD_AUTO")) { snprintf(g_kbd_text, sizeof g_kbd_text, "%s", getenv("LARECOMP_KBD_AUTO")); g_kbd = 2; }
+    // (read as UTF-16: getenv gives the ANSI code page, which turns Japanese into question marks)
+    const wchar_t *auto_text = _wgetenv(L"LARECOMP_KBD_AUTO");
+    if (auto_text) { text_utf16_to_utf8((const uint16_t *)auto_text, 4096, g_kbd_text, sizeof g_kbd_text); g_kbd = 2; }
     while (atomic_load(&g_kbd) == 1 && !g_rt_unwind) {  // ~60 Hz (a reboot cancels)
         uint64_t t0 = SDL_GetTicks();
         nvn_represent();
@@ -2429,6 +2514,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         ImGuiStyle_ScaleAllSizes(igGetStyle(), scale);
         style_scale = scale;
     }
+    if (g_fonts_dirty) fonts_rebuild();
     ImGui_ImplVulkan_NewFrame();
     igNewFrame();
     if (splash) splash_draw(io->DisplaySize, splash_p, splash_what);

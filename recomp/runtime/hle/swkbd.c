@@ -7,6 +7,7 @@
 
 #include "../game_rows.h"
 #include "../hle.h"
+#include "../text_utf.h"
 
 // (module 2, description 1: no real code is known for the keyboard applet's cancel; any failure should read as one)
 #define SWKBD_RESULT_CANCELED MAKE_RESULT(2, 1)
@@ -16,28 +17,6 @@ unsigned g_swkbd_entries;
 
 int menu_keyboard_run(const char *initial, int max_len, char *out, int cap);  // runtime/ui/menu.cpp
 void menu_keyboard_title(const char *title);                                   // runtime/ui/menu.cpp
-
-// UTF-16 (n units at most, NUL-terminated earlier) -> UTF-8
-static void utf16_to_utf8(const uint16_t *s, uint32_t n, char *out, size_t cap) {
-    size_t il = 0;
-    for (uint32_t i = 0; i < n && s[i] && il + 5 < cap; i++) {
-        uint32_t ch = s[i];
-        if (ch >= 0xd800 && ch < 0xdc00 && i + 1 < n) {
-            uint32_t lo = s[i + 1];
-            if (lo >= 0xdc00 && lo < 0xe000) { ch = 0x10000 + ((ch - 0xd800) << 10) + (lo - 0xdc00); i++; }
-        }
-        if (ch < 0x80) out[il++] = (char)ch;
-        else if (ch < 0x800) { out[il++] = (char)(0xc0 | ch >> 6); out[il++] = (char)(0x80 | (ch & 0x3f)); }
-        else if (ch < 0x10000) {
-            out[il++] = (char)(0xe0 | ch >> 12); out[il++] = (char)(0x80 | (ch >> 6 & 0x3f));
-            out[il++] = (char)(0x80 | (ch & 0x3f));
-        } else {
-            out[il++] = (char)(0xf0 | ch >> 18); out[il++] = (char)(0x80 | (ch >> 12 & 0x3f));
-            out[il++] = (char)(0x80 | (ch >> 6 & 0x3f)); out[il++] = (char)(0x80 | (ch & 0x3f));
-        }
-    }
-    out[il] = 0;
-}
 
 // nn::swkbd::ShowKeyboard(nn::swkbd::String *out, const nn::swkbd::ShowKeyboardArg &arg) -> nn::Result
 // String = {void *ptr; size_t bufSize}
@@ -53,7 +32,7 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
     uint32_t off = *(const uint32_t *)(uintptr_t)(arg + 0x3c0), n = *(const uint32_t *)(uintptr_t)(arg + 0x3c4);
     uint64_t wb = LD64(arg + 0x4d0);
     char initial[400] = "", title[200] = "";
-    if (wb && n) utf16_to_utf8((const uint16_t *)(uintptr_t)(wb + off), n, initial, sizeof initial);
+    if (wb && n) text_utf16_to_utf8((const uint16_t *)(uintptr_t)(wb + off), n, initial, sizeof initial);
     // The Course ID prompt (nine characters) is answered with the course the Search tab took here, if there is one: no keyboard, the game
     // goes on to that course as if the ID had been typed and confirmed
     bool taken = false;
@@ -70,7 +49,7 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
     }
     static const struct { uint32_t off, len; } texts[] = {{0x24, 65}, {0xa6, 129}, {0x1a8, 257}};
     for (int i = 0; i < 3 && !title[0]; i++)
-        utf16_to_utf8((const uint16_t *)(uintptr_t)(arg + texts[i].off), texts[i].len, title, sizeof title);
+        text_utf16_to_utf8((const uint16_t *)(uintptr_t)(arg + texts[i].off), texts[i].len, title, sizeof title);
     menu_keyboard_title(title);
     char text[400];
     int ok = 1;
@@ -82,21 +61,7 @@ HLE_FUNC("_ZN2nn5swkbd12ShowKeyboardEPNS0_6StringERKNS0_15ShowKeyboardArgE", swk
     __atomic_fetch_add(&g_swkbd_entries, 1, __ATOMIC_RELAXED);
     if (ptr && size >= 2) {  // UTF-8 -> UTF-16 LE, NUL-terminated
         memset((void *)(uintptr_t)ptr, 0, size);
-        uint16_t *o = (uint16_t *)(uintptr_t)ptr;
-        size_t cap = size / 2 - 1, k = 0;
-        const unsigned char *t = (const unsigned char *)text;
-        while (*t && k < cap) {
-            uint32_t ch = *t++;
-            int more = ch >= 0xf0 ? 3 : ch >= 0xe0 ? 2 : ch >= 0xc0 ? 1 : 0;
-            if (more) ch &= 0x3f >> more;
-            for (; more && (*t & 0xc0) == 0x80; more--) ch = ch << 6 | (*t++ & 0x3f);
-            if (ch >= 0x10000) {
-                if (k + 1 >= cap) break;
-                ch -= 0x10000;
-                o[k++] = (uint16_t)(0xd800 | ch >> 10);
-                o[k++] = (uint16_t)(0xdc00 | (ch & 0x3ff));
-            } else o[k++] = (uint16_t)ch;
-        }
+        text_utf8_to_utf16(text, (uint16_t *)(uintptr_t)ptr, size / 2);
     }
     // A cancel is reported as a failure, not as the empty / initial text with success: the game carried on with a search for
     // nothing (issue #17). Any failure is what a player's Cancel looks like to it (the keyboard applet's own result is not
