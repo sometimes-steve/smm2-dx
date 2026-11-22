@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.8 "Skip Tally" - 2026-11-21
+
+### Game
+
+- **Endless Challenge skips are counted (#32).** Every course you skip in the Endless Challenge (holding Minus) is added to a total, shown on the
+  Stats tab in a new Endless Challenge card (kept in `endless-skips.txt` in the data folder, on this device only). A tap of Minus that does not
+  skip, a Start Over, a clear or the first course of a run does not count. The game itself is not changed: the count only watches the one step of
+  the game that runs when a skip happens.
+- **A new Extras page.** A new Extras entry in the main menu holds small additions that are off until you ask for them. The first is **Show Endless
+  skips**: while you play the Endless Challenge, the skips of this visit are shown in bold white text with a black edge at the top centre of the
+  screen (Course World and the rest of the game never show it). The count starts again when you come back after a minute away from the Endless
+  Challenge; the all-time total is on the Stats page. It applies at once.
+
+### Support
+
+- **Steering a test run without the desktop.** `RECOMP_CTL=<file>` (used by `recomp/tools/autoplay.py`) makes the game read commands from a file:
+  hold buttons, save a picture, put a mark in the log, read the game's memory (`peek`), count the game's function entries over a stretch (`fnprof start` / `fnprof stop <path>`, which
+  also say which ran first), quit. A run with it ignores the keyboard, mouse and controllers of whoever is at the computer and opens its window
+  without taking the focus.
+- **Release packaging.** The release zip leaves out the skip total (`endless-skips.txt`), profiler dumps and `.bak` files.
+- **Tests.** `recomp/tools/test_endless_skips.py` plays into an Endless course in a hidden game, taps Minus, skips twice and checks the log and the
+  saved total.
+
 ## 0.7.7 "Head Start" - 2026-11-21
 
 ### Game

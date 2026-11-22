@@ -1040,7 +1040,7 @@ void ui_window_init(void) {
         // keyboard focus from whatever the player is doing
         const char *v = getenv("LARECOMP_NO_USER_INPUT");
         bool scripted = v ? atoi(v) != 0 : (getenv("LARECOMP_INPUT") || getenv("LARECOMP_DOORJUMP_TEST") || getenv("LARECOMP_PLACE") ||
-                                            getenv("LARECOMP_HOST_INPUT") || getenv("LARECOMP_BIND_TEST"));
+                                            getenv("LARECOMP_HOST_INPUT") || getenv("LARECOMP_BIND_TEST") || getenv("RECOMP_CTL"));
         if (scripted) SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
     }
     window = SDL_CreateWindow(GAME_TITLE, win_w, win_h, wflags);

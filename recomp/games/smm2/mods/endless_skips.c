@@ -1,0 +1,51 @@
+// Endless skip counter (issue #32): counts the courses skipped in the Endless Challenge (runtime/ui/skips.c), for the Stats tab, and
+// tells the menu layer when an Endless course is being played and how many skips this visit has had, for the Show Endless skips overlay
+// (Extras page).
+//
+// Both come from steps of the game found by counting its function entries (fnprof, recomp/tools/autoplay.py):
+//  - a skip runs main+0x12E05A0 once, and nothing else the game does does (a tap of Minus, Start Over, a clear, the first course of a run),
+//  - an Endless course runs main+0x1BB9440 on every frame, and a course of Course World does not.
+// recomp/tools/test_endless_skips.py checks that they still do.
+#include <stdint.h>
+#include <stdbool.h>
+
+#include "mod.h"
+#include "../../../runtime/ui/skips.h"
+
+#define SKIP_STATE MAIN_ADDR(0x12E05A0)
+#define ENDLESS_TICK MAIN_ADDR(0x1BB9440)
+
+extern uint64_t renderer_present_count(void);
+
+static volatile uint64_t g_tick_frame;  // the presented frame the Endless step last ran in (0: never)
+static volatile int g_visit_skips;      // skips since the Endless Challenge was entered: a new visit starts after a minute away from it
+enum { VISIT_GAP = 3600 };              // (presented frames: a skip's loading is about ten seconds, the way out to the menus and back is longer)
+
+static void endless_skip(Cpu *c) {
+    skips_note();
+    g_visit_skips++;
+    LOG("[mod] endless skip: %d this session, %ld in all\n", skips_session(), skips_total());
+    guest_call_orig(c, SKIP_STATE);
+}
+
+static void endless_tick(Cpu *c) {
+    uint64_t now = renderer_present_count();
+    if (!g_tick_frame || now - g_tick_frame > VISIT_GAP) g_visit_skips = 0;
+    if (!g_tick_frame || now - g_tick_frame > 30) LOG("[mod] endless course: playing\n");
+    g_tick_frame = now;
+    guest_call_orig(c, ENDLESS_TICK);
+}
+
+// runtime/game_hooks.c game_endless_playing: the step ran within the last few frames
+bool game_endless_playing(void) {
+    uint64_t t = g_tick_frame;
+    return t && renderer_present_count() - t <= 5;
+}
+
+// runtime/game_hooks.c game_endless_skips: the skips of this visit to the Endless Challenge (the Show Endless skips overlay)
+int game_endless_skips(void) { return g_visit_skips; }
+
+__attribute__((constructor)) static void endless_skips_register(void) {
+    hle_override(SKIP_STATE, endless_skip, "mod: count Endless Challenge skips");
+    hle_override(ENDLESS_TICK, endless_tick, "mod: know when an Endless Challenge course is played");
+}

@@ -217,7 +217,7 @@ static void system_section(Text *t, const char *cur_log) {
 // ---- the settings that matter: an allowlist of the settings file's keys (graphics, sound, input, start-up, language)
 static const char *const SETTING_KEYS[] = {
     "aspect", "fullscreen", "hide_cursor", "volume", "mute", "mute_in_background", "reverb", "movie_audio", "skip_intro",
-    "skip_mode_select", "skip_mode_select_to", "keep_obj_cache", "show_fps", "show_clock", "show_memory", "menu_scale", "ahead_fast",
+    "skip_mode_select", "skip_mode_select_to", "keep_obj_cache", "show_fps", "show_clock", "show_endless_skips", "show_memory", "menu_scale", "ahead_fast",
     "theme", "upscaler", "frame_gen", "antialias", "resolution", "inv_keys", "dpad_move", "pads_from_p2", "move_360", "prompts",
     "mirror_mode", "language"};
 

@@ -200,7 +200,7 @@ bool input_user_blocked(const SDL_Event *e) {
     if (on < 0) {
         const char *v = getenv("LARECOMP_NO_USER_INPUT");
         on = v ? atoi(v) != 0 : (getenv("LARECOMP_INPUT") || getenv("LARECOMP_DOORJUMP_TEST") || getenv("LARECOMP_PLACE") ||
-                                 getenv("LARECOMP_HOST_INPUT") || getenv("LARECOMP_BIND_TEST") || padscript_active());
+                                 getenv("LARECOMP_HOST_INPUT") || getenv("LARECOMP_BIND_TEST") || getenv("RECOMP_CTL") || padscript_active());
         if (on) LOG("[input] scripted run: keyboard, mouse and controllers ignored\n");
     }
     if (!on) return false;
@@ -578,7 +578,76 @@ uint64_t g_ms_test_seen;  // (Skip mode select's diagnostics: games/smm2/mods/sk
 static uint64_t g_pad_obj;
 volatile int g_inject_plus;  // frames to hold Plus for the game (movie.c: A/B skip the opening on rando seeds)
 RT_ON_RESET(input_reboot_reset) { g_pad_obj = 0; g_inject_plus = 0; }  // (reboot: the controller object was guest memory)
+// RECOMP_CTL=<file>: a test driver (recomp/tools/autoplay.py) appends commands to the file and the game reads them as they come, once per
+// presented frame, so a run can be steered while it goes, without a window to focus or a key to press (user input is ignored, as in any
+// scripted run). One command per line:
+//   pad <BUTTON>[+<BUTTON>...]   the buttons held from now on (A B X Y L R ZL ZR PLUS MINUS UP DOWN LEFT RIGHT ...); "pad -" lets go
+//   shot <path>                  the next presented frame is saved there as a PNG
+//   mark <text>                  a line in the log ("[ctl] mark <text>"), to find the place again
+//   peek <hexaddr> [len]         the game's memory there (up to 512 bytes), as hex in the log: "[ctl] peek <addr>: <hex>"
+//   fnprof start | fnprof stop <path>  count the game's function entries over a stretch and write them (addr count per line; fnprof.c)
+//   quit                         the game ends
+static uint64_t ctl_buttons;
+static void ctl_poll(void) {
+    static const char *path;
+    static int init;
+    static long off;
+    if (!init) { init = 1; path = getenv("RECOMP_CTL"); if (path && !*path) path = NULL; }
+    if (!path) return;
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    char buf[4096];
+    fseek(f, off, SEEK_SET);
+    size_t n = fread(buf, 1, sizeof buf - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    char *end = strrchr(buf, '\n');  // (whole lines only: a line still being written waits)
+    if (!end) return;
+    *end = 0;
+    off += (long)(end - buf) + 1;
+    char *save = NULL;
+    for (char *line = strtok_r(buf, "\r\n", &save); line; line = strtok_r(NULL, "\r\n", &save)) {
+        if (!strncmp(line, "pad ", 4)) {
+            uint64_t m = 0;
+            char *s2 = NULL;
+            for (char *t = strtok_r(line + 4, "+ ", &s2); t; t = strtok_r(NULL, "+ ", &s2)) {
+                uint64_t bit;
+                if (padscript_parse_button(t, &bit)) m |= bit;
+                else LOG("[ctl] not a button: %s\n", t);
+            }
+            ctl_buttons = m;
+        } else if (!strncmp(line, "shot ", 5)) {
+            extern char g_window_shot_request[256];  // (nvn/vulkan/device.c saves the window image of the next frame there)
+            snprintf(g_window_shot_request, sizeof g_window_shot_request, "%s", line + 5);
+        } else if (!strncmp(line, "mark ", 5)) {
+            LOG("[ctl] mark %s\n", line + 5);
+        } else if (!strncmp(line, "peek ", 5)) {  // (a test driver's read of guest memory: a bad address crashes the game, as it would any code)
+            char *e1 = NULL;
+            uint64_t addr = strtoull(line + 5, &e1, 16);
+            unsigned len = (unsigned)strtoul(e1, NULL, 0);
+            if (len > 512) len = 512;
+            char hex[1100];
+            for (unsigned i = 0; i < len; i++) snprintf(hex + i * 2, 3, "%02x", ((const uint8_t *)(uintptr_t)addr)[i]);
+            if (!len) hex[0] = 0;
+            LOG("[ctl] peek %llx: %s\n", (unsigned long long)addr, hex);
+        } else if (!strcmp(line, "fnprof start")) {
+            extern void fnprof_ctl_start(void);
+            fnprof_ctl_start();
+            LOG("[ctl] fnprof started\n");
+        } else if (!strncmp(line, "fnprof stop ", 12)) {
+            extern int fnprof_ctl_stop(const char *);
+            LOG("[ctl] fnprof stopped: %d functions written to %s\n", fnprof_ctl_stop(line + 12), line + 12);
+        } else if (!strcmp(line, "quit")) {
+            LOG("[ctl] quit\n");
+            exit(0);
+        } else {
+            LOG("[ctl] unknown command: %s\n", line);
+        }
+    }
+}
+
 void input_frame(uint64_t frame) {
+    ctl_poll();
     if (g_pad_obj && getenv("LARECOMP_DUMP_PAD") && frame % 600 == 0) {
         const uint8_t *m = (const uint8_t *)(uintptr_t)(g_pad_obj - 0x98);
         LOG("[pad] mgr %llx 4e0=%u 4e4=%u 4e8=%u 548=%#x 54c..=%02x %02x %02x 56c=%02x\n", g_pad_obj - 0x98,
@@ -649,6 +718,7 @@ void input_frame(uint64_t frame) {
         if (frame < g_test_rstick_until) { rx = g_test_rx; ry = g_test_ry; }
         extern uint64_t g_test_buttons, g_test_buttons_until;  // (LARECOMP_PLACE action script)
         if (frame < g_test_buttons_until) b |= g_test_buttons;
+        b |= ctl_buttons;  // (RECOMP_CTL)
     }
     if (script2_on()) {  // (a scripted player 2: buttons and the four stick directions)
         static char buf2[4096];

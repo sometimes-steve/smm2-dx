@@ -34,6 +34,7 @@ typedef struct {
     bool reverb;         // room reverb effect
     bool movie_audio;
     bool show_fps;
+    bool show_endless_skips;  // SMM2, Extras tab: a text overlay with the skip count while the Endless Challenge is played (mods/endless_skips.c)
     bool show_clock;  // the menu footer shows the local time of day: ui/clock.h
     float menu_scale;  // General tab > Menu size: the in-game menu's size relative to its default (1 = 100%)
     bool show_memory;  // the app's memory use in the corner (menu.mm, platform.h plat_memory_used)

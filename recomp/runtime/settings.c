@@ -37,6 +37,7 @@ Settings g_settings = {
     .mute_in_background = true,
     .show_fps = false,
     .show_clock = true,
+    .show_endless_skips = false,
     .menu_scale = 1.0f,
     .show_memory = false,
     .inv_keys = true,
@@ -110,6 +111,7 @@ void settings_load(void) {
         else if (!strcmp(key, "keep_obj_cache")) g_settings.keep_obj_cache = atoi(val) != 0;
         else if (!strcmp(key, "mute")) g_settings.mute = atoi(val) != 0;
         else if (!strcmp(key, "mute_in_background")) g_settings.mute_in_background = atoi(val) != 0;
+        else if (!strcmp(key, "show_endless_skips")) g_settings.show_endless_skips = atoi(val) != 0;
         else if (!strcmp(key, "show_clock")) g_settings.show_clock = atoi(val) != 0;
         else if (!strcmp(key, "show_fps")) g_settings.show_fps = atoi(val) != 0;
         else if (!strcmp(key, "menu_scale")) g_settings.menu_scale = (float)atof(val);
@@ -200,6 +202,7 @@ void settings_save(void) {
     fprintf(f, "skip_mode_select_to = %s\n", g_settings.skip_mode_select_to == SKIP_TO_MAKE ? "make" : "course_world");
     fprintf(f, "keep_obj_cache = %d\n", g_settings.keep_obj_cache);
     fprintf(f, "show_fps = %d\n", g_settings.show_fps);
+    fprintf(f, "show_endless_skips = %d\n", g_settings.show_endless_skips);
     fprintf(f, "show_clock = %d\n", g_settings.show_clock);
     fprintf(f, "menu_scale = %.2f\n", g_settings.menu_scale);
     fprintf(f, "show_memory = %d\n", g_settings.show_memory);

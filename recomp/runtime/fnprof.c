@@ -11,7 +11,8 @@
 volatile int g_fnprof;
 
 #define NSLOT (1 << 18)
-static struct { _Atomic uint64_t addr; _Atomic uint64_t count; } slots[NSLOT];
+static struct { _Atomic uint64_t addr; _Atomic uint64_t count; _Atomic uint64_t first; } slots[NSLOT];
+static _Atomic uint64_t g_first_seq;  // (the order functions were first entered in, for the RECOMP_CTL window: what ran first)
 
 // LARECOMP_FNPROF_BT=<hex addr>[,...]: also print the host backtrace (guest functions are f_<addr>) the first time
 // each listed function is entered inside the window - who calls it
@@ -80,7 +81,8 @@ void fnprof_hit(uint64_t a, uint64_t lr, uint64_t x0) {
     for (int n = 0; n < NSLOT; n++, h = (h + 1) & (NSLOT - 1)) {
         uint64_t cur = atomic_load_explicit(&slots[h].addr, memory_order_relaxed);
         if (cur == a || (cur == 0 && atomic_compare_exchange_strong(&slots[h].addr, &cur, a)) || cur == a) {
-            atomic_fetch_add_explicit(&slots[h].count, 1, memory_order_relaxed);
+            if (atomic_fetch_add_explicit(&slots[h].count, 1, memory_order_relaxed) == 0)
+                atomic_store_explicit(&slots[h].first, atomic_fetch_add_explicit(&g_first_seq, 1, memory_order_relaxed) + 1, memory_order_relaxed);
             return;
         }
     }
@@ -93,18 +95,31 @@ static int cmp(const void *x, const void *y) {
 
 static int cmp(const void *x, const void *y);
 
-// The counts so far, most called first, to a file (addr count per line). Returns the functions written.
+// The counts so far, most called first, to a file (addr count first-seen-order per line). Returns the functions written.
 static int write_counts(const char *path) {
-    uint64_t (*rows)[2] = malloc(sizeof(uint64_t[2]) * NSLOT);
+    uint64_t (*rows)[3] = malloc(sizeof(uint64_t[3]) * NSLOT);
     int n = 0;
     for (int i = 0; i < NSLOT; i++)
-        if (slots[i].addr) { rows[n][0] = slots[i].addr; rows[n][1] = slots[i].count; n++; }
+        if (slots[i].addr) { rows[n][0] = slots[i].addr; rows[n][1] = slots[i].count; rows[n][2] = slots[i].first; n++; }
     qsort(rows, n, sizeof rows[0], cmp);
     FILE *f = fopen(path, "w");
-    for (int i = 0; f && i < n; i++) fprintf(f, "%llx %llu\n", (unsigned long long)rows[i][0], (unsigned long long)rows[i][1]);
+    for (int i = 0; f && i < n; i++)
+        fprintf(f, "%llx %llu %llu\n", (unsigned long long)rows[i][0], (unsigned long long)rows[i][1], (unsigned long long)rows[i][2]);
     if (f) fclose(f);
     free(rows);
     return f ? n : -1;
+}
+
+// RECOMP_CTL "fnprof start" / "fnprof stop <path>" (runtime/hle/input.c): count the entries over a stretch the test driver picks (a skip, a
+// death), then write them. Returns the functions written, or -1.
+void fnprof_ctl_start(void) {
+    for (int i = 0; i < NSLOT; i++) slots[i].addr = 0, slots[i].count = 0, slots[i].first = 0;
+    atomic_store(&g_first_seq, 0);
+    g_fnprof = 1;
+}
+int fnprof_ctl_stop(const char *path) {
+    g_fnprof = 0;
+    return write_counts(path);
 }
 
 // LARECOMP_FNPROF_LONG=<ms>: count guest function entries frame by frame; a frame that took longer than <ms> since the last one (a hitch: a

@@ -977,6 +977,19 @@ static void tab_general(void) {
     opt_end();
 }
 
+// The Extras page: small additions to the game that are off until asked for
+static void tab_extras(void) {
+    opt_flat_begin("##extras", igGetFontSize() / 34);
+    opt_section("Endless Challenge");
+    if (opt_toggle("Show Endless skips", &g_settings.show_endless_skips, false,
+                   "Shows how many courses you have skipped in this visit to the Endless Challenge, as bold text at the top centre of the screen, "
+                   "while you play it. The count starts again when you come back after a minute away from the Endless Challenge. The "
+                   "all-time total is on the Stats page. Applies at once.")) {
+        settings_save();
+    }
+    opt_end();
+}
+
 static void tab_audio(void) {
     opt_flat_begin("##audio", igGetFontSize() / 34);
     opt_section("Sound");
@@ -2093,13 +2106,14 @@ static void tab_mii(void) {
 // has the id GROUP_ID + its number here, for the controller's cursor.
 typedef struct { const char *name; int n; int pages[4]; } TabGroup;
 enum { GROUP_ID = 100 };
-static const char *const k_page_names[] = {"Video", "Audio", "Mods", "Online", "Stats", "General", "Achievements", "Search", "Controls", "Quit", "Mii Editor"};
+static const char *const k_page_names[] = {"Video", "Audio", "Mods", "Online", "Stats", "General", "Achievements", "Search", "Controls", "Quit", "Mii Editor", "Extras"};
 static const TabGroup k_groups[] = {
     {"Prelaunch", 1, {-1}},
     {"Settings", 4, {5, 8, 0, 1}},  // General, Controls, Video, Audio
     {"Mods", 1, {2}},
     {"OpenCourse World", 2, {3, 7}},  // Online, Search
     {"Player", 3, {10, 4, 6}},        // Mii Editor, Stats, Achievements
+    {"Extras", 1, {11}},
     {"Quit", 1, {9}},
 };
 enum { N_GROUPS = sizeof k_groups / sizeof k_groups[0] };
@@ -2212,6 +2226,7 @@ static void page_draw(PageCtx *c, int id) {
     case 8: tab_about(); break;
     case 9: tab_quit(c->scale, c->in_game); break;
     case 10: tab_mii(); break;
+    case 11: tab_extras(); break;
     }
     if (opt_cursor_restored()) g_focus_tab = -99, g_focus_frames = 0;  // (a row took the cursor back: not the tab)
     static const char *scroll_test;  // test hook: page scroll, 0..1
@@ -2374,6 +2389,8 @@ static void game_overlay_draw(const uint8_t *img, int w, int h, bool full, uint6
 // line, in the setup screen's colours (runtime/ui/launcher.cpp). The bar is the setup screen's: [####----]  35%  step.
 bool game_splash(float *progress, const char **what);
 bool game_launch_skipping(void);  // runtime/game_hooks.c
+bool game_endless_playing(void);  // runtime/game_hooks.c (SMM2: games/smm2/mods/endless_skips.c)
+int game_endless_skips(void);     // runtime/game_hooks.c
 // A line of text centred across the screen at *y, which moves down past it
 static void splash_centred(ImDrawList *dl, ImFont *font, ImVec2 disp, float *y, const char *text, float size, ImU32 col) {
     ImVec2 sz;
@@ -2478,7 +2495,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         character_tick();  // (adds what playtime_tick just counted to the character being played)
     }
     g_drew = false;
-    if (!open && !kbd && !g_settings.show_fps && !g_settings.show_memory && !(g_settings.show_recomp_version && game_launch_skipping()) && !ov_img && !splash && !touchpad_visible() && !notice_active()) {
+    if (!open && !kbd && !g_settings.show_fps && !g_settings.show_memory && !(g_settings.show_recomp_version && game_launch_skipping()) && !(g_settings.show_endless_skips && game_endless_playing()) && !ov_img && !splash && !touchpad_visible() && !notice_active()) {
         if (g_inited) { pthread_mutex_lock(&q_lock); q_count = 0; pthread_mutex_unlock(&q_lock); }
         return;
     }
@@ -2544,6 +2561,24 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             else igText("%llu MB", (unsigned long long)(used >> 20));
         }
         igEnd();
+    }
+
+    if (g_settings.show_endless_skips && game_endless_playing() && !open) {  // (Extras > Show Endless skips: top centre, bold white with a black edge)
+        char t[32];
+        snprintf(t, sizeof t, "Skips: %d", game_endless_skips());
+        ImDrawList *dl = igGetForegroundDrawList_Nil();
+        ImFont *font = igGetFont();
+        float size = igGetFontSize() * 2.6f, e = fmaxf(2.0f, size * 0.07f);
+        ImVec2 sz;
+        igCalcTextSize(&sz, t, NULL, false, -1.0f);
+        sz.x *= size / igGetFontSize();
+        float x = (io->DisplaySize.x - sz.x) * 0.5f, y = 14 * scale;
+        for (int k = 0; k < 16; k++) {  // (the edge: the text in black round a circle, then the white on top, twice a little apart for weight)
+            float a = (float)k * 6.2831853f / 16;
+            ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + cosf(a) * e, y + sinf(a) * e), IM_COL32(0, 0, 0, 255), t, NULL, 0.0f, NULL);
+        }
+        ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x, y), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
+        ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + size * 0.045f, y), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
     }
 
     if (g_settings.show_recomp_version && game_launch_skipping()) {  // (Show recomp version: while the game starts with Skip intro / Skip mode select, which never show the title screen's Ver. box)

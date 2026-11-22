@@ -14,6 +14,7 @@
 #include "character.h"
 #include "history.h"
 #include "playtime.h"
+#include "skips.h"
 
 
 
@@ -110,6 +111,15 @@ static void card_sessions(void) {
     card_row(&c, "Average Session", v);
     snprintf(v, sizeof v, "%d", history_sessions());
     card_row(&c, "Sessions Played", v);
+    card_end(&c);
+}
+
+static void card_endless(void) {
+    float fs = igGetFontSize();
+    Card c = card_begin("Endless Challenge", rows_h(fs, 1));
+    char v[48];
+    snprintf(v, sizeof v, "%ld", skips_total());
+    card_row(&c, "Skips All Time", v);
     card_end(&c);
 }
 
@@ -262,6 +272,8 @@ void stats_rows(void) {
         card_totals(&pr);
         igTableNextColumn();
         card_clear_stats(&pr);
+        igTableNextColumn();
+        card_endless();
         igEndTable();
     }
     // the last 14 days and when you play, side by side in a wide window (the one box as tall as the other)
