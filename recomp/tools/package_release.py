@@ -22,8 +22,8 @@ SKIP_DIRS = ("extracted", "cache", "work", "logs", "sysdata", "manual", "webview
 # (miis, mii.charinfo: the Miis they made or imported, and the one they play as;
 # smm2.ini: their settings; ocw-maker.txt: their maker code; ocw-config.json: their token; .cjk-checked: setup's note that it
 # has looked for the Chinese and Korean fonts in the player's firmware, which a fresh install must not start with)
-SKIP_FILES = ("launcher.ini", "smm2.ini", "ocw-maker.txt", "ocw-boards.txt", "ocw-courses.bin", "ocw-config.json", ".cjk-checked", "playtime.txt", "character.txt", "history.txt", "endless-skips.txt", "mii.charinfo", "*.bfttf", "*.log",
-              "fnprof-*.txt", "*.bak")  # (endless-skips.txt: their skip total; fnprof-*: profiler dumps and *.bak: a test run's leftovers)
+SKIP_FILES = ("launcher.ini", "smm2.ini", "ocw-maker.txt", "ocw-boards.txt", "ocw-courses.bin", "ocw-config.json", ".cjk-checked", "playtime.txt", "character.txt", "history.txt", "endless-skips.txt", "course-deaths*.txt", "mii.charinfo", "*.bfttf", "*.log",
+              "fnprof-*.txt", "*.bak")  # (endless-skips.txt, course-deaths*.txt: their skip total and deaths per course; fnprof-*: profiler dumps and *.bak: a test run's leftovers)
 
 # Safety net: refuse to ship anything that looks like game or key material.
 BAD_EXT = {".nca", ".nsp", ".xci", ".nso", ".bfttf", ".keys"}

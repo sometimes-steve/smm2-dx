@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.9 "Body Count" - 2026-11-22
+
+### Game
+
+- **Deaths are counted for every course (#33).** Each time Mario dies the game adds one to that course's count, kept in `course-deaths.txt` in the
+  data folder (one line per course: its OpenCourse World data id and the deaths), on this device only. The game has no single step for a death, so
+  a death is told by what follows: the course is taken down and the same course is played again within ten seconds. Start Over, the pause menu,
+  Exit Course, a skip, a clear and a test play in the Course Maker are not deaths. A death that ends an Endless run (no lives left, no retry) is
+  not counted. OpenCourse World keeps a death count per course only for players with a record on it, so it could not supply this.
+- **Show course deaths.** The Extras page has a new **Show course deaths** switch (off by default, applies at once): while you play a course, in
+  Course World or the Endless Challenge, your deaths in it are shown as bold white text at the top centre of the screen, next to the Endless
+  skips if those are shown too. Both texts are a little smaller and sit side by side near the top edge.
+
+### Support
+
+- **The test driver never closes your game.** `recomp/tools/autoplay.py` used to stop a game by its program name, which could close one you had open.
+  It now notes the process ids of the game it starts and ends only those, and it refuses to start while another game is running.
+- **Release packaging.** The release zip also leaves out `course-deaths*.txt`.
+- **Tests.** `recomp/tools/test_course_deaths.py` gets into a course in a hidden game, waits with nothing pressed (no death may be counted), runs Mario until he dies and checks the log and the saved
+  count (the test is skipped if he does not die in two and a half minutes). `autoplay.py` can now walk into the Endless Challenge by itself
+  (`enter_endless`).
+
 ## 0.7.8 "Skip Tally" - 2026-11-21
 
 ### Game

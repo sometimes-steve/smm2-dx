@@ -4,6 +4,8 @@ file (RECOMP_CTL, read once per frame by runtime/hle/input.c): buttons are press
 for what happened. Nothing is sent to the desktop: no key presses, no window focus, no screen capture. The game ignores the keyboard, mouse and
 controllers of whoever is at the computer while it runs, and its window opens without taking the focus (or not at all with --hidden), so a test can
 run while the machine is in use.
+It only ever stops the game it started itself (by the process ids it noted), never a program by its name, and it refuses to start while another
+game is running: a game you have open is left alone.
 
     python recomp/tools/autoplay.py launch [--hidden] [--to-course-world]   start the game (stops one it started before)
     python recomp/tools/autoplay.py do "down a wait:1.5 l+r"                press buttons one after another (see below)
@@ -47,10 +49,14 @@ class Game:
         SHOTS.mkdir(parents=True, exist_ok=True)
 
     # ---- starting and stopping
+    # The driver only ever touches the game it started itself: it notes the process ids of that game's launcher and of the game (its child) and
+    # stops those, never a program by its name, so a game the player has open (or one of theirs started later) is not closed, and the driver
+    # does not start a second game next to it (both would write the same save, settings and log).
     def launch(self, hidden=False, extra_env=None, to_course_world=False, timeout=300, replace=False):
-        if self.running() and not (self.ours() or replace):
-            raise SystemExit('a game is already running that this driver did not start (it may be being played): close it, or pass --replace')
-        self.stop()
+        """replace: kept for old callers; it no longer does anything (the driver never closes a game it did not start)."""
+        self.stop()  # (a game of its own from before)
+        if self.others():
+            raise SystemExit('a game is running that this driver did not start (yours?): close it first; the driver never closes a game it did not start')
         CTL.write_text('')
         MARK.write_text('0')
         env = dict(os.environ)
@@ -61,6 +67,13 @@ class Game:
         p = subprocess.Popen([str(EXE)], cwd=str(DIST), env=env, creationflags=0x00000008 | 0x00000200,  # DETACHED_PROCESS | NEW_PROCESS_GROUP
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         PIDFILE.write_text(str(p.pid))
+        end = time.time() + 120  # (the launcher starts the game as its child: note that one too)
+        while time.time() < end:
+            kids = self.runtime_pids()
+            if kids:
+                PIDFILE.write_text(' '.join([str(p.pid)] + [str(k) for k in kids]))
+                break
+            time.sleep(0.5)
         # the game starts a log of its own (the old one is still there until it does): wait for this run's own first line
         tag = f'run-{p.pid}-{int(time.time())}'
         self.send('mark ' + tag)
@@ -71,33 +84,54 @@ class Game:
             time.sleep(4)  # (the list is drawn)
         return p.pid
 
-    def ours(self):
-        """Is the game that is running the one this driver started? (its launcher exe has the pid we noted; the game itself is its child)"""
+    @staticmethod
+    def runtime_pids():
+        """The process ids of every game running (smm2-dx-runtime.exe), whoever started it."""
+        r = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq smm2-dx-runtime.exe', '/FO', 'CSV', '/NH'], capture_output=True, text=True)
+        out = []
+        for ln in r.stdout.splitlines():
+            parts = ln.replace('"', '').split(',')
+            if len(parts) > 1 and parts[0].lower() == 'smm2-dx-runtime.exe' and parts[1].isdigit():
+                out.append(int(parts[1]))
+        return out
+
+    @staticmethod
+    def alive(pid):
+        r = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'], capture_output=True, text=True)
+        return f'"{pid}"' in r.stdout
+
+    def own_pids(self):
+        """The process ids this driver noted for its game (launcher, game) that are still alive."""
         if not PIDFILE.exists():
-            return False
-        pid = PIDFILE.read_text().strip()
-        r = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/NH'], capture_output=True, text=True)
-        if pid in r.stdout:
-            return True
-        # (the launcher hands over to the game and ends: then the game's own command line has the control file in its environment, which cannot be
-        # read from here; the control file having been written to lately is the sign)
-        return CTL.exists() and time.time() - CTL.stat().st_mtime < 6 * 3600 and self.running()
+            return []
+        return [int(x) for x in PIDFILE.read_text().split() if x.isdigit() and self.alive(int(x))]
+
+    def others(self):
+        """Games running that this driver did not start."""
+        mine = set(self.own_pids())
+        return [p for p in self.runtime_pids() if p not in mine]
+
+    def ours(self):
+        """Is there a game this driver started that is still running?"""
+        return bool(self.own_pids())
 
     def stop(self):
-        """End the game this driver started."""
-        if self.running() and CTL.exists():
+        """End the game this driver started (by its process ids), and nothing else."""
+        mine = self.own_pids()
+        if not mine:
+            return
+        if CTL.exists():
             self.send('quit')
             end = time.time() + 5
-            while time.time() < end and self.running():
+            while time.time() < end and self.own_pids():
                 time.sleep(0.2)
-        if self.running() and self.ours():
-            subprocess.run(['taskkill', '/F', '/IM', 'smm2-dx-runtime.exe'], capture_output=True)
-            subprocess.run(['taskkill', '/F', '/IM', 'smm2-dx-windows-x64.exe'], capture_output=True)
+        for pid in self.own_pids():
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], capture_output=True)
         time.sleep(1)
 
     def running(self):
-        r = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq smm2-dx-runtime.exe', '/NH'], capture_output=True, text=True)
-        return 'smm2-dx-runtime.exe' in r.stdout
+        """Is the game this driver started running?"""
+        return self.ours()
 
     # ---- commands
     def send(self, line):
@@ -177,6 +211,20 @@ class Game:
             time.sleep(6.0)  # (the card, then the course is live)
         return out
 
+    def enter_endless(self, timeout=240):
+        """From Course World: into an Endless Challenge course that is being played (Endless Challenge, then A through whatever comes up: Continue or
+        New Game, the map, Play, until the game says an Endless course is played: mods/endless_skips.c). Easy, the run the player left."""
+        self.do('right down a wait:3')
+        end = time.time() + timeout
+        while time.time() < end:
+            try:
+                self.wait(r'\[mod\] endless course: playing', 6)
+                time.sleep(2)
+                return
+            except SystemExit:
+                self.do('a')
+        raise SystemExit(f'no Endless course was played in {timeout:.0f} s')
+
     def mark(self, text):
         self.send('mark ' + text)
 
@@ -237,7 +285,7 @@ def main():
     s = sub.add_parser('launch')
     s.add_argument('--hidden', action='store_true', help='no window at all')
     s.add_argument('--to-course-world', action='store_true', help='wait until Skip mode select has opened Course World')
-    s.add_argument('--replace', action='store_true', help='also end a game that is running which this driver did not start')
+    s.add_argument('--replace', action='store_true', help='(no longer does anything: the driver never ends a game it did not start)')
     s.add_argument('--env', action='append', default=[], metavar='NAME=VALUE', help='an environment variable for the game (repeatable)')
     s = sub.add_parser('do')
     s.add_argument('steps')

@@ -987,6 +987,13 @@ static void tab_extras(void) {
                    "all-time total is on the Stats page. Applies at once.")) {
         settings_save();
     }
+    opt_section("Courses");
+    if (opt_toggle("Show course deaths", &g_settings.show_course_deaths, false,
+                   "Shows how many times you have died in the course you are playing, as bold text at the top centre of the screen (next to "
+                   "the Endless skips, if those are shown too). Deaths are counted for every course, whether or not this is on, and kept on "
+                   "this computer only. Applies at once.")) {
+        settings_save();
+    }
     opt_end();
 }
 
@@ -2391,6 +2398,7 @@ bool game_splash(float *progress, const char **what);
 bool game_launch_skipping(void);  // runtime/game_hooks.c
 bool game_endless_playing(void);  // runtime/game_hooks.c (SMM2: games/smm2/mods/endless_skips.c)
 int game_endless_skips(void);     // runtime/game_hooks.c
+bool game_course_deaths(unsigned *deaths);  // runtime/game_hooks.c (SMM2: games/smm2/mods/course_deaths.c)
 // A line of text centred across the screen at *y, which moves down past it
 static void splash_centred(ImDrawList *dl, ImFont *font, ImVec2 disp, float *y, const char *text, float size, ImU32 col) {
     ImVec2 sz;
@@ -2495,7 +2503,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         character_tick();  // (adds what playtime_tick just counted to the character being played)
     }
     g_drew = false;
-    if (!open && !kbd && !g_settings.show_fps && !g_settings.show_memory && !(g_settings.show_recomp_version && game_launch_skipping()) && !(g_settings.show_endless_skips && game_endless_playing()) && !ov_img && !splash && !touchpad_visible() && !notice_active()) {
+    if (!open && !kbd && !g_settings.show_fps && !g_settings.show_memory && !(g_settings.show_recomp_version && game_launch_skipping()) && !(g_settings.show_endless_skips && game_endless_playing()) && !g_settings.show_course_deaths && !ov_img && !splash && !touchpad_visible() && !notice_active()) {
         if (g_inited) { pthread_mutex_lock(&q_lock); q_count = 0; pthread_mutex_unlock(&q_lock); }
         return;
     }
@@ -2563,22 +2571,34 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         igEnd();
     }
 
-    if (g_settings.show_endless_skips && game_endless_playing() && !open) {  // (Extras > Show Endless skips: top centre, bold white with a black edge)
-        char t[32];
-        snprintf(t, sizeof t, "Skips: %d", game_endless_skips());
-        ImDrawList *dl = igGetForegroundDrawList_Nil();
-        ImFont *font = igGetFont();
-        float size = igGetFontSize() * 2.6f, e = fmaxf(2.0f, size * 0.07f);
-        ImVec2 sz;
-        igCalcTextSize(&sz, t, NULL, false, -1.0f);
-        sz.x *= size / igGetFontSize();
-        float x = (io->DisplaySize.x - sz.x) * 0.5f, y = 14 * scale;
-        for (int k = 0; k < 16; k++) {  // (the edge: the text in black round a circle, then the white on top, twice a little apart for weight)
-            float a = (float)k * 6.2831853f / 16;
-            ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + cosf(a) * e, y + sinf(a) * e), IM_COL32(0, 0, 0, 255), t, NULL, 0.0f, NULL);
+    {  // (Extras: the Endless skips and the deaths in the course, side by side at the top centre, bold white with a black edge)
+        char lines[2][40];
+        int nl = 0;
+        unsigned deaths;
+        if (g_settings.show_endless_skips && game_endless_playing() && !open) snprintf(lines[nl++], sizeof lines[0], "Skips: %d", game_endless_skips());
+        if (g_settings.show_course_deaths && !open && game_course_deaths(&deaths)) snprintf(lines[nl++], sizeof lines[0], "Deaths: %u", deaths);
+        if (nl) {
+            ImDrawList *dl = igGetForegroundDrawList_Nil();
+            ImFont *font = igGetFont();
+            float size = igGetFontSize() * 2.1f, e = fmaxf(1.5f, size * 0.07f), gap = size * 1.2f, w[2], total = 0;
+            for (int li = 0; li < nl; li++) {
+                ImVec2 sz;
+                igCalcTextSize(&sz, lines[li], NULL, false, -1.0f);
+                w[li] = sz.x * size / igGetFontSize();
+                total += w[li] + (li ? gap : 0);
+            }
+            float x = (io->DisplaySize.x - total) * 0.5f, y = 5 * scale;
+            for (int li = 0; li < nl; li++) {
+                const char *t = lines[li];
+                for (int k = 0; k < 16; k++) {  // (the edge: the text in black round a circle, then the white on top, twice a little apart for weight)
+                    float a = (float)k * 6.2831853f / 16;
+                    ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + cosf(a) * e, y + sinf(a) * e), IM_COL32(0, 0, 0, 255), t, NULL, 0.0f, NULL);
+                }
+                ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x, y), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
+                ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + size * 0.045f, y), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
+                x += w[li] + gap;
+            }
         }
-        ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x, y), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
-        ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + size * 0.045f, y), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
     }
 
     if (g_settings.show_recomp_version && game_launch_skipping()) {  // (Show recomp version: while the game starts with Skip intro / Skip mode select, which never show the title screen's Ver. box)

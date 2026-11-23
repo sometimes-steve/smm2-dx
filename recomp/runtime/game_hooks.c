@@ -104,6 +104,8 @@ WEAK bool game_splash(float *progress, const char **what) {
 WEAK bool game_launch_skipping(void) { return false; }
 // game_endless_playing: the player is in a course of the Endless Challenge right now (SMM2: the Show Endless skips text overlay)
 WEAK bool game_endless_playing(void) { return false; }
+// game_course_deaths: a course is being played right now: true, and the player's deaths in it so far (SMM2: the Show course deaths overlay)
+WEAK bool game_course_deaths(unsigned *deaths) { (void)deaths; return false; }
 WEAK int game_endless_skips(void) { return 0; }  // (the skips since the Endless Challenge was entered)
 // game_input_blocked: the player's keyboard, mouse, touch and controller buttons do nothing for now (a game drives its own
 // start with presses of its own, and a stray one spoils it: Skip mode select): runtime/hle/input.c input_user_blocked.
