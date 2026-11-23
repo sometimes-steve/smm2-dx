@@ -164,6 +164,8 @@ Built on top of [LAS Recomp](https://github.com/peiikai/LASRecomp), with ideas f
 [recomp/UPSTREAM.md](recomp/UPSTREAM.md) for the details and licenses. Super Mario Maker 2 belongs to Nintendo; this
 project is not affiliated with or endorsed by them.
 
+This project is AI assisted.
+
 ---
 
 # For developers
