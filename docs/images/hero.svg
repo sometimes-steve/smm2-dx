@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 290" width="1000" height="290" role="img" aria-label="smm2-dx: Super Mario Maker 2 as a normal Windows program, playable online with OpenCourse World">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a86f0"/>
+      <stop offset="1" stop-color="#a9ccff"/>
+    </linearGradient>
+    <g id="cloud">
+      <circle cx="0" cy="0" r="18" fill="#fff"/>
+      <circle cx="26" cy="-8" r="24" fill="#fff"/>
+      <circle cx="56" cy="0" r="18" fill="#fff"/>
+      <rect x="-18" y="0" width="92" height="18" rx="9" fill="#fff"/>
+    </g>
+  </defs>
+
+  <rect width="1000" height="290" rx="18" fill="url(#sky)"/>
+  <use href="#cloud" x="70" y="80"/>
+  <use href="#cloud" x="800" y="60"/>
+  <use href="#cloud" x="880" y="200"/>
+  <use href="#cloud" x="40" y="215"/>
+
+  <!-- title -->
+  <text x="500" y="145" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="104" font-weight="900" fill="#fff" stroke="#1b1f3b" stroke-width="10" paint-order="stroke" stroke-linejoin="round">smm2<tspan fill="#e60012">-dx</tspan></text>
+  <text x="500" y="195" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="28" font-weight="700" fill="#fff" stroke="#1b1f3b" stroke-width="6" paint-order="stroke" stroke-linejoin="round">Super Mario Maker 2, as a normal Windows program.</text>
+
+  <!-- pill -->
+  <rect x="314" y="218" width="372" height="34" rx="17" fill="#1b1f3b"/>
+  <circle cx="336" cy="235" r="7" fill="#3ddc5a"/>
+  <text x="354" y="241" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#fff">Play online with OpenCourse World</text>
+</svg>

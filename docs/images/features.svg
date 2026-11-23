@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 440" width="1000" height="440" role="img" aria-label="What smm2-dx adds: course search, stats, achievements, Mii editor, on-screen counters, mods, flags and clean names, quality of life">
+  <style>
+    .t { font-family: "Segoe UI", Helvetica, Arial, sans-serif; }
+    .h { font-size: 18px; font-weight: 800; fill: #1b1f3b; }
+    .b { font-size: 13.5px; fill: #4b5563; }
+  </style>
+  <rect width="1000" height="440" rx="18" fill="#f3f6fb"/>
+  <rect x="0.5" y="0.5" width="999" height="439" rx="18" fill="none" stroke="#d0d7e2"/>
+
+  <!-- ROW 1 -->
+  <!-- Search -->
+  <rect x="24" y="24" width="224" height="184" rx="12" fill="#fff" stroke="#d0d7e2"/>
+  <rect x="24" y="24" width="224" height="6" rx="3" fill="#e60012"/>
+  <g transform="translate(60 72)" fill="none" stroke="#e60012" stroke-width="6" stroke-linecap="round"><circle r="15"/><path d="M11 11L26 26"/></g>
+  <text class="t h" x="44" y="124">Course Search</text>
+  <text class="t b" x="44" y="148">Find a course nobody has</text>
+  <text class="t b" x="44" y="166">cleared that you have never</text>
+  <text class="t b" x="44" y="184">played, then jump into it.</text>
+
+  <!-- Stats -->
+  <rect x="264" y="24" width="224" height="184" rx="12" fill="#fff" stroke="#d0d7e2"/>
+  <rect x="264" y="24" width="224" height="6" rx="3" fill="#0b6fd1"/>
+  <g transform="translate(284 52)" fill="#0b6fd1"><rect x="0" y="26" width="10" height="16" rx="2"/><rect x="16" y="14" width="10" height="28" rx="2"/><rect x="32" y="0" width="10" height="42" rx="2"/></g>
+  <text class="t h" x="284" y="124">Your Stats</text>
+  <text class="t b" x="284" y="148">Play time, sessions, your</text>
+  <text class="t b" x="284" y="166">characters and game styles.</text>
+  <text class="t b" x="284" y="184">Kept on your PC only.</text>
+
+  <!-- Achievements -->
+  <rect x="504" y="24" width="224" height="184" rx="12" fill="#fff" stroke="#d0d7e2"/>
+  <rect x="504" y="24" width="224" height="6" rx="3" fill="#f0a500"/>
+  <g transform="translate(524 50)" fill="#f0a500"><path d="M4 0H36V16C36 26 29 32 20 32C11 32 4 26 4 16Z"/><rect x="16" y="32" width="8" height="8"/><rect x="8" y="40" width="24" height="5" rx="2"/></g>
+  <text class="t h" x="524" y="124">Leaderboards</text>
+  <text class="t b" x="524" y="148">See where you rank on</text>
+  <text class="t b" x="524" y="166">OpenCourse World's in-game</text>
+  <text class="t b" x="524" y="184">leaderboards.</text>
+
+  <!-- Mii -->
+  <rect x="744" y="24" width="232" height="184" rx="12" fill="#fff" stroke="#d0d7e2"/>
+  <rect x="744" y="24" width="232" height="6" rx="3" fill="#8b5cf6"/>
+  <g transform="translate(764 50)" fill="#8b5cf6"><circle cx="20" cy="14" r="12"/><path d="M0 46C0 32 10 28 20 28C30 28 40 32 40 46Z"/></g>
+  <text class="t h" x="764" y="124">Mii Editor</text>
+  <text class="t b" x="764" y="148">Build a library of Miis, or</text>
+  <text class="t b" x="764" y="166">paste a MiiCharacters.com</text>
+  <text class="t b" x="764" y="184">link to import one.</text>
+
+  <!-- ROW 2 -->
+  <!-- Counters -->
+  <rect x="24" y="232" width="224" height="184" rx="12" fill="#fff" stroke="#d0d7e2"/>
+  <rect x="24" y="232" width="224" height="6" rx="3" fill="#1f9d46"/>
+  <text class="t" x="44" y="290" font-size="38" font-weight="900" fill="#1f9d46">x 12</text>
+  <text class="t h" x="44" y="332">On-Screen Counters</text>
+  <text class="t b" x="44" y="356">Show your Endless skips and</text>
+  <text class="t b" x="44" y="374">your deaths per course while</text>
+  <text class="t b" x="44" y="392">you play. Off until you ask.</text>
+
+  <!-- Mods -->
+  <rect x="264" y="232" width="224" height="184" rx="12" fill="#fff" stroke="#d0d7e2"/>
+  <rect x="264" y="232" width="224" height="6" rx="3" fill="#e0457b"/>
+  <g transform="translate(284 262)" fill="#e0457b"><rect x="0" y="12" width="20" height="20" rx="3"/><rect x="24" y="12" width="20" height="20" rx="3"/><rect x="12" y="-10" width="20" height="20" rx="3"/></g>
+  <text class="t h" x="284" y="332">Mods</text>
+  <text class="t b" x="284" y="356">Browse and install community</text>
+  <text class="t b" x="284" y="374">mods from GameBanana without</text>
+  <text class="t b" x="284" y="392">leaving the game.</text>
+
+  <!-- Flags -->
+  <rect x="504" y="232" width="224" height="184" rx="12" fill="#fff" stroke="#d0d7e2"/>
+  <rect x="504" y="232" width="224" height="6" rx="3" fill="#0b6fd1"/>
+  <g transform="translate(524 262)"><rect x="0" y="0" width="4" height="40" fill="#4b5563"/><path d="M4 2H44V24H4Z" fill="#e60012"/><path d="M24 6L28 14H20Z" fill="#fff"/></g>
+  <text class="t h" x="524" y="332">Flags and Clean Names</text>
+  <text class="t b" x="524" y="356">Makers show their country's</text>
+  <text class="t b" x="524" y="374">flag, and odd console symbols</text>
+  <text class="t b" x="524" y="392">in names are tidied up.</text>
+
+  <!-- QoL -->
+  <rect x="744" y="232" width="232" height="184" rx="12" fill="#fff" stroke="#d0d7e2"/>
+  <rect x="744" y="232" width="232" height="6" rx="3" fill="#14b8a6"/>
+  <g transform="translate(764 262)" fill="none" stroke="#14b8a6" stroke-width="5" stroke-linecap="round"><path d="M0 20H44M26 6L44 20L26 34"/></g>
+  <text class="t h" x="764" y="332">Skip the Waiting</text>
+  <text class="t b" x="764" y="356">Jump straight past the intro</text>
+  <text class="t b" x="764" y="374">and mode select, and mute the</text>
+  <text class="t b" x="764" y="392">game when you tab away.</text>
+</svg>

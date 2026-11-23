@@ -1,14 +1,6 @@
-# smm2-dx
-
-**Super Mario Maker 2, running as a normal Windows program.** No emulator, no console. Just double-click and play.
-
-<table align="center">
-  <tr>
-    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/main-window.png?raw=true" alt="The main window" width="270"><br><sub>The main window</sub></td>
-    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/course-world.png?raw=true" alt="Course World" width="270"><br><sub>Course World, online through OpenCourse World</sub></td>
-    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/mods-peachette.png?raw=true" alt="A mod in game" width="270"><br><sub>Mods: Peachette over Toadette</sub></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/images/hero.svg" alt="smm2-dx: Super Mario Maker 2, as a normal Windows program. Play online with OpenCourse World." width="100%">
+</p>
 
 <p align="center">
   <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest/download/smm2-dx-windows-x64.zip"><img src="https://img.shields.io/badge/DOWNLOAD%20FOR%20WINDOWS-2ea44f?style=for-the-badge" alt="Download for Windows" height="56"></a>
@@ -18,29 +10,81 @@
   <sub>Windows 10/11 &middot; you bring your own game (see "What you need")</sub>
 </p>
 
-## Why this exists
+## In plain words
 
-Most projects like this try to do everything: every game, every platform, every online service. That makes them big,
-hard to follow and hard to fix. This one goes the other way. It is a single-purpose project that does one thing:
+**Super Mario Maker 2 normally only runs on a Nintendo Switch. smm2-dx lets you play your own copy on a Windows PC, like any
+other PC game.** There is nothing to emulate and no console to set up. You download it, unzip it, double-click it, and a
+setup screen walks you through the rest.
 
-- **One game:** Super Mario Maker 2, version 3.0.3.
-- **One platform:** Windows.
-- **One online service:** [OpenCourse World](https://opencourse.world).
+It is also built for **playing online**. Courses come from [OpenCourse World](https://opencourse.world), a community-run
+server, and smm2-dx adds the things a long-time player wants around it: a way to find courses nobody has beaten, your own
+stats, the leaderboards, and more (see below).
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/main-window.png?raw=true" alt="The main window" width="270"><br><sub>The game, in a normal Windows window</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/course-world.png?raw=true" alt="Course World" width="270"><br><sub>Course World, online through OpenCourse World</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/mods-peachette.png?raw=true" alt="A mod in game" width="270"><br><sub>Mods: Peachette over Toadette</sub></td>
+  </tr>
+</table>
+
+## What makes smm2-dx different
+
+Most projects like this try to do everything: every game, every computer, every online service. That makes them big and
+hard to follow. **smm2-dx does the opposite and stays small on purpose.** It does one thing, and puts the effort into
+making that one thing comfortable to use every day.
+
+<p align="center">
+  <img src="docs/images/focus.svg" alt="One game (Super Mario Maker 2 3.0.3), one platform (Windows 10 and 11), one online service (OpenCourse World)" width="100%">
+</p>
 
 Doing less means less code, and code that does what it says and is easier to keep working. Anything that doesn't serve
 those three things stays out.
 
-This project is built for fans and for preservation. It is not a way to get the game for free (see "What you need").
+### Is this the right project for me?
 
-## What you get
+There is another Super Mario Maker 2 port for PC, [smm2recomp](https://github.com/smm2recomp/smm2recomp). It is a fine
+project with a different goal: it aims to run the game on many systems and bring over features from the first Super Mario
+Maker. smm2-dx is the narrower choice. Pick whichever fits you.
 
-- The game as a native Windows app, run through your graphics card (Vulkan).
-- Mouse and keyboard in the Course Maker: right click to erase, middle click to drag the course, number keys for the
+| | **smm2-dx** | smm2recomp |
+|---|---|---|
+| Runs on | **Windows 10 and 11** | Windows, Mac, Linux, iPhone/iPad, Android |
+| Online courses from | **OpenCourse World** | several sources, including a server you host yourself |
+| Super Mario Maker 1 content | No | Yes |
+| Focus | **One setup, polished** | **As many places as possible** |
+| Find unbeaten courses, personal stats, leaderboards, Mii editor, on-screen counters | **Yes, built into the menu** | Not listed |
+
+*The right-hand column is what that project's own page says about itself; check it for the latest.*
+
+## How it works
+
+<p align="center">
+  <img src="docs/images/how-it-works.svg" alt="Step 1: you bring your own copy of the game. Step 2: smm2-dx sets it up. Step 3: double-click and play." width="100%">
+</p>
+
+The game itself is never included here, and never will be. A setup screen on first start asks for your own files and does
+the awkward parts (unpacking the game and your keys) for you.
+
+## What you get on top of the game
+
+<p align="center">
+  <img src="docs/images/features.svg" alt="Course Search, Your Stats, Leaderboards, Mii Editor, On-Screen Counters, Mods, Flags and Clean Names, Skip the Waiting" width="100%">
+</p>
+
+- **A real PC app.** It runs through your graphics card (Vulkan), with sharper graphics and smoother scaling than the console.
+- **Mouse and keyboard in the Course Maker.** Right click to erase, middle click to drag the course, number keys for the
   palette, Ctrl+Z to undo.
-- Sharper graphics and smoother scaling than the console.
-- Online play, Course World and uploads through your own OpenCourse World account.
-- Mods: drop-in changes made by the community.
-- A setup screen that does the awkward parts (unpacking your game and keys) for you.
+- **Online play and uploads** through your own OpenCourse World account.
+- **Find new courses.** The Search tab looks for courses nobody has cleared and you have never played, and takes you
+  straight to one in the game.
+- **Your numbers.** A Stats tab (play time, sessions, characters, game styles) that stays on your PC, and a Leaderboards
+  tab that shows where you stand on OpenCourse World.
+- **A Mii editor.** Build a library of Miis, edit them with pictures instead of menus, or paste a MiiCharacters.com link.
+- **Counters on screen.** Optionally show your Endless Challenge skips and your deaths in each course while you play.
+- **Mods** made by the community, browsable from GameBanana without leaving the game.
+- **Little comforts.** Skip the intro and mode select, mute when you switch windows, a clock in the menu, flags next to
+  makers, and a button that copies a support report if something goes wrong.
 
 ## What you need
 
@@ -53,6 +97,8 @@ This project does **not** include the game, and never will. You bring your own c
    and pick it on the setup screen. It stays where it is, and your token is never shown or written to a log.
 5. **A PC with Windows 10 or 11 and a Vulkan-capable graphics driver** (anything from the last several years).
 
+This project is built for fans and for preservation. It is not a way to get the game for free.
+
 ## How to get started
 
 1. Download the latest zip from the [Releases](../../releases) page.
@@ -60,6 +106,22 @@ This project does **not** include the game, and never will. You bring your own c
 3. Run `smm2-dx-windows-x64.exe` and follow the setup screen. It only asks for the five things above.
 
 That's it. If something goes wrong, the log is in the `smm2-dx_log` folder next to the exe.
+
+## Questions
+
+**Is it free?** Yes. The project is free, and you need your own legitimate copy of the game.
+
+**Do I need a Switch?** You need files from one: your game, your keys and the firmware, dumped from a console you own.
+After that you only need the PC.
+
+**What does "recomp" mean?** The game's code is translated ahead of time into a program for your PC, instead of being
+imitated on the fly by an emulator. The developer section below has the details.
+
+**Is it safe?** Nothing but our own code lives in this repo, and you can build the app yourself in one line (next section).
+Every tool it downloads is checked against a fixed checksum.
+
+**Is it made by Nintendo?** No. Super Mario Maker 2 belongs to Nintendo; this project is not affiliated with or endorsed
+by them.
 
 ## Build it yourself (it's easy)
 

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" width="1000" height="300" role="img" aria-label="How it works: you bring your own copy of the game, smm2-dx turns it into a Windows program, then you play">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0L10 5L0 10z" fill="#6b7280"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="300" rx="18" fill="#f3f6fb"/>
+  <rect x="0.5" y="0.5" width="999" height="299" rx="18" fill="none" stroke="#d0d7e2"/>
+
+  <!-- step 1 -->
+  <rect x="40" y="40" width="250" height="220" rx="14" fill="#fff" stroke="#d0d7e2"/>
+  <circle cx="72" cy="72" r="18" fill="#e60012"/>
+  <text x="72" y="79" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="900" fill="#fff">1</text>
+  <!-- cartridge -->
+  <g transform="translate(130 96)">
+    <rect x="0" y="0" width="70" height="80" rx="6" fill="#4b5563"/>
+    <rect x="10" y="10" width="50" height="36" rx="3" fill="#e60012"/>
+    <rect x="18" y="60" width="34" height="14" fill="#d1d5db"/>
+  </g>
+  <text x="165" y="206" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="800" fill="#1b1f3b">You bring the game</text>
+  <text x="165" y="230" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" fill="#4b5563">Your own copy, from</text>
+  <text x="165" y="248" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" fill="#4b5563">a console you own</text>
+
+  <path d="M298 150H342" stroke="#6b7280" stroke-width="4" fill="none" marker-end="url(#arr)"/>
+
+  <!-- step 2 -->
+  <rect x="350" y="40" width="300" height="220" rx="14" fill="#fff" stroke="#d0d7e2"/>
+  <circle cx="382" cy="72" r="18" fill="#0b6fd1"/>
+  <text x="382" y="79" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="900" fill="#fff">2</text>
+  <!-- gear -->
+  <g transform="translate(500 136)">
+    <circle r="30" fill="none" stroke="#0b6fd1" stroke-width="12" stroke-dasharray="9 7.1"/>
+    <circle r="22" fill="#0b6fd1"/>
+    <circle r="9" fill="#fff"/>
+  </g>
+  <text x="500" y="206" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="800" fill="#1b1f3b">smm2-dx sets it up</text>
+  <text x="500" y="230" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" fill="#4b5563">A setup screen turns it into a</text>
+  <text x="500" y="248" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" fill="#4b5563">program that runs on your PC</text>
+
+  <path d="M658 150H702" stroke="#6b7280" stroke-width="4" fill="none" marker-end="url(#arr)"/>
+
+  <!-- step 3 -->
+  <rect x="710" y="40" width="250" height="220" rx="14" fill="#fff" stroke="#d0d7e2"/>
+  <circle cx="742" cy="72" r="18" fill="#1f9d46"/>
+  <text x="742" y="79" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="20" font-weight="900" fill="#fff">3</text>
+  <!-- play triangle in monitor -->
+  <g transform="translate(796 100)">
+    <rect x="0" y="0" width="78" height="56" rx="6" fill="#1b1f3b"/>
+    <path d="M30 14L54 28L30 42z" fill="#3ddc5a"/>
+    <rect x="30" y="60" width="18" height="8" fill="#4b5563"/>
+    <rect x="20" y="68" width="38" height="5" rx="2" fill="#4b5563"/>
+  </g>
+  <text x="835" y="206" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="18" font-weight="800" fill="#1b1f3b">Double-click and play</text>
+  <text x="835" y="230" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" fill="#4b5563">Online courses come from</text>
+  <text x="835" y="248" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="14" fill="#4b5563">OpenCourse World</text>
+</svg>
