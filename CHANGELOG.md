@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.10 "Quick Retry" - 2026-11-23
+
+### Game
+
+- **Deaths are counted in courses that retry quickly.** Some courses put Mario back within a few frames of being taken down, which the death counter
+  took for the same attempt still going, so those deaths were missed (seen in Super Mario 3D World courses). A course that is taken down and starts
+  ticking again after a short pause (more than three frames, within ten seconds) is now counted as a retry. Courses that took longer were counted
+  before and still are.
+
+### Support
+
+- **RecompLauncher.** The release zip carries a `recomplauncher.json` next to the exe, so [RecompLauncher](https://recomplauncher.com) can start the
+  game.
+- **Log.** The log notes each time a course is taken down and how long the course's ticks paused after it, which shows why a death was or was not
+  counted.
+- **README.** It says the project is AI assisted.
+
 ## 0.7.9 "Body Count" - 2026-11-22
 
 ### Game
