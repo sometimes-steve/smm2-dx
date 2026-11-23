@@ -1,0 +1,8 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "repo": "sometimes-steve/smm2-dx",
+  "start": {
+    "program": ["smm2-dx-windows-x64.exe"]
+  }
+}

@@ -61,6 +61,8 @@ def main():
         out.mkdir(parents=True, exist_ok=True)
         shutil.copy2(exe, stage / exe.name)
         shutil.copytree(data, stage / "smm2-dx_data", ignore=ignore)
+        # RecompLauncher (recomplauncher.com) reads this from the top of the zip, next to the exe
+        shutil.copy2(ROOT / "recomplauncher.json", stage / "recomplauncher.json")
 
         bad = [p for p in stage.rglob("*")
                if p.is_file() and (p.suffix.lower() in BAD_EXT or p.name.lower() in BAD_NAMES)]
