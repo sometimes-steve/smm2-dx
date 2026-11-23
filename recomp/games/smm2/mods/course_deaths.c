@@ -40,16 +40,22 @@ static uint32_t g_down_course;           // the course that was taken down last 
 static uint64_t g_down_frame;
 
 static void teardown_step(Cpu *c) {
-    g_down_course = in_maker() ? 0 : current_course();
+    bool maker = in_maker();
+    g_down_course = maker ? 0 : current_course();
     g_down_frame = renderer_present_count();
+    LOG("[mod] course taken down: %u, maker %d (frame %llu)\n", current_course(), maker, (unsigned long long)g_down_frame);
     guest_call_orig(c, TEARDOWN_STEP);
 }
 
 static void play_tick(Cpu *c) {
     uint64_t now = renderer_present_count();
-    if (!g_tick_frame || now - g_tick_frame > 30) {  // (a course starts being played)
+    uint64_t gap = g_tick_frame ? now - g_tick_frame : 0;
+    if (g_down_course && gap > 3) LOG("[mod] ticks paused %llu frames, %llu after the take-down\n", (unsigned long long)gap, (unsigned long long)(now - g_down_frame));
+    // (a course starts being played; or, right after one was taken down, the ticks come back after a short pause: some courses retry that way)
+    if (!g_tick_frame || gap > 30 || (g_down_course && gap > 3 && now - g_down_frame <= RETRY_FRAMES)) {
         uint32_t id = current_course();
-        LOG("[mod] course playing: %u (frame %llu)\n", id, (unsigned long long)now);
+        LOG("[mod] course playing: %u (frame %llu, waiting for a retry of %u, down %llu frames ago)\n", id, (unsigned long long)now, g_down_course,
+            (unsigned long long)(g_down_course ? now - g_down_frame : 0));
         if (g_down_course && g_down_course == id && now - g_down_frame <= RETRY_FRAMES) {  // (the same course again, soon: Mario died)
             deaths_add(id);
             LOG("[mod] course death: course %u, %u in all (frame %llu)\n", id, deaths_get(id), (unsigned long long)now);
@@ -67,6 +73,11 @@ bool game_course_deaths(unsigned *deaths) {
     uint32_t id = current_course();
     if (!id) return false;
     *deaths = deaths_get(id);
+    static uint32_t last_id = ~0u, last_n = ~0u;
+    if (id != last_id || *deaths != last_n) {
+        LOG("[mod] course deaths shown: course %u, %u\n", id, *deaths);
+        last_id = id, last_n = *deaths;
+    }
     return true;
 }
 
