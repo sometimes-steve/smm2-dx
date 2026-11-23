@@ -41,22 +41,6 @@ making that one thing comfortable to use every day.
 Doing less means less code, and code that does what it says and is easier to keep working. Anything that doesn't serve
 those three things stays out.
 
-### Is this the right project for me?
-
-There is another Super Mario Maker 2 port for PC, [smm2recomp](https://github.com/smm2recomp/smm2recomp). It is a fine
-project with a different goal: it aims to run the game on many systems and bring over features from the first Super Mario
-Maker. smm2-dx is the narrower choice. Pick whichever fits you.
-
-| | **smm2-dx** | smm2recomp |
-|---|---|---|
-| Runs on | **Windows 10 and 11** | Windows, Mac, Linux, iPhone/iPad, Android |
-| Online courses from | **OpenCourse World** | several sources, including a server you host yourself |
-| Super Mario Maker 1 content | No | Yes |
-| Focus | **One setup, polished** | **As many places as possible** |
-| Find unbeaten courses, personal stats, leaderboards, Mii editor, on-screen counters | **Yes, built into the menu** | Not listed |
-
-*The right-hand column is what that project's own page says about itself; check it for the latest.*
-
 ## How it works
 
 <p align="center">
@@ -71,6 +55,23 @@ the awkward parts (unpacking the game and your keys) for you.
 <p align="center">
   <img src="docs/images/features.svg" alt="Course Search, Your Stats, Leaderboards, Mii Editor, On-Screen Counters, Mods, Flags and Clean Names, Skip the Waiting" width="100%">
 </p>
+
+The menu is part of the game: press **F1** (or Esc) to open it, and Q / E to flip between tabs.
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/menu-search.png?raw=true" alt="Search for courses nobody has cleared" width="400"><br><sub><b>Search:</b> find courses nobody has cleared</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/menu-stats.png?raw=true" alt="Your play time, characters and game styles" width="400"><br><sub><b>Stats:</b> your play time, characters and styles</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/menu-achievements.png?raw=true" alt="Where you rank on the leaderboards" width="400"><br><sub><b>Achievements:</b> where you rank on the leaderboards</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/menu-mii-editor.png?raw=true" alt="The Mii Editor, with MiiCharacters.com import" width="400"><br><sub><b>Mii Editor:</b> a library of Miis, with MiiCharacters.com import</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/menu-extras.png?raw=true" alt="Extras: show Endless skips and course deaths" width="400"><br><sub><b>Extras:</b> counters you switch on when you want them</sub></td>
+    <td align="center"><img src="https://github.com/sometimes-steve/smm2-dx/blob/screenshots/menu-general.png?raw=true" alt="General settings" width="400"><br><sub><b>Settings:</b> themes, skip the intro, flags and more</sub></td>
+  </tr>
+</table>
 
 - **A real PC app.** It runs through your graphics card (Vulkan), with sharper graphics and smoother scaling than the console.
 - **Mouse and keyboard in the Course Maker.** Right click to erase, middle click to drag the course, number keys for the
