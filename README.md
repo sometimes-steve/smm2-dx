@@ -8,6 +8,8 @@
   <a href="https://github.com/sometimes-steve/smm2-dx/releases/latest"><img src="https://img.shields.io/github/v/release/sometimes-steve/smm2-dx?style=for-the-badge&label=latest%20version&color=blue" alt="Latest version"></a>
   <br>
   <sub>Windows 10/11 &middot; you bring your own game (see "What you need")</sub>
+  <br>
+  <a href="https://recomplauncher.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://recomplauncher.com/assets/press/launcher/badge-light.svg"><img alt="Get it on RecompLauncher" src="https://recomplauncher.com/assets/press/launcher/badge-dark.svg" height="48"></picture></a>
 </p>
 
 ## In plain words
