@@ -7,6 +7,8 @@
 //    main+0x15E57A0, ran about a second after a course started and not for deaths: a counter built on it counted deaths that never happened.)
 //    A death is told from the others by what follows: the same course is played again within ten seconds (a death retries it; a skip or a
 //    clear brings another course; Exit Course goes to the menus). A death that ends an Endless run has no retry and is not counted.
+//    A pause-menu Start Over also retries the same course, but the play ticks stopped while the menu was open (hundreds of frames before the
+//    take-down); after a death they run until the take-down. So a retry only counts when the course was still ticking as it came down.
 //  - main+0x1BAB880 runs on every frame of a course being played (Endless or Course World), and not in the menus.
 //  - the global main+0x2C4B710 points at the object of the course the game has loaded; its data id (the number OpenCourse World serves the
 //    course under) is the u32 at +0x30.
@@ -17,7 +19,7 @@
 #include "../../../runtime/ui/deaths.h"
 
 #define TEARDOWN_STEP MAIN_ADDR(0x16D6CD0)
-enum { RETRY_FRAMES = 600 };  // (a retry after a death starts about 300 presented frames after the course is taken down)
+enum { RETRY_FRAMES = 600, TICK_IDLE_FRAMES = 10 };  // (a retry after a death starts about 300 presented frames after the course is taken down)
 #define PLAY_TICK MAIN_ADDR(0x1BAB880)
 #define COURSE_HOLDER MAIN_ADDR(0x2C4B710)
 #define PLAY_INFO MAIN_ADDR(0x2c57d58)  // (mods/pc_editor.c: *(*+0x30): +0x10 kind, 0 = the Course Maker)
@@ -38,11 +40,13 @@ static uint32_t current_course(void) {
 
 static uint32_t g_down_course;           // the course that was taken down last (0: none waiting for a retry)
 static uint64_t g_down_frame;
+static bool g_down_paused;               // the play ticks had stopped before the take-down (the pause menu was open: Start Over, not a death)
 
 static void teardown_step(Cpu *c) {
     bool maker = in_maker();
     g_down_course = maker ? 0 : current_course();
     g_down_frame = renderer_present_count();
+    g_down_paused = g_tick_frame && g_down_frame - g_tick_frame > TICK_IDLE_FRAMES;
     LOG("[mod] course taken down: %u, maker %d (frame %llu)\n", current_course(), maker, (unsigned long long)g_down_frame);
     guest_call_orig(c, TEARDOWN_STEP);
 }
@@ -56,7 +60,9 @@ static void play_tick(Cpu *c) {
         uint32_t id = current_course();
         LOG("[mod] course playing: %u (frame %llu, waiting for a retry of %u, down %llu frames ago)\n", id, (unsigned long long)now, g_down_course,
             (unsigned long long)(g_down_course ? now - g_down_frame : 0));
-        if (g_down_course && g_down_course == id && now - g_down_frame <= RETRY_FRAMES) {  // (the same course again, soon: Mario died)
+        if (g_down_course && g_down_course == id && now - g_down_frame <= RETRY_FRAMES && g_down_paused)
+            LOG("[mod] course restarted from the pause menu: course %u, not a death\n", id);
+        else if (g_down_course && g_down_course == id && now - g_down_frame <= RETRY_FRAMES) {  // (the same course again, soon: Mario died)
             deaths_add(id);
             LOG("[mod] course death: course %u, %u in all (frame %llu)\n", id, deaths_get(id), (unsigned long long)now);
         }

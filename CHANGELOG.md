@@ -2,6 +2,10 @@
 
 ## 0.7.11 "Easy Setup" - 2026-11-23
 
+### Game
+
+- **Start Over is not counted as a death.** Restarting a course from the pause menu put the same course back within seconds, which the death counter took for a death. A course whose play ticks had stopped before it was taken down (the pause menu was open) is now left out.
+
 ### Support
 
 - **RecompLauncher Easy Setup.** `recomplauncher.json` now asks for the game and `prod.keys`, runs the setup with no window, lists the saves, and shows the video, audio, language and a few more settings on the game's page. The firmware is the one an emulator already has, or the one chosen on the setup screen before.
