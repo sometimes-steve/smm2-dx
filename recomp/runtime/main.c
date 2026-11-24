@@ -235,13 +235,40 @@ int main(int argc, char **argv) {
     const char *root = "extracted";  // (in the data root)
     static char arg_root[1024];
     bool setup = false;  // --setup: the setup screen even when everything is there
+    // RecompLauncher (recomplauncher.com) hands over the player's files and runs the setup without a window. Without
+    // these options nothing changes: the setup screen asks, as always. Each takes its value as "--x value" or "--x=value".
+    //   --game <file or folder> (repeat for an update), --keys <prod.keys>, --firmware <folder>, --ocw <ocw-config.json>
+    //   --prepare: the setup with no window, printing "progress 0.4 text" lines; --data <folder>: where everything is kept
+    bool prepare = false;
+    const char *game[8], *keys = NULL, *firmware = NULL, *ocw = NULL;
+    int ngame = 0;
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--play")) continue;  // (no setup screen unless something is missing, as before)
-        else if (!strcmp(argv[i], "--setup")) setup = true;
-        else if (argv[i][0] != '-' && !realpath(argv[i], arg_root)) root = argv[i];  // (relative to where we started)
-        else if (argv[i][0] != '-') root = arg_root;
+        const char *a = argv[i], *eq = strchr(a, '=');
+        size_t n = eq ? (size_t)(eq - a) : strlen(a);
+        const char *val = eq ? eq + 1 : (i + 1 < argc ? argv[i + 1] : NULL);
+        int opt = n == 6 && !strncmp(a, "--game", 6) ? 1 : n == 6 && !strncmp(a, "--keys", 6) ? 2 :
+                  n == 10 && !strncmp(a, "--firmware", 10) ? 3 : n == 5 && !strncmp(a, "--ocw", 5) ? 4 :
+                  n == 6 && !strncmp(a, "--data", 6) ? 5 : 0;
+        if (opt && val) {
+            if (!eq) i++;
+            char *p = realpath(val, NULL);  // (the data root becomes the working directory: made absolute first)
+            if (opt == 5) setenv("LARECOMP_DATA_ROOT", p ? p : val, 1);
+            else if (opt == 1 && ngame < 8) game[ngame++] = p ? p : val;
+            else if (opt == 2) keys = p ? p : val;
+            else if (opt == 3) firmware = p ? p : val;
+            else if (opt == 4) ocw = p ? p : val;
+        }
+        else if (!strcmp(a, "--prepare")) prepare = true;
+        else if (!strcmp(a, "--play")) continue;  // (no setup screen unless something is missing, as before)
+        else if (!strcmp(a, "--setup")) setup = true;
+        else if (a[0] != '-' && !realpath(a, arg_root)) root = a;  // (relative to where we started)
+        else if (a[0] != '-') root = arg_root;
     }
     rt_paths_init();  // the data root becomes the working directory (runtime/paths.h)
+    extern void launcher_cli_apply(const char *const *game, int ngame, const char *keys, const char *firmware, const char *ocw);
+    extern int launcher_prepare(const char *root);
+    if (ngame || keys || firmware || ocw) launcher_cli_apply(game, ngame, keys, firmware, ocw);
+    if (prepare) return launcher_prepare(root);
     {   // tests: recomp-test.env in the data root, KEY=value lines, sets the environment
         FILE *f = fopen("recomp-test.env", "r");
         char line[1024];

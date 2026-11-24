@@ -940,6 +940,88 @@ static void *job_thread(void *arg) {
     return NULL;
 }
 
+// suggestions for what isn't chosen yet: the keys and firmware an emulator already has
+static void suggest_keys_firmware(void) {
+    char ad[PATHLEN], cand[PATHLEN + 64];
+    appdata_dir(ad, sizeof ad);
+    if (!g_cfg.keys[0])
+        for (int i = 0; i < 6; i++) {
+            snprintf(cand, sizeof cand, "%s%s", i < 5 ? ad : home_dir(), i < 5 ? KEYS_SUFFIX[i] : KEYS_HOME_SUFFIX);
+            if (file_exists(cand)) { snprintf(g_cfg.keys, sizeof g_cfg.keys, "%s", cand); break; }
+        }
+    if (!g_cfg.firmware[0])
+        for (int i = 0; i < 3; i++) {
+            snprintf(cand, sizeof cand, "%s%s", ad, FIRMWARE_SUFFIX[i]);
+            if (dir_exists(cand)) { snprintf(g_cfg.firmware, sizeof g_cfg.firmware, "%s", cand); break; }
+        }
+}
+
+// ------------------------------------------------------------------ RecompLauncher (recomplauncher.com)
+// Its Easy Setup passes the player's files as options (main.c) and runs the setup without a window. They are kept the way
+// the setup screen keeps what is chosen there (launcher.ini), so a start without them finds the same files.
+void launcher_cli_apply(const char *const *game, int ngame, const char *keys, const char *firmware, const char *ocw) {
+    config_load();
+    if (ngame > 0) {
+        strlist_clear(&g_cfg.game);
+        for (int i = 0; i < ngame; i++) strlist_push(&g_cfg.game, game[i]);
+    }
+    if (keys) snprintf(g_cfg.keys, sizeof g_cfg.keys, "%s", keys);
+    if (firmware) snprintf(g_cfg.firmware, sizeof g_cfg.firmware, "%s", firmware);
+    if (ocw) snprintf(g_cfg.ocw, sizeof g_cfg.ocw, "%s", ocw);
+    config_save();
+}
+
+static _Atomic bool g_prepare_done;
+static void *prepare_thread(void *arg) {
+    job_thread(arg);
+    g_prepare_done = true;
+    return NULL;
+}
+
+// --prepare: the setup screen's three steps (job_thread) with no window. Prints "progress 0.4 text" lines, exits 0 when
+// the game is set up and 1 when a step failed (the reason on stderr), 2 when the files weren't given.
+int launcher_prepare(const char *root) {
+    snprintf(g_root, sizeof g_root, "%s", root);
+    config_load();
+    suggest_keys_firmware();  // (RecompLauncher can't ask for the firmware: the one an emulator has, or chosen on the setup screen before)
+    if (!g_cfg.game.n || !g_cfg.keys[0] || !g_cfg.firmware[0]) {
+        fprintf(stderr, "The setup needs the game, prod.keys and the Switch firmware. Start " GAME_TITLE " once and choose the firmware on its "
+                "setup screen, or turn Easy Setup off for it in RecompLauncher.\n");
+        return 2;
+    }
+    g_cancel = false;
+    g_job = 1;
+    pthread_t th;
+    if (pthread_create(&th, NULL, prepare_thread, NULL) != 0) return 1;
+    float shown = -1;
+    char shown_text[400] = "";
+    unsigned shown_at = 0;
+    while (!g_prepare_done) {
+        char text[400] = "";
+        pthread_mutex_lock(&g_lock);
+        for (int i = 0; i < 3; i++)
+            if (g_steps[i].state == RUNNING) snprintf(text, sizeof text, "%s", g_steps[i].detail && *g_steps[i].detail ? g_steps[i].detail : g_steps[i].name);
+        pthread_mutex_unlock(&g_lock);
+        float p = g_progress;
+        unsigned now = (unsigned)SDL_GetTicks();
+        if (fabsf(p - shown) >= 0.01f || strcmp(text, shown_text) || now - shown_at > 30000) {  // (a line now and then: silence reads as stuck)
+            printf("progress %.2f %s\n", p, *text ? text : "Working");
+            fflush(stdout);
+            shown = p, shown_at = now;
+            snprintf(shown_text, sizeof shown_text, "%s", text);
+        }
+        SDL_Delay(250);
+    }
+    pthread_join(th, NULL);
+    if (g_job == 2) {
+        printf("progress 1 Done\n");
+        fflush(stdout);
+        return 0;
+    }
+    fprintf(stderr, "%s. %s\n", g_err_what ? g_err_what : "The setup failed", g_err_hint ? g_err_hint : "");
+    return 1;
+}
+
 // ------------------------------------------------------------------ update check (notifies only)
 static char g_update_tag[256];
 static pthread_mutex_t g_update_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -1010,6 +1092,7 @@ void launcher_update_check_start(void) {
     static bool started;
     if (started) { LOG("[update] check not started again: it already runs or ran\n"); return; }
     if (getenv("RECOMP_NO_UPDATE_CHECK") && !getenv("RECOMP_UPDATE_TAGS")) { LOG("[update] check off: RECOMP_NO_UPDATE_CHECK is set\n"); return; }
+    if (getenv("RECOMPLAUNCHER")) { LOG("[update] check off: RecompLauncher brings the new releases\n"); return; }
     config_load();
     if (!g_cfg.update_check) { LOG("[update] check off: \"Check for updates\" is turned off\n"); return; }
     started = true;
@@ -1254,21 +1337,7 @@ static bool big_button(const char *label, bool enabled, float w, float h) {
 void launcher_run(const char *root) {
     snprintf(g_root, sizeof g_root, "%s", root);
     config_load();
-    // suggestions for what isn't chosen yet: the keys and firmware an emulator already has
-    {
-        char ad[PATHLEN], cand[PATHLEN + 64];
-        appdata_dir(ad, sizeof ad);
-        if (!g_cfg.keys[0])
-            for (int i = 0; i < 6; i++) {
-                snprintf(cand, sizeof cand, "%s%s", i < 5 ? ad : home_dir(), i < 5 ? KEYS_SUFFIX[i] : KEYS_HOME_SUFFIX);
-                if (file_exists(cand)) { snprintf(g_cfg.keys, sizeof g_cfg.keys, "%s", cand); break; }
-            }
-        if (!g_cfg.firmware[0])
-            for (int i = 0; i < 3; i++) {
-                snprintf(cand, sizeof cand, "%s%s", ad, FIRMWARE_SUFFIX[i]);
-                if (dir_exists(cand)) { snprintf(g_cfg.firmware, sizeof g_cfg.firmware, "%s", cand); break; }
-            }
-    }
+    suggest_keys_firmware();
     launcher_update_check_start();
     // the auto-fill of a test run
     const char *autof = getenv("RECOMP_LAUNCHER_AUTO");
