@@ -7,6 +7,7 @@
     {
       "id": "game",
       "label": "Your own Super Mario Maker 2 version 3.0.3: the NSP or XCI, or the folder it is unpacked into.",
+      "check": { "file": "main" },
       "formats": [
         { "type": "file", "extensions": ["nsp", "xci"] },
         { "type": "folder" }
