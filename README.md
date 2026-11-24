@@ -246,4 +246,18 @@ licenses into `smm2-dx_data`, so the app finds everything beside itself.
 
 The game files, keys and firmware are never downloaded. You supply those through the setup screen.
 
-Logs are written to `smm2-dx_log\`, next to the exe.
+Logs are written to `smm2-dx_log\`, next to the exe, and saves and settings are in `smm2-dx_data\` (`save\` and `smm2.ini`).
+
+### Options for launchers
+
+[RecompLauncher](https://recomplauncher.com) uses these (see `recomplauncher.json`). Without them the app asks on its setup screen, as always. Each takes `--option value` or `--option=value`.
+
+| Option | What it does |
+|---|---|
+| `--game <path>` | the game's NSP, XCI or folder (give it twice to add the update) |
+| `--keys <path>` | your `prod.keys` |
+| `--firmware <folder>` | the Switch firmware folder |
+| `--ocw <path>` | your OpenCourse World `ocw-config.json` |
+| `--prepare` | the setup with no window: prints `progress 0.4 text` lines, exits 0 when done |
+| `--data <folder>` | keep saves, settings and the set-up game there, not beside the program |
+

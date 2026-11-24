@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.11 "Easy Setup" - 2026-11-23
+
+### Support
+
+- **RecompLauncher Easy Setup.** `recomplauncher.json` now asks for the game and `prod.keys`, runs the setup with no window, lists the saves, and shows the video, audio, language and a few more settings on the game's page. The firmware is the one an emulator already has, or the one chosen on the setup screen before.
+- **Options.** `--game`, `--keys`, `--firmware`, `--ocw`, `--prepare` and `--data`, for launchers. Without them nothing changes. The update check stays off when RecompLauncher starts the game.
+
 ## 0.7.10 "Quick Retry" - 2026-11-23
 
 ### Game

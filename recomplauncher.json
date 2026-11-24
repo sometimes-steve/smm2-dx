@@ -1,8 +1,200 @@
 {
   "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
   "format": 1,
+  "name": "smm2-dx",
   "repo": "sometimes-steve/smm2-dx",
+  "inputs": [
+    {
+      "id": "game",
+      "label": "Your own Super Mario Maker 2 version 3.0.3: the NSP or XCI, or the folder it is unpacked into.",
+      "formats": [
+        { "type": "file", "extensions": ["nsp", "xci"] },
+        { "type": "folder" }
+      ]
+    },
+    {
+      "id": "update",
+      "label": "Your 3.0.3 update (NSP), if it is a file of its own.",
+      "role": "update",
+      "optional": true,
+      "formats": [{ "type": "file", "extensions": ["nsp"] }]
+    },
+    {
+      "id": "keys",
+      "label": "Your Switch prod.keys",
+      "role": "key",
+      "shared": "switch.prod-keys"
+    }
+  ],
   "start": {
     "program": ["smm2-dx-windows-x64.exe"]
-  }
+  },
+  "prepare": {
+    "program": ["smm2-dx_data/smm2-dx-runtime.exe"],
+    "args": ["--prepare", "--game={input:game}", "--game={input:update}", "--keys={input:keys}"],
+    "label": "Game files, fonts and the game code, from your own copy",
+    "done": [
+      "{install}/smm2-dx_data/extracted/exefs/main",
+      "{install}/smm2-dx_data/extracted/smm2game.dll"
+    ]
+  },
+  "config": [
+    {
+      "id": "main",
+      "format": "ini",
+      "file": [{ "path": "{install}/smm2-dx_data/smm2.ini" }]
+    }
+  ],
+  "saves": ["{install}/smm2-dx_data/save", "{install}/smm2-dx_data/smm2.ini"],
+  "groups": [{ "id": "Advanced", "advanced": true }],
+  "settings": [
+    {
+      "id": "fullscreen",
+      "label": "Fullscreen",
+      "group": "Video",
+      "choices": [
+        { "label": "Off", "set": { "fullscreen": "0" } },
+        { "label": "On", "set": { "fullscreen": "1" } }
+      ],
+      "defaults": { "fullscreen": "0" }
+    },
+    {
+      "id": "resolution",
+      "label": "Resolution",
+      "help": "What the game draws at. Match the window follows the window's size.",
+      "group": "Video",
+      "choices": [
+        { "label": "Match the window", "set": { "resolution": "match" } },
+        { "label": "Dynamic", "set": { "resolution": "dynamic" } },
+        { "label": "1x", "set": { "resolution": "1x" } },
+        { "label": "2x", "set": { "resolution": "2x" } },
+        { "label": "4x", "set": { "resolution": "4x" } }
+      ],
+      "defaults": { "resolution": "match" }
+    },
+    {
+      "id": "upscaler",
+      "label": "Upscaler",
+      "help": "How the picture is scaled up to the window.",
+      "group": "Video",
+      "choices": [
+        { "label": "Sharp (AMD FSR 1)", "set": { "upscaler": "fsr1" } },
+        { "label": "Bilinear", "set": { "upscaler": "bilinear" } }
+      ],
+      "defaults": { "upscaler": "fsr1" }
+    },
+    {
+      "id": "antialias",
+      "label": "Anti-aliasing",
+      "group": "Video",
+      "choices": [
+        { "label": "Off", "set": { "antialias": "off" } },
+        { "label": "SMAA", "set": { "antialias": "smaa" } }
+      ],
+      "defaults": { "antialias": "off" }
+    },
+    {
+      "id": "aspect",
+      "label": "Aspect ratio",
+      "help": "Unlocked fills the window. Original keeps the game's own shape.",
+      "group": "Video",
+      "choices": [
+        { "label": "Unlocked", "set": { "aspect": "unlocked" } },
+        { "label": "Original", "set": { "aspect": "original" } }
+      ],
+      "defaults": { "aspect": "unlocked" }
+    },
+    {
+      "id": "volume",
+      "label": "Volume",
+      "group": "Audio",
+      "slider": { "key": "volume", "min": 0, "max": 2, "step": 0.05, "format": "%.2f" },
+      "defaults": { "volume": "1.00" }
+    },
+    {
+      "id": "mute_in_background",
+      "label": "Mute in the background",
+      "group": "Audio",
+      "choices": [
+        { "label": "On", "set": { "mute_in_background": "1" } },
+        { "label": "Off", "set": { "mute_in_background": "0" } }
+      ],
+      "defaults": { "mute_in_background": "1" }
+    },
+    {
+      "id": "language",
+      "label": "Language",
+      "help": "The game's own text language. Auto is English.",
+      "group": "Game",
+      "choices": [
+        { "label": "Auto", "set": { "language": "auto" } },
+        { "label": "English", "set": { "language": "en-US" } },
+        { "label": "Japanese", "set": { "language": "ja" } },
+        { "label": "Spanish", "set": { "language": "es" } },
+        { "label": "French", "set": { "language": "fr" } },
+        { "label": "German", "set": { "language": "de" } },
+        { "label": "Italian", "set": { "language": "it" } },
+        { "label": "Dutch", "set": { "language": "nl" } },
+        { "label": "Russian", "set": { "language": "ru" } },
+        { "label": "Korean", "set": { "language": "ko" } },
+        { "label": "Chinese (Simplified)", "set": { "language": "zh-CN" } },
+        { "label": "Chinese (Traditional)", "set": { "language": "zh-TW" } }
+      ],
+      "defaults": { "language": "auto" }
+    },
+    {
+      "id": "skip_intro",
+      "label": "Skip the intro",
+      "group": "Game",
+      "choices": [
+        { "label": "Off", "set": { "skip_intro": "0" } },
+        { "label": "On", "set": { "skip_intro": "1" } }
+      ],
+      "defaults": { "skip_intro": "0" }
+    },
+    {
+      "id": "prompts",
+      "label": "Button prompts",
+      "help": "Which controller's buttons the game shows.",
+      "group": "Controls",
+      "choices": [
+        { "label": "Auto", "set": { "prompts": "auto" } },
+        { "label": "Nintendo", "set": { "prompts": "nintendo" } },
+        { "label": "Xbox", "set": { "prompts": "xbox" } },
+        { "label": "PlayStation", "set": { "prompts": "playstation" } }
+      ],
+      "defaults": { "prompts": "auto" }
+    },
+    {
+      "id": "theme",
+      "label": "Menu theme",
+      "group": "Interface",
+      "choices": [
+        { "label": "Default", "set": { "theme": "Default" } },
+        { "label": "NES", "set": { "theme": "NES" } }
+      ],
+      "defaults": { "theme": "Default" }
+    },
+    {
+      "id": "show_fps",
+      "label": "Show the frame rate",
+      "group": "Interface",
+      "choices": [
+        { "label": "Off", "set": { "show_fps": "0" } },
+        { "label": "On", "set": { "show_fps": "1" } }
+      ],
+      "defaults": { "show_fps": "0" }
+    },
+    {
+      "id": "keep_obj_cache",
+      "label": "Keep the compiler's cache",
+      "help": "Makes Rebuild Game Code faster, and uses more disk space.",
+      "group": "Advanced",
+      "choices": [
+        { "label": "Off", "set": { "keep_obj_cache": "0" } },
+        { "label": "On", "set": { "keep_obj_cache": "1" } }
+      ],
+      "defaults": { "keep_obj_cache": "0" }
+    }
+  ]
 }
