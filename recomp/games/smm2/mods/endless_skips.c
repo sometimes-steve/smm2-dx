@@ -14,15 +14,20 @@
 
 #define SKIP_STATE MAIN_ADDR(0x12E05A0)
 #define ENDLESS_TICK MAIN_ADDR(0x1BB9440)
+#define PLAY_INFO MAIN_ADDR(0x2c57d58)  // (mods/pc_editor.c: *(*+0x30): +0x10 kind, +0x14 what kind of course)
 
 extern uint64_t renderer_present_count(void);
 
 static volatile uint64_t g_tick_frame;  // the presented frame the Endless step last ran in (0: never)
+static volatile uint32_t g_sub;         // the kind of course the Endless step ran in last (the info object's +0x14; 0: none yet): so an Endless course is known as soon as it plays
 static volatile int g_visit_skips;      // skips since the Endless Challenge was entered: a new visit starts after a minute away from it
 enum { VISIT_GAP = 3600 };              // (presented frames: a skip's loading is about ten seconds, the way out to the menus and back is longer)
 
+void course_deaths_skip_noted(void);  // mods/course_deaths.c
+
 static void endless_skip(Cpu *c) {
     skips_note();
+    course_deaths_skip_noted();
     g_visit_skips++;
     LOG("[mod] endless skip: %d this session, %ld in all\n", skips_session(), skips_total());
     guest_call_orig(c, SKIP_STATE);
@@ -33,13 +38,21 @@ static void endless_tick(Cpu *c) {
     if (!g_tick_frame || now - g_tick_frame > VISIT_GAP) g_visit_skips = 0;
     if (!g_tick_frame || now - g_tick_frame > 30) LOG("[mod] endless course: playing\n");
     g_tick_frame = now;
+    uint64_t h = g64(PLAY_INFO), info = h ? g64(h + 0x30) : 0;
+    if (info && g32(info + 0x10) == 2) g_sub = g32(info + 0x14);
     guest_call_orig(c, ENDLESS_TICK);
 }
 
-// runtime/game_hooks.c game_endless_playing: the step ran within the last few frames
+bool game_course_deaths(unsigned *deaths);  // mods/course_deaths.c: a course is being played
+
+// runtime/game_hooks.c game_endless_playing: the step ran within the last few frames, or a course of the kind it last ran in is being played (the
+// Show Endless skips overlay then shows with the deaths, from the course's first frame)
 bool game_endless_playing(void) {
     uint64_t t = g_tick_frame;
-    return t && renderer_present_count() - t <= 5;
+    if (t && renderer_present_count() - t <= 5) return true;
+    unsigned d;
+    uint64_t h = g64(PLAY_INFO), info = h ? g64(h + 0x30) : 0;
+    return g_sub && info && g32(info + 0x10) == 2 && g32(info + 0x14) == g_sub && game_course_deaths(&d);
 }
 
 // runtime/game_hooks.c game_endless_skips: the skips of this visit to the Endless Challenge (the Show Endless skips overlay)

@@ -9,6 +9,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #include "option_rows.h"
@@ -20,6 +21,8 @@
 #include "history.h"
 #include "playtime.h"
 #include "clock.h"
+#include "numfont.h"
+#include "hud_icons.h"
 #include "cards.h"
 #include "webview.h"
 #include "../support_report.h"
@@ -762,11 +765,6 @@ static void tab_display(void) {
         atomic_store(&g_want_fullscreen_apply, true);
     }
     opt_toggle("Hide Mouse Cursor", &g_settings.hide_cursor, true, "Hides the mouse cursor over the game while this menu is closed.");
-    opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.");
-    opt_toggle("Show Clock", &g_settings.show_clock, true,
-               "Shows the computer's current time at the bottom of the menu, in the time zone and 12 / 24-hour format Windows uses.");
-    opt_toggle("Show memory use", &g_settings.show_memory, false,
-               "Shows how much memory the app uses in the top right corner, once a second.");
 
     }
     if (opt_section_fold("Rendering")) {
@@ -917,11 +915,39 @@ static void tab_general(void) {
             if (opt_action("Cancel", "", "Stays where you are.", true)) ask_rebuild = 0;
         }
     }
-    if (opt_toggle("Show recomp version", &g_settings.show_recomp_version, true,
-                   "Off: the title screen's Ver. box shows the game's own version (3.0.3). On: it shows this "
-                   "recomp's version instead. With Skip intro or Skip mode select on, the same box also shows in the "
-                   "bottom right corner while the game starts, then goes away. The title screen's box changes the "
-                   "next time the title screen loads.")) {
+    opt_section("Language");
+    {
+        // what the game is told the console's language is: its text follows this (runtime/settings.c)
+        char autol[64];
+        snprintf(autol, sizeof autol, "Auto (%s)", settings_language_name());
+        const char *names[N_LANGUAGES];
+        names[0] = autol;
+        for (int i = 1; i < N_LANGUAGES; i++) names[i] = g_language_names[i];
+        if (opt_choice("Language (restart)", &g_settings.language, names, N_LANGUAGES, 0,
+                       "The game's text language, as its own system setting. Applies when the game restarts "
+                       "(Quit > Restart the Game).", true)) {
+            settings_save();
+            restart_changed_mark(RESTART_LANGUAGE);
+        }
+    }
+    opt_end();
+}
+
+// The Extras page: small additions to the game that are off until asked for
+static void tab_extras(void) {
+    opt_flat_begin("##extras", igGetFontSize() / 34);
+    opt_section("Endless Challenge");
+    if (opt_toggle("Show Endless skips", &g_settings.show_endless_skips, true,
+                   "Shows how many courses you have skipped in this visit to the Endless Challenge, as bold text at the top centre of the screen, "
+                   "while you play it. The count starts again when you come back after a minute away from the Endless Challenge. The "
+                   "all-time total is on the Stats page. Applies at once.")) {
+        settings_save();
+    }
+    opt_section("Courses");
+    if (opt_toggle("Show course deaths", &g_settings.show_course_deaths, true,
+                   "Shows how many times you have died in the course you are playing, as bold text at the top centre of the screen (next to "
+                   "the Endless skips, if those are shown too). Deaths are counted for every course, whether or not this is on, and kept on "
+                   "this computer only. Applies at once.")) {
         settings_save();
     }
     opt_section("Players");
@@ -974,24 +1000,17 @@ static void tab_general(void) {
                    "appear. On: it is replaced by a generated Mii that stays the same for that player until the app closes. Off: shown as "
                    "OpenCourse World sends it. Your own Mii is never changed. Applies to players the game loads from now "
                    "on.")) settings_save();
-    opt_end();
-}
-
-// The Extras page: small additions to the game that are off until asked for
-static void tab_extras(void) {
-    opt_flat_begin("##extras", igGetFontSize() / 34);
-    opt_section("Endless Challenge");
-    if (opt_toggle("Show Endless skips", &g_settings.show_endless_skips, false,
-                   "Shows how many courses you have skipped in this visit to the Endless Challenge, as bold text at the top centre of the screen, "
-                   "while you play it. The count starts again when you come back after a minute away from the Endless Challenge. The "
-                   "all-time total is on the Stats page. Applies at once.")) {
-        settings_save();
-    }
-    opt_section("Courses");
-    if (opt_toggle("Show course deaths", &g_settings.show_course_deaths, false,
-                   "Shows how many times you have died in the course you are playing, as bold text at the top centre of the screen (next to "
-                   "the Endless skips, if those are shown too). Deaths are counted for every course, whether or not this is on, and kept on "
-                   "this computer only. Applies at once.")) {
+    opt_section("On-screen info");
+    opt_toggle("Show FPS", &g_settings.show_fps, false, "Shows the frame rate in the top right corner.");
+    opt_toggle("Show Clock", &g_settings.show_clock, true,
+               "Shows the computer's current time at the bottom of the menu, in the time zone and 12 / 24-hour format Windows uses.");
+    opt_toggle("Show memory use", &g_settings.show_memory, false,
+               "Shows how much memory the app uses in the top right corner, once a second.");
+    if (opt_toggle("Show recomp version", &g_settings.show_recomp_version, true,
+                   "Off: the title screen's Ver. box shows the game's own version (3.0.3). On: it shows this "
+                   "recomp's version instead. With Skip intro or Skip mode select on, the same box also shows in the "
+                   "bottom right corner while the game starts, then goes away. The title screen's box changes the "
+                   "next time the title screen loads.")) {
         settings_save();
     }
     opt_end();
@@ -1307,6 +1326,65 @@ const char *menu_app_version(void) {
     }
     return v;
 }
+// ---- Quit > Files: where the app keeps what it reads and writes. A row shows the path (from the data folder, or all of it for the data folder and the
+// logs, the start cut off when it is long) and the whole path in its description; pressing it opens the folder (the file's folder, for a file).
+static void open_folder_of(const char *path, bool is_file) {
+    char dir[1100];
+    snprintf(dir, sizeof dir, "%s", path);
+    if (is_file) {
+        char *cut = NULL;
+        for (char *c = dir; *c; c++)
+            if (*c == '/' || *c == '\\') cut = c;
+        if (cut) *cut = 0;
+    }
+    char url[1500] = "file:///";
+    size_t n = strlen(url);
+    for (const char *c = dir; *c && n + 4 < sizeof url; c++) {
+        if (*c == '\\') url[n++] = '/';
+        else if (*c == ' ') memcpy(url + n, "%20", 3), n += 3;
+        else if (*c == '#') memcpy(url + n, "%23", 3), n += 3;
+        else if (*c == '%') memcpy(url + n, "%25", 3), n += 3;
+        else url[n++] = *c;
+    }
+    url[n] = 0;
+    if (!SDL_OpenURL(url)) menu_notice("Could not open the folder.", 4);
+}
+
+// rel: a path from the data folder, or NULL: `abs` is the whole path (and is shown from its end)
+static void files_row(const char *label, const char *rel, const char *abs, bool is_file, const char *what) {
+    char full[1100], shown[64];
+    if (rel) snprintf(full, sizeof full, "%s/%s", rt_data_root(), rel);
+    else snprintf(full, sizeof full, "%s", abs);
+    const char *v = rel ? rel : full;
+    size_t len = strlen(v);
+    if (len > 30) snprintf(shown, sizeof shown, "...%s", v + len - 27);
+    else snprintf(shown, sizeof shown, "%s", v);
+    struct stat st;
+    bool there = stat(full, &st) == 0;
+    char desc[1500];
+    snprintf(desc, sizeof desc, "%s\n\n%s\n\n%s", what, full, there ? "Press to open the folder." : "Not there yet: the app makes it when it is first needed.");
+    if (!there) opt_disable_next();
+    if (opt_action(label, shown, desc, true) && there) open_folder_of(full, is_file);
+}
+
+static void files_section(void) {
+    char logs[600];
+    opt_section("Files");
+    files_row("Data folder", NULL, rt_data_root(), false, "Everything the app writes and the files you bring: the game's files, settings, saves, caches, mods and the course lists.");
+    files_row("Game files", "extracted", NULL, false, "The game's files, set up from your own copy of the game (romfs and exefs). Never changed in place.");
+    files_row("Settings", GAME_SETTINGS, NULL, true, "Your settings, as the menu saves them.");
+    files_row("Saves", "save", NULL, false, "The game's save data.");
+    files_row("Mods", "mods", NULL, false, "Your mods, one folder each.");
+    files_row("Shader cache", "cache", NULL, false, "Shaders and pipelines built for your graphics card, so the game starts faster next time.");
+    files_row("Miis", "miis", NULL, false, "Your Mii library.");
+    files_row("Downloaded courses", "ocw-courses.bin", NULL, true, "The OpenCourse World course list kept on this computer, for Search.");
+    files_row("Course deaths", "course-deaths.txt", NULL, true, "Your deaths in each course, one line per course (its OpenCourse World data id and the count). Kept on this computer only.");
+    files_row("Endless skips", "endless-skips.txt", NULL, true, "Your Endless Challenge skip counts.");
+    files_row("Play time", "playtime.txt", NULL, true, "Time played, kept for the Stats page.");
+    if (plat_log_dir(logs, sizeof logs)) files_row("Logs", NULL, logs, false, "This session's log and the last few. Send them with a bug report, or use Export Support Report below.");
+    if (plat_log_file()) files_row("Current log", NULL, plat_log_file(), true, "This session's log.");
+}
+
 static void tab_quit(float scale, bool in_game) {
     // (both ask in their own window: restart_popup)
     const char *lost = in_game ? "\n\nProgress since your last save is lost." : "";
@@ -1321,6 +1399,7 @@ static void tab_quit(float scale, bool in_game) {
     opt_section("About");
     opt_action("Version", app_version(), "This program's version. Please include it in bug reports.", false);
     launcher_settings_rows();  // (Check for updates, New version available)
+    files_section();
     opt_section("Support");  // (issue #55)
     {
         static const char *const what =
@@ -1379,21 +1458,6 @@ static void tab_about(void) {  // (the Controls tab)
         const char *names[] = {autol, "Nintendo", "Xbox", "PlayStation"};
         opt_choice("Button Icons", &g_settings.prompts, names, 4, 0,
                    "Whose button names and icons the menu and the game show. Auto follows the connected controller.", true);
-    }
-    opt_section("System Language");
-    {
-        // what the game is told the console's language is: its text follows this (runtime/settings.c)
-        char autol[64];
-        snprintf(autol, sizeof autol, "Auto (%s)", settings_language_name());
-        const char *names[N_LANGUAGES];
-        names[0] = autol;
-        for (int i = 1; i < N_LANGUAGES; i++) names[i] = g_language_names[i];
-        if (opt_choice("Language (restart)", &g_settings.language, names, N_LANGUAGES, 0,
-                       "The game's text language, as its own system setting. Applies when the game restarts "
-                       "(Quit > Restart the Game).", true)) {
-            settings_save();
-            restart_changed_mark(RESTART_LANGUAGE);
-        }
     }
     opt_section("Controllers");
     if (opt_toggle("Controllers Start at Player 2", &g_settings.pads_from_p2, false,
@@ -2571,31 +2635,52 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
         igEnd();
     }
 
-    {  // (Extras: the Endless skips and the deaths in the course, side by side at the top centre, bold white with a black edge)
-        char lines[2][40];
-        int nl = 0;
+    {  // (Extras: the Endless skips and the deaths in the course, side by side at the top centre on the row of the game's score and timer, an icon and the count in the
+       // game's own number font at their size (issue #59); in bold white text with a black edge, as before, when the font is not there)
+        char labels[2][16], nums[2][16];
+        int icon_of[2], nl = 0;
         unsigned deaths;
-        if (g_settings.show_endless_skips && game_endless_playing() && !open) snprintf(lines[nl++], sizeof lines[0], "Skips: %d", game_endless_skips());
-        if (g_settings.show_course_deaths && !open && game_course_deaths(&deaths)) snprintf(lines[nl++], sizeof lines[0], "Deaths: %u", deaths);
+        if (g_settings.show_endless_skips && game_endless_playing() && !open) icon_of[nl] = HUD_ICON_SKIP, snprintf(labels[nl], sizeof labels[0], "Skips"), snprintf(nums[nl++], sizeof nums[0], "%d", game_endless_skips());
+        if (g_settings.show_course_deaths && !open && game_course_deaths(&deaths)) icon_of[nl] = HUD_ICON_DEATHS, snprintf(labels[nl], sizeof labels[0], "Deaths"), snprintf(nums[nl++], sizeof nums[0], "%u", deaths);
         if (nl) {
             ImDrawList *dl = igGetForegroundDrawList_Nil();
             ImFont *font = igGetFont();
-            float size = igGetFontSize() * 2.1f, e = fmaxf(1.5f, size * 0.07f), gap = size * 1.2f, w[2], total = 0;
+            const bool mf = numfont_ready();
+            // (measured on the game's own HUD: its digits are 4.7% of the picture's height tall, and the middle of that row is 6.7% down)
+            float nh = io->DisplaySize.y * 0.047f, row = io->DisplaySize.y * 0.067f, isz = nh * 0.9f;
+            float size = mf ? nh * 0.5f : igGetFontSize() * 2.1f, e = fmaxf(1.5f, size * 0.07f);
+            float gap = mf ? nh * 1.1f : size * 1.2f, in = nh * 0.2f, w[2], nw[2], total = 0;
+            uint64_t icon[2] = {0, 0};
+            char fallback[2][40];
             for (int li = 0; li < nl; li++) {
                 ImVec2 sz;
-                igCalcTextSize(&sz, lines[li], NULL, false, -1.0f);
-                w[li] = sz.x * size / igGetFontSize();
+                snprintf(fallback[li], sizeof fallback[0], "%s: %s", labels[li], nums[li]);
+                if (mf) icon[li] = hud_icon(icon_of[li], (int)isz);
+                igCalcTextSize(&sz, mf ? labels[li] : fallback[li], NULL, false, -1.0f);
+                nw[li] = mf ? numfont_width(nums[li], nh) : 0;
+                w[li] = mf ? (icon[li] ? isz : sz.x * size / igGetFontSize()) + in + nw[li] : sz.x * size / igGetFontSize();
                 total += w[li] + (li ? gap : 0);
             }
-            float x = (io->DisplaySize.x - total) * 0.5f, y = 5 * scale;
+            float x = (io->DisplaySize.x - total) * 0.5f;
             for (int li = 0; li < nl; li++) {
-                const char *t = lines[li];
-                for (int k = 0; k < 16; k++) {  // (the edge: the text in black round a circle, then the white on top, twice a little apart for weight)
-                    float a = (float)k * 6.2831853f / 16;
-                    ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + cosf(a) * e, y + sinf(a) * e), IM_COL32(0, 0, 0, 255), t, NULL, 0.0f, NULL);
+                float lead = 0;  // (the icon, or the name where there is no icon, before the count)
+                if (mf && icon[li]) {
+                    ImDrawList_AddImage(dl, (ImTextureID)icon[li], IM_VEC2(x, row - isz * 0.5f), IM_VEC2(x + isz, row + isz * 0.5f), IM_VEC2(0, 0), IM_VEC2(1, 1), IM_COL32(255, 255, 255, 255));
+                    lead = isz;
+                } else {
+                    const char *t = mf ? labels[li] : fallback[li];
+                    float ty = mf ? row - size * 0.6f : 5 * scale;
+                    ImVec2 sz;
+                    igCalcTextSize(&sz, t, NULL, false, -1.0f);
+                    for (int k = 0; k < 16; k++) {  // (the edge: the text in black round a circle, then the white on top, twice a little apart for weight)
+                        float a = (float)k * 6.2831853f / 16;
+                        ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + cosf(a) * e, ty + sinf(a) * e), IM_COL32(0, 0, 0, 255), t, NULL, 0.0f, NULL);
+                    }
+                    ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x, ty), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
+                    ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + size * 0.045f, ty), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
+                    lead = sz.x * size / igGetFontSize();
                 }
-                ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x, y), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
-                ImDrawList_AddText_FontPtr(dl, font, size, IM_VEC2(x + size * 0.045f, y), IM_COL32(255, 255, 255, 255), t, NULL, 0.0f, NULL);
+                if (mf) numfont_draw(dl, x + lead + in, row - nh * 0.5f, nh, nums[li], IM_COL32(255, 255, 255, 255));
                 x += w[li] + gap;
             }
         }

@@ -41,12 +41,19 @@ static uint32_t current_course(void) {
 static uint32_t g_down_course;           // the course that was taken down last (0: none waiting for a retry)
 static uint64_t g_down_frame;
 static bool g_down_paused;               // the play ticks had stopped before the take-down (the pause menu was open: Start Over, not a death)
+static uint64_t g_skip_frame;            // the presented frame an Endless skip was last noted in (0: none waiting): the course it brings is taken down and played again once
+static bool g_down_after_skip;           // ... and this take-down is that one: part of the skip's loading, not a death
+enum { SKIP_RELOAD_FRAMES = 900 };       // (it came about five seconds after the skip's loading, in a log)
+
+void course_deaths_skip_noted(void) { g_skip_frame = renderer_present_count(); }  // mods/endless_skips.c
 
 static void teardown_step(Cpu *c) {
     bool maker = in_maker();
     g_down_course = maker ? 0 : current_course();
     g_down_frame = renderer_present_count();
     g_down_paused = g_tick_frame && g_down_frame - g_tick_frame > TICK_IDLE_FRAMES;
+    g_down_after_skip = g_skip_frame && g_down_frame - g_skip_frame <= SKIP_RELOAD_FRAMES;
+    if (g_down_after_skip) g_skip_frame = 0;  // (only the first take-down after a skip: a death in the course it brought is the next)
     LOG("[mod] course taken down: %u, maker %d (frame %llu)\n", current_course(), maker, (unsigned long long)g_down_frame);
     guest_call_orig(c, TEARDOWN_STEP);
 }
@@ -58,10 +65,13 @@ static void play_tick(Cpu *c) {
     // (a course starts being played; or, right after one was taken down, the ticks come back after a short pause: some courses retry that way)
     if (!g_tick_frame || gap > 30 || (g_down_course && gap > 3 && now - g_down_frame <= RETRY_FRAMES)) {
         uint32_t id = current_course();
-        LOG("[mod] course playing: %u (frame %llu, waiting for a retry of %u, down %llu frames ago)\n", id, (unsigned long long)now, g_down_course,
-            (unsigned long long)(g_down_course ? now - g_down_frame : 0));
+        uint64_t h = g64(PLAY_INFO), info = h ? g64(h + 0x30) : 0;
+        LOG("[mod] course playing: %u (frame %llu, waiting for a retry of %u, down %llu frames ago; kind %u, sub %u)\n", id, (unsigned long long)now, g_down_course,
+            (unsigned long long)(g_down_course ? now - g_down_frame : 0), info ? g32(info + 0x10) : 0, info ? g32(info + 0x14) : 0);
         if (g_down_course && g_down_course == id && now - g_down_frame <= RETRY_FRAMES && g_down_paused)
             LOG("[mod] course restarted from the pause menu: course %u, not a death\n", id);
+        else if (g_down_course && g_down_course == id && now - g_down_frame <= RETRY_FRAMES && g_down_after_skip)
+            LOG("[mod] course loaded again after an Endless skip: course %u, not a death\n", id);
         else if (g_down_course && g_down_course == id && now - g_down_frame <= RETRY_FRAMES) {  // (the same course again, soon: Mario died)
             deaths_add(id);
             LOG("[mod] course death: course %u, %u in all (frame %llu)\n", id, deaths_get(id), (unsigned long long)now);

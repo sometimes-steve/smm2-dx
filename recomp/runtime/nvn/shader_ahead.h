@@ -69,3 +69,8 @@ AheadStatus shader_ahead_status(void);
 // The player's "prepare at full speed" (settings: ahead_fast, from the next start): all CPU cores, and no waiting for
 // a quiet moment between the game's own builds.
 bool shader_ahead_fast(void);
+
+// A Yaz0-packed file unpacked (malloc; NULL if it is not one, or is too big)
+#include <stddef.h>
+#include <stdint.h>
+uint8_t *yaz0_unpack(const uint8_t *d, size_t n, size_t *out_n);

@@ -1,6 +1,24 @@
 # Changelog
 
-## 0.7.12 "Take Me There" - 2026-11-27
+## 0.7.12 "Mario Digits" - 2026-11-27
+
+### Game
+
+- **An Endless skip is not counted as a death.** After a skip the game loads the next course, takes it down about a second later and plays it again, which the death counter
+  took for a death. The first take-down after a skip is now left out.
+- **Both counters appear together.** In an Endless course the skip counter now shows from the course's first frame, with the deaths counter.
+
+### Menu
+
+- **The counters look like the game's own (#59).** Show course deaths and Show Endless skips now sit on the row of the game's score and timer, at the same
+  size: a skull or a skip icon, and the count in the game's own big Mario digits (read from your own game files, `Font/BmpFont_US.szs`; without them the
+  counters are text as before). The icons are SVGs, drawn with the vendored nanosvg (zlib license).
+- **The two counters are on by default.** Show course deaths and Show Endless skips start on for a new install; a setting already saved is kept.
+- **Menu regrouped.** The Extras page now also holds the player-name options (Clean Usernames, Maker Flags, Your Flag, Strip Discord Tags, Fix Broken
+  Miis; they were on General) and an On-Screen Info section (Show FPS, Show Clock and Show Memory Use, from Video, and Show Recomp Version, from General).
+  The Language setting moved from Controls to General.
+- **Files on the Quit page.** A new Files section lists where the app keeps its files: the data folder, the game's files, settings, saves, mods, caches,
+  Miis, the course lists and counts, and the logs. Each row shows the path (the whole path is in its description) and pressing it opens the folder.
 
 ### Support
 

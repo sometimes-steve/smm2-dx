@@ -79,7 +79,7 @@ typedef struct {
 static void scan_preferred(Scan *s);
 
 // ---- decompression
-static uint8_t *yaz0(const uint8_t *d, size_t n, size_t *out_n) {
+uint8_t *yaz0_unpack(const uint8_t *d, size_t n, size_t *out_n) {  // (also the number font: runtime/ui/numfont.c)
     if (n < 16) return NULL;
     uint32_t size = be32(d + 4);
     if (size > MAX_UNPACKED) return NULL;
@@ -222,7 +222,7 @@ static void scan_blob(Scan *s, const uint8_t *d, size_t n, const char *name, int
     if (n < 16 || depth > MAX_DEPTH || s->halted) return;
     uint8_t *own = NULL;
     size_t on = 0;
-    if (!memcmp(d, "Yaz0", 4)) own = yaz0(d, n, &on);
+    if (!memcmp(d, "Yaz0", 4)) own = yaz0_unpack(d, n, &on);
     else if (le32(d) == 0xFD2FB528u) own = unzstd(d, n, &on);
     if (own) d = own, n = on;
     if (!memcmp(d, "SARC", 4)) scan_sarc(s, d, n, name, depth);

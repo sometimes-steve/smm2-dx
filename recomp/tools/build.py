@@ -1153,6 +1153,7 @@ THIRD_PARTY = """Third-party components in this package and their licenses (the 
 - Mbed TLS 3.6 (built in: the game's TLS client): Apache-2.0, licenses/Apache-2.0.txt
 - Zstandard decoder (built in: the shader cache): BSD-3-Clause, licenses/LICENSE-zstd.txt
 - bcdec (built in: BC texture decoding where the GPU lacks it): MIT / Unlicense, licenses/LICENSE-bcdec.txt
+- nanosvg (built in: draws the counters' icons): zlib license, licenses/LICENSE-nanosvg.txt
 - quirc (built in: reads the QR code of a Mii): ISC, licenses/LICENSE-quirc.txt
 - zig (zig/, the compiler the game code is built with): MIT, zig/LICENSE; its clang / lld: Apache-2.0 with
   LLVM exception (licenses/Apache-2.0.txt)
@@ -1241,6 +1242,7 @@ def copy_support(dest, cfg):
         shutil.copy(RECOMP / 'third_party' / 'smaa' / 'LICENSE.txt', lic / 'LICENSE-smaa.txt')
     shutil.copy(RECOMP / 'third_party' / 'zstd' / 'LICENSE', lic / 'LICENSE-zstd.txt')
     shutil.copy(RECOMP / 'third_party' / 'bcdec' / 'LICENSE', lic / 'LICENSE-bcdec.txt')
+    shutil.copy(RECOMP / 'third_party' / 'nanosvg' / 'LICENSE', lic / 'LICENSE-nanosvg.txt')
     shutil.copy(RECOMP / 'third_party' / 'quirc' / 'LICENSE', lic / 'LICENSE-quirc.txt')
     shutil.copy(dest / 'hactool' / 'mbedtls-LICENSE.txt', lic / 'Apache-2.0.txt')
     shutil.copy(WV2_DIR / 'LICENSE.txt', lic / 'LICENSE-WebView2.txt')

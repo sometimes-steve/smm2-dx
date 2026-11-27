@@ -2,7 +2,7 @@
 """Test of the Endless skip counter (issue #32) in the running game, through the autoplay driver (no desktop input, no focus: see autoplay.py).
 It starts the game hidden, opens the Endless Challenge (Easy), plays into a course (the log says an Endless course is played, which the
 Show Endless skips overlay depends on), taps Minus (no skip), skips twice by holding it, and checks the log's `[mod] endless skip` lines and
-endless-skips.txt. It uses the player's own Endless run (New Game if there is none to continue), so it can change that run: nothing here loses a
+endless-skips.txt, and that no skip was counted as a death. It uses the player's own Endless run (New Game if there is none to continue), so it can change that run: nothing here loses a
 life or a clear on purpose (a course the player dies in meanwhile is the course's). The game runs on a copy of the settings file.
 
     python recomp/tools/test_endless_skips.py        (needs the game set up and signed in to OpenCourse World; takes about two minutes)
@@ -53,6 +53,8 @@ class EndlessSkips(unittest.TestCase):
                 time.sleep(6)
                 self.assertNotIn('[mod] endless skip', g.log(), 'a skip was counted twice')
             self.assertEqual(total(), before + 2)
+            log = autoplay.LOG.read_text(errors='replace')  # (the game loads the course a skip brings, takes it down and plays it again: not a death)
+            self.assertNotIn('[mod] course death:', log, 'a skip was counted as a death')
         finally:
             g.stop()
 
