@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.12 "Take Me There" - 2026-11-27
+
+### Support
+
+- **Test driver.** `course ID` (a RECOMP_CTL command, and `autoplay.py course ID [--play]`) takes a course to the game by its ID, so a test can play
+  a given course.
+
 ## 0.7.11 "Easy Setup" - 2026-11-23
 
 ### Game

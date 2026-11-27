@@ -586,6 +586,8 @@ RT_ON_RESET(input_reboot_reset) { g_pad_obj = 0; g_inject_plus = 0; }  // (reboo
 //   mark <text>                  a line in the log ("[ctl] mark <text>"), to find the place again
 //   peek <hexaddr> [len]         the game's memory there (up to 512 bytes), as hex in the log: "[ctl] peek <addr>: <hex>"
 //   fnprof start | fnprof stop <path>  count the game's function entries over a stretch and write them (addr count per line; fnprof.c)
+//   course <ID>                  take the course to the game, as the menu's Take to the Game does (Course World must be open); Play is
+//                                a press of A after its page comes up ("[ctl] course <id>: started" or the reason in the log)
 //   quit                         the game ends
 static uint64_t ctl_buttons;
 static void ctl_poll(void) {
@@ -637,6 +639,11 @@ static void ctl_poll(void) {
         } else if (!strncmp(line, "fnprof stop ", 12)) {
             extern int fnprof_ctl_stop(const char *);
             LOG("[ctl] fnprof stopped: %d functions written to %s\n", fnprof_ctl_stop(line + 12), line + 12);
+        } else if (!strncmp(line, "course ", 7)) {
+            extern bool game_search_launch(const char *id, char msg[96]);
+            char msg[96] = "";
+            bool ok = game_search_launch(line + 7, msg);
+            LOG("[ctl] course %s: %s\n", line + 7, ok ? "started" : msg);
         } else if (!strcmp(line, "quit")) {
             LOG("[ctl] quit\n");
             exit(0);

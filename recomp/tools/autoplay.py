@@ -12,6 +12,7 @@ game is running: a game you have open is left alone.
     python recomp/tools/autoplay.py shot name                               save the game's picture as <shots dir>/name.png and print the path
     python recomp/tools/autoplay.py wait REGEX [--timeout 60]               wait for a log line that matches
     python recomp/tools/autoplay.py live [--timeout 60]                     wait until a course is being played
+    python recomp/tools/autoplay.py course ID [--play]                       take a course to the game (Course World open: launch --to-course-world); --play presses A
     python recomp/tools/autoplay.py skips N                                 in a live Endless course: hold Minus N times, time each wait
     python recomp/tools/autoplay.py log                                     print the log from where the last command left off
     python recomp/tools/autoplay.py mark text                               put a line in the log, to find the place again
@@ -182,6 +183,17 @@ class Game:
             time.sleep(0.15)
         raise SystemExit(f'no course went live in {timeout:.0f} s')
 
+    def take_course(self, course_id, play=False, timeout=90):
+        """Course World's ID search, as the menu's Take to the Game does it: the course's page comes up (the game must be in Course World). play: A on it."""
+        self.log()
+        self.send(f'course {course_id}')
+        line = self.wait(r'\[ctl\] course [^:]+: .*', 15)
+        if not line.rstrip().endswith('started'):
+            raise SystemExit(line.strip())
+        time.sleep(25)  # (the game closes Course World's pages, types the ID, and the course's page comes up unseen, then the window shows it)
+        if play:
+            self.do('a')
+
     def skips(self, n, hold=2.5):
         """Hold Minus in a live Endless course n times and time each wait: from the press until the black loading screen is gone and the next
         course's intro card is up (the card is about 70 KB as a PNG, the loading screen 5 KB). The card lasts a few seconds, then the course
@@ -294,6 +306,9 @@ def main():
     s = sub.add_parser('wait')
     s.add_argument('regex')
     s.add_argument('--timeout', type=float, default=60)
+    s = sub.add_parser('course')
+    s.add_argument('id')
+    s.add_argument('--play', action='store_true')
     s = sub.add_parser('skips')
     s.add_argument('n', type=int)
     s = sub.add_parser('live')
@@ -312,6 +327,8 @@ def main():
         print(g.shot(a.name))
     elif a.cmd == 'wait':
         print(g.wait(a.regex, a.timeout))
+    elif a.cmd == 'course':
+        g.take_course(a.id, a.play)
     elif a.cmd == 'skips':
         print('seconds from the press of Minus to a playable course:', g.skips(a.n))
     elif a.cmd == 'live':
