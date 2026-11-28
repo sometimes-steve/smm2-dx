@@ -3,6 +3,7 @@
 //
 // One keyboard at a time (only one ImGui UI runs: start screen or in-game overlay, one thread each). It is a modal
 // popup at the root of the UI, so the menu behind sees "a popup is open" and B / Esc / L / R don't act on it.
+#include "pad_icons.h"
 #include "ui/ig.h"
 
 #include <ctype.h>
@@ -112,16 +113,22 @@ void ui_hint_row(const char *const *keys, const char *const *what, int n, const 
     igGetContentRegionAvail(&avail);
     ImDrawList *dl = igGetWindowDrawList();
     const bool square = menu_row_notch() > 0;
+    const int fam = g_settings.prompts ? (g_settings.prompts - 1) % 3 : input_pad_family() % 3;
     float fs = igGetFontSize(), ch = fs * 1.45f, cy = p.y + ch * 0.5f + fs * 0.15f, x = p.x + fs * 0.1f;
     for (int i = 0; i < n; i++) {
         ImVec2 kw, ww;
         igCalcTextSize(&kw, keys[i], NULL, false, -1.0f);
         igCalcTextSize(&ww, what[i], NULL, false, -1.0f);
-        float cw = kw.x + fs * 0.9f;
-        ImVec2 a = IM_VEC2(x, cy - ch * 0.5f), b = IM_VEC2(x + cw, cy + ch * 0.5f);
-        ImDrawList_AddRectFilled(dl, a, b, IM_COL32(255, 255, 255, 24), square ? 0 : ch * 0.3f, 0);
-        ImDrawList_AddRect(dl, a, b, menu_accent(200), square ? 0 : ch * 0.3f, 0, square ? 2.0f : 1.5f);
-        ImDrawList_AddText_Vec2(dl, IM_VEC2(x + fs * 0.45f, cy - kw.y * 0.5f), menu_accent(255), keys[i], NULL);
+        const float ih = ch * 1.1f;  // (a controller's button as its picture: no keycap round it)
+        float pw_ = pad_label_draw(dl, fam, keys[i], IM_VEC2(0, 0), ih, false);
+        float cw = pw_ > 0 ? pw_ : kw.x + fs * 0.9f;
+        if (pw_ > 0) pad_label_draw(dl, fam, keys[i], IM_VEC2(x, cy - ih * 0.5f), ih, true);
+        else {
+            ImVec2 a = IM_VEC2(x, cy - ch * 0.5f), b = IM_VEC2(x + cw, cy + ch * 0.5f);
+            ImDrawList_AddRectFilled(dl, a, b, IM_COL32(255, 255, 255, 24), square ? 0 : ch * 0.3f, 0);
+            ImDrawList_AddRect(dl, a, b, menu_accent(200), square ? 0 : ch * 0.3f, 0, square ? 2.0f : 1.5f);
+            ImDrawList_AddText_Vec2(dl, IM_VEC2(x + fs * 0.45f, cy - kw.y * 0.5f), menu_accent(255), keys[i], NULL);
+        }
         x += cw + fs * 0.4f;
         ImDrawList_AddText_Vec2(dl, IM_VEC2(x, cy - ww.y * 0.5f), menu_muted(), what[i], NULL);
         x += ww.x + fs * 1.4f;

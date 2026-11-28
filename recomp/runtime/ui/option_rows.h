@@ -8,6 +8,9 @@
 //   opt_end();
 #pragma once
 #include <stdbool.h>
+#include <stdint.h>
+
+#include "ig.h"
 
 void opt_begin(const char *id, float scale);
 void opt_section(const char *title);
@@ -33,6 +36,8 @@ bool opt_slider(const char *label, float *v, float lo, float hi, float step, flo
 // (if given) is shown for lo instead (e.g. "Any")
 bool opt_int(const char *label, int *v, int lo, int hi, int step, int def, const char *fmt, const char *desc,
              const char *lo_name);
+// the next row draws this picture (an ImTextureID and its corners) before its value, e.g. a controller's button
+void opt_next_value_icon(uint64_t tex, ImVec2 uv0, ImVec2 uv1);
 // an action: true when activated
 bool opt_button(const char *label, const char *desc);
 // one of a set of choices (a ring on the right, filled when selected); true when chosen

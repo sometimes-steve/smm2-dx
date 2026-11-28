@@ -12,6 +12,7 @@
 #include "../input_bind.h"
 #include "../settings.h"
 #include "option_rows.h"
+#include "pad_icons.h"
 
 static void cell(int dev, int slot, int fam, int cap_dev, int cap_slot, int ms_left) {
     char lbl[96];
@@ -31,6 +32,17 @@ static void cell(int dev, int slot, int fam, int cap_dev, int cap_slot, int ms_l
     if (igButton(lbl, IM_VEC2(-FLT_MIN, 0))) {
         if (waiting) bind_capture_cancel();
         else bind_capture_begin(dev, slot);
+    }
+    if (!waiting && dev == BIND_DEV_PAD) {  // the button's own picture at the left of the cell
+        uint64_t tex;
+        ImVec2 a, b, uv0, uv1;
+        if (pad_icon_host(fam, g_bind_pad[slot], &tex, &uv0, &uv1)) {
+            igGetItemRectMin(&a);
+            igGetItemRectMax(&b);
+            float ih = (b.y - a.y) * 0.8f;
+            ImDrawList_AddImage(igGetWindowDrawList(), (ImTextureID)tex, IM_VEC2(a.x + ih * 0.35f, (a.y + b.y) * 0.5f - ih * 0.5f),
+                                IM_VEC2(a.x + ih * 1.35f, (a.y + b.y) * 0.5f + ih * 0.5f), uv0, uv1, IM_COL32(255, 255, 255, 255));
+        }
     }
     igPopStyleColor(pushed);
     if (waiting && !igIsItemVisible()) igSetScrollHereY(0.5f);  // (a capture started by a test hook)
@@ -91,6 +103,17 @@ void controls_bindings_draw(float scale) {
             igTableNextRow(0, 0.0f);
             igTableNextColumn();
             igAlignTextToFramePadding();
+            {   // the Switch's own button beside its name
+                uint64_t tex;
+                ImVec2 uv0, uv1, cp;
+                float ih = igGetFontSize() * 1.3f;
+                if (slot < BIND_PAD_COUNT && pad_icon_slot(slot, &tex, &uv0, &uv1)) {
+                    igGetCursorScreenPos(&cp);
+                    ImDrawList_AddImage(igGetWindowDrawList(), (ImTextureID)tex, IM_VEC2(cp.x, cp.y + igGetTextLineHeightWithSpacing() * 0.5f - ih * 0.5f),
+                                        IM_VEC2(cp.x + ih, cp.y + igGetTextLineHeightWithSpacing() * 0.5f + ih * 0.5f), uv0, uv1, IM_COL32(255, 255, 255, 255));
+                }
+                igSetCursorPosX(igGetCursorPosX() + ih * 1.3f);
+            }
             igTextUnformatted(bind_input_name(slot), NULL);
             igTableNextColumn();
             if (slot < BIND_PAD_COUNT) cell(BIND_DEV_PAD, slot, fam, cd, cs, ms);
@@ -170,6 +193,10 @@ void controls_bindings_rows(void) {
             if (waiting) snprintf(val, sizeof val, "Press %s...  %d", dev == BIND_DEV_PAD ? "a Button" : "a Key", (ms + 999) / 1000);
             else snprintf(val, sizeof val, "%s", dev == BIND_DEV_PAD ? bind_pad_label(g_bind_pad[slot], fam) : bind_key_label(g_bind_key[slot]));
             if (!waiting && !bind_is_default_slot(dev, slot)) snprintf(val + strlen(val), sizeof val - strlen(val), " *");  // (changed)
+            uint64_t itex;
+            ImVec2 iuv0, iuv1;
+            if (!waiting && dev == BIND_DEV_PAD && pad_icon_host(fam, g_bind_pad[slot], &itex, &iuv0, &iuv1))
+                opt_next_value_icon(itex, iuv0, iuv1);
             if (opt_action(bind_input_name(slot), val, how, false)) {
                 if (waiting) bind_capture_cancel();
                 else bind_capture_begin(dev, slot);

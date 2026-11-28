@@ -166,6 +166,10 @@ Built on top of [LAS Recomp](https://github.com/peiikai/LASRecomp), with ideas f
 [recomp/UPSTREAM.md](recomp/UPSTREAM.md) for the details and licenses. Super Mario Maker 2 belongs to Nintendo; this
 project is not affiliated with or endorsed by them.
 
+The controller button icons are from the Switch, Xbox Series and PS5 "Button Icons and Controls" packs by
+[Zacksly](https://zacksly.itch.io) (licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/); the CSS in each SVG is written
+into its shapes, nothing else is changed).
+
 This project is AI assisted.
 
 ---

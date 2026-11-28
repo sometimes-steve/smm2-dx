@@ -23,6 +23,7 @@
 #include "clock.h"
 #include "numfont.h"
 #include "hud_icons.h"
+#include "pad_icons.h"
 #include "cards.h"
 #include "webview.h"
 #include "../support_report.h"
@@ -1650,12 +1651,17 @@ static void footer_draw(ImVec2 at, float w, float h, bool popup) {
         ImVec2 kw, ww;
         igCalcTextSize(&kw, items[i].key, NULL, false, -1.0f);
         igCalcTextSize(&ww, items[i].what, NULL, false, -1.0f);
-        float cw = kw.x + fs * 0.9f;
+        const float ih = ch * 1.1f;  // (a controller's button as its picture: no keycap round it)
+        float pw_ = pad ? pad_label_draw(dl, fam, items[i].key, IM_VEC2(0, 0), ih, false) : 0;
+        float cw = pw_ > 0 ? pw_ : kw.x + fs * 0.9f;
         if (x + cw + fs * 0.4f + ww.x > at.x + room) break;  // (a narrow window: the rest is left out)
-        ImVec2 a = IM_VEC2(x, cy - ch * 0.5f), b = IM_VEC2(x + cw, cy + ch * 0.5f);
-        ImDrawList_AddRectFilled(dl, a, b, IM_COL32(255, 255, 255, 24), nes ? 0 : ch * 0.3f, 0);
-        ImDrawList_AddRect(dl, a, b, menu_accent(200), nes ? 0 : ch * 0.3f, 0, nes ? 2.0f : 1.5f);
-        ImDrawList_AddText_Vec2(dl, IM_VEC2(x + fs * 0.45f, cy - kw.y * 0.5f), menu_accent(255), items[i].key, NULL);
+        if (pw_ > 0) pad_label_draw(dl, fam, items[i].key, IM_VEC2(x, cy - ih * 0.5f), ih, true);
+        else {
+            ImVec2 a = IM_VEC2(x, cy - ch * 0.5f), b = IM_VEC2(x + cw, cy + ch * 0.5f);
+            ImDrawList_AddRectFilled(dl, a, b, IM_COL32(255, 255, 255, 24), nes ? 0 : ch * 0.3f, 0);
+            ImDrawList_AddRect(dl, a, b, menu_accent(200), nes ? 0 : ch * 0.3f, 0, nes ? 2.0f : 1.5f);
+            ImDrawList_AddText_Vec2(dl, IM_VEC2(x + fs * 0.45f, cy - kw.y * 0.5f), menu_accent(255), items[i].key, NULL);
+        }
         x += cw + fs * 0.4f;
         ImDrawList_AddText_Vec2(dl, IM_VEC2(x, cy - ww.y * 0.5f), menu_muted(), items[i].what, NULL);
         x += ww.x + fs * 1.4f;

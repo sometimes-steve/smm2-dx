@@ -31,6 +31,8 @@ float menu_row_border(void);
 float menu_row_notch(void);   // > 0: the NES theme (stepped pixel corners, pointer, pixel arrows) instead of rounded rows
 #define kGold menu_accent(255)
 static bool g_next_disabled;
+static struct { uint64_t tex; ImVec2 uv0, uv1; } g_value_icon;  // opt_next_value_icon
+void opt_next_value_icon(uint64_t tex, ImVec2 uv0, ImVec2 uv1) { g_value_icon.tex = tex, g_value_icon.uv0 = uv0, g_value_icon.uv1 = uv1; }
 void opt_disable_next(void) { g_next_disabled = true; }
 static int g_indent;
 static bool g_focus_req, g_take_first;  // (opt_focus_first: requested / this page's first row takes it)
@@ -428,9 +430,16 @@ static int row(const char *label, const char *value, bool changed, const char *d
     if (shown[0] && text_w(shown) > w * 0.6f) ellipsize(shown, w * 0.6f);
     if (shown[0]) {
         float vw = text_w(shown), vx = g_flat && !arrows ? p.x + vcol : right - vw;
+        if (g_value_icon.tex) {  // (a picture before the value: a controller's button)
+            float ih = fs * 1.3f;
+            vx -= ih + fs * 0.35f;  // (before the value, which keeps its place)
+            ImDrawList_AddImage(dl, (ImTextureID)g_value_icon.tex, IM_VEC2(vx, ty + fs * 0.5f - ih * 0.5f), IM_VEC2(vx + ih, ty + fs * 0.5f + ih * 0.5f),
+                                g_value_icon.uv0, g_value_icon.uv1, off ? IM_COL32(110, 110, 102, 255) : IM_COL32(255, 255, 255, 255));
+        }
         ImDrawList_AddText_Vec2(dl, IM_VEC2(vx, ty), off ? IM_COL32(110, 110, 102, 255) : nes ? (lit || changed ? NES_WHITE : NES_GREY)
                                     : changed ? IM_COL32(255, 255, 255, 255) : IM_COL32(205, 205, 195, 255), shown, NULL);
     }
+    g_value_icon.tex = 0;
     igPopID();
     if (g_reset_row) step = 0;  // (the wrappers reset it instead of stepping)
     return step;

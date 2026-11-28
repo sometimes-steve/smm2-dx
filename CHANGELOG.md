@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.13 "Button Icons" - 2026-11-28
+
+### Menu
+
+- **Controller button icons.** The Controls page shows each binding's button as a picture, in the set of the controller that is connected (Nintendo, Xbox or
+  PlayStation, or the one chosen in Button Icons), and the Switch input beside its name. The footer's and the on-screen keyboard's button prompts (A / B,
+  L / R, +) are pictures too while a controller is in use; the keyboard's stay as keycaps. The icons are by Zacksly (CC BY 3.0, https://zacksly.itch.io),
+  credited in the README.
+
+### Support
+
+- **`recomp/tools/gen_pad_icons.py`** picks the icons the menu uses from the three packs and writes the SVGs and the table the program builds in.
+
 ## 0.7.12 "Mario Digits" - 2026-11-27
 
 ### Game
